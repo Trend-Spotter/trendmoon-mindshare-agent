@@ -21,11 +21,11 @@ An open-source AI agent built for the Olas ecosystem as part of the TrendMoon in
 
 ### Installation and Setup for Development
 
-If you're looking to contribute or develop with `trendmoon-mindshare-agent/`, get the source code and set up the environment:
+If you're looking to contribute or develop with `trendmoon-mindshare-agent`, get the source code and set up the environment:
 
 ```shell
-git clone https://github.com/xiuxiuxar/trendmoon-mindshare-agent/ --recurse-submodules
-cd trendmoon-mindshare-agent/
+git clone https://github.com/Trend-Spotter/trendmoon-mindshare-agent/ --recurse-submodules
+cd trendmoon-mindshare-agent
 make install
 ```
 
