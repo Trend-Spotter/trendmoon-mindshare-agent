@@ -1,0 +1,66 @@
+alphabet_in:
+- REJECTED
+- FAILED
+- NO_SIGNAL
+- RESET
+- SIGNAL_GENERATED
+- EXIT_SIGNAL
+- APPROVED
+- DONE
+- POSITIONS_CHECKED
+- RESUME
+- ERROR
+- RETRIES_EXCEEDED
+- AT_LIMIT
+- EXECUTED
+- RETRY
+- CAN_TRADE
+default_start_state: HandleErrorRound
+final_states: []
+label: mindshareAbciApp
+start_states:
+- HandleErrorRound
+states:
+- DataCollectionRound
+- PortfolioValidationRound
+- RiskEvaluationRound
+- PausedRound
+- CheckStakingKPIRound
+- SignalAggregationRound
+- HandleErrorRound
+- PositionMonitoringRound
+- AnalysisRound
+- TradeConstructionRound
+- SetupRound
+- ExecutionRound
+transition_func:
+  (AnalysisRound, DONE): SignalAggregationRound
+  (AnalysisRound, ERROR): HandleErrorRound
+  (CheckStakingKPIRound, DONE): DataCollectionRound
+  (CheckStakingKPIRound, ERROR): HandleErrorRound
+  (DataCollectionRound, DONE): PositionMonitoringRound
+  (DataCollectionRound, ERROR): HandleErrorRound
+  (ExecutionRound, EXECUTED): CheckStakingKPIRound
+  (ExecutionRound, FAILED): HandleErrorRound
+  (HandleErrorRound, RESET): SetupRound
+  (HandleErrorRound, RETRIES_EXCEEDED): PausedRound
+  (HandleErrorRound, RETRY): CheckStakingKPIRound
+  (PausedRound, RESET): SetupRound
+  (PausedRound, RESUME): CheckStakingKPIRound
+  (PortfolioValidationRound, AT_LIMIT): CheckStakingKPIRound
+  (PortfolioValidationRound, CAN_TRADE): AnalysisRound
+  (PortfolioValidationRound, ERROR): HandleErrorRound
+  (PositionMonitoringRound, ERROR): HandleErrorRound
+  (PositionMonitoringRound, EXIT_SIGNAL): ExecutionRound
+  (PositionMonitoringRound, POSITIONS_CHECKED): PortfolioValidationRound
+  (RiskEvaluationRound, APPROVED): TradeConstructionRound
+  (RiskEvaluationRound, ERROR): HandleErrorRound
+  (RiskEvaluationRound, REJECTED): CheckStakingKPIRound
+  (SetupRound, DONE): CheckStakingKPIRound
+  (SetupRound, ERROR): HandleErrorRound
+  (SignalAggregationRound, ERROR): HandleErrorRound
+  (SignalAggregationRound, NO_SIGNAL): CheckStakingKPIRound
+  (SignalAggregationRound, SIGNAL_GENERATED): RiskEvaluationRound
+  (TradeConstructionRound, DONE): ExecutionRound
+  (TradeConstructionRound, ERROR): HandleErrorRound
+
