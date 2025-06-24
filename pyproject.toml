@@ -20,9 +20,10 @@ open-aea-ledger-cosmos = "==1.65.0"
 open-aea-ledger-ethereum = "==1.65.0"
 open-aea = "==1.65.0"
 open-aea-cli-ipfs = "==1.65.0"
-open-aea-test-autonomy = "==0.19.5"
-open-autonomy = "==0.19.5"
-autonomy-dev = {extras = ["all"], version = ">=0.2.64,<=0.2.149"}
+open-aea-test-autonomy = "==0.19.7"
+open-autonomy = "==0.19.7"
+autonomy-dev = {extras = ["all"], version = "^0.2.153"}
+click = "==8.1.8"
 
 [tool.poetry.group.dev.dependencies]
 
