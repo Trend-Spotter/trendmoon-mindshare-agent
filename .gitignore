@@ -15,7 +15,7 @@ keys.json
 agent/
 service/
 
-mindshare_agent/
+/mindshare_agent
 packages/eightballer/
 packages/open_aea/
 .DS_Store
