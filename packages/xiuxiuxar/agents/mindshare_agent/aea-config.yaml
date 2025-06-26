@@ -20,7 +20,7 @@ protocols:
 - open_aea/signing:1.0.0:bafybeig2d36zxy65vd7fwhs7scotuktydcarm74aprmrb5nioiymr3yixm
 skills:
 - eightballer/prometheus:0.1.0:bafybeicl5i7e467aowfarke4bbyixo2dggar276njmvyuwbsby5pxshhtu
-- xiuxiuxar/mindshare_app:0.1.0:bafybeicmdfmh3hrdh6kr72x6setqg7madusdnyz5ctalzckj56bu7dyboy
+- xiuxiuxar/mindshare_app:0.1.0:bafybeidqcktinsnb26kpi2uri2ncuzy6eo3hzn2oissz6thmcxbkjrcjkq
 customs: []
 default_ledger: ethereum
 required_ledgers:
@@ -62,3 +62,10 @@ config:
   host: 0.0.0.0
   port: 8888
   target_skill_id: xiuxiuxar/mindshare_app:0.1.0
+---
+public_id: xiuxiuxar/mindshare_app:0.1.0
+type: skill
+behaviours:
+  main:
+    args:
+      store_path: ${SKILL_MINDSHARE_APP_MAIN_ARGS_STORE_PATH:str:./persistent_data}
