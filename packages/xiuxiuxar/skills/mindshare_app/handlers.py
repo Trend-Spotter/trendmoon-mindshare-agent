@@ -19,7 +19,7 @@
 """This module contains the handler for the Mindshare app skill."""
 
 import json
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 from aea.skills.base import Handler
 from aea.protocols.base import Message
@@ -33,6 +33,10 @@ from packages.xiuxiuxar.skills.mindshare_app.dialogues import (
 )
 
 
+if TYPE_CHECKING:
+    from packages.xiuxiuxar.skills.mindshare_app.models import HealthCheckService
+
+
 class HttpHandler(Handler):
     """This implements the echo handler."""
 
@@ -43,11 +47,11 @@ class HttpHandler(Handler):
 
     def handle(self, message: Message) -> None:
         """Implement the reaction to an envelope."""
-        http_msg = cast(HttpMessage, message)
+        http_msg = cast("HttpMessage", message)
 
         # recover dialogue
-        http_dialogues = cast(HttpDialogues, self.context.http_dialogues)
-        http_dialogue = cast(HttpDialogue, http_dialogues.update(http_msg))
+        http_dialogues = cast("HttpDialogues", self.context.http_dialogues)
+        http_dialogue = cast("HttpDialogue", http_dialogues.update(http_msg))
         if http_dialogue is None:
             self._handle_unidentified_dialogue(http_msg)
             return
@@ -58,10 +62,55 @@ class HttpHandler(Handler):
         else:
             self._handle_invalid(http_msg, http_dialogue)
 
+    def _handle_get_healthcheck(self, http_msg: HttpMessage, http_dialogue: HttpDialogue) -> None:
+        """Handle a Http request of verb GET for healthcheck."""
+        # Get health check service
+        health_service = cast("HealthCheckService", self.context.health_check_service)
+
+        # Get FSM status
+        fsm_status = health_service.get_fsm_status()
+
+        # Build complete health check response
+        data = {
+            "seconds_since_last_transition": fsm_status["seconds_since_last_transition"],
+            "is_tm_healthy": True,
+            "period": fsm_status["period_count"],
+            "reset_pause_duration": health_service.reset_pause_duration,
+            "rounds": fsm_status["rounds"],
+            "is_transitioning_fast": fsm_status["is_transitioning_fast"],
+            "agent_health": health_service.get_agent_health(),
+            "rounds_info": health_service.build_rounds_info(),
+            "env_var_status": health_service.get_env_var_status(),
+        }
+
+        self._send_ok_response(http_msg, http_dialogue, data)
+
+    def _send_ok_response(self, http_msg: HttpMessage, http_dialogue: HttpDialogue, data: dict) -> None:
+        """Send an OK response with JSON data."""
+        if self.enable_cors:
+            cors_headers = "Access-Control-Allow-Origin: *\n"
+            cors_headers += "Access-Control-Allow-Methods: GET, POST\n"
+            cors_headers += "Access-Control-Allow-Headers: Content-Type,Accept\n"
+            headers = cors_headers + "Content-Type: application/json\n" + http_msg.headers
+        else:
+            headers = "Content-Type: application/json\n" + http_msg.headers
+
+        http_response = http_dialogue.reply(
+            performative=HttpMessage.Performative.RESPONSE,
+            target_message=http_msg,
+            version=http_msg.version,
+            status_code=200,
+            status_text="Success",
+            headers=headers,
+            body=json.dumps(data, indent=2).encode("utf-8"),
+        )
+        self.context.logger.info(f"responding with healthcheck: {http_response}")
+        self.context.outbox.put_message(message=http_response)
+
     def _handle_unidentified_dialogue(self, http_msg: HttpMessage) -> None:
         """Handle an unidentified dialogue."""
         self.context.logger.info(f"received invalid http message={http_msg}, unidentified dialogue.")
-        default_dialogues = cast(DefaultDialogues, self.context.default_dialogues)
+        default_dialogues = cast("DefaultDialogues", self.context.default_dialogues)
         default_msg, _ = default_dialogues.create(
             counterparty=http_msg.sender,
             performative=DefaultMessage.Performative.ERROR,
@@ -76,8 +125,13 @@ class HttpHandler(Handler):
         self.context.logger.info(
             f"received http request with method={http_msg.method}, url={http_msg.url} and body={http_msg.body}"
         )
-        if http_msg.method == "get" and http_msg.url.find("/metrics"):
-            self._handle_get(http_msg, http_dialogue)
+        if http_msg.method == "get":
+            if "healthcheck" in http_msg.url:
+                self._handle_get_healthcheck(http_msg, http_dialogue)
+            elif "metrics" in http_msg.url:
+                self._handle_get(http_msg, http_dialogue)
+            else:
+                self._handle_get(http_msg, http_dialogue)
         else:
             self._handle_invalid(http_msg, http_dialogue)
 
