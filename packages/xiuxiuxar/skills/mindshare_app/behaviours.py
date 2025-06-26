@@ -309,7 +309,7 @@ class AnalysisRound(BaseState):
         self._is_done = True
         self._event = MindshareabciappEvents.DONE
 
-        
+
 class SignalAggregationRound(BaseState):
     """This class implements the behaviour of the state SignalAggregationRound."""
 
