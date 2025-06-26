@@ -9,10 +9,10 @@ aea_version: '>=1.0.0, <2.0.0'
 fingerprint:
   README.md: bafybeiesl5jlvvu4enydib32bpyfqphlkdulxy3oqid3t32cjxya5qykci
   __init__.py: bafybeifhcjbfwkkjfaq57azgh24ufuo4pvjm4vguozhbg3qsrn4tw5ukge
-  behaviours.py: bafybeiez3knrhrwfi2jkvtcwjc5sr5uluujfyyaqmq4zdef67hfbh76244
+  behaviours.py: bafybeia2wcmquxkb5af337szpwujiu26cvc4sfhfpr5sxehli7arrnoha4
   dialogues.py: bafybeidsfl6lkjntm4ntuwx2clyq5ra2yyl632tmwzzizrcipejuxr2ium
-  handlers.py: bafybeiaga7kes4imh5cy6wdzf6ubrrufopfc3ywuyeiti4nnhgrmy4i3qe
-  models.py: bafybeibut4sjjjj47gb2ywrg6fpihr46g7yt6ubv7vjhp7cbfsjxt4vyha
+  handlers.py: bafybeibwx3laovbm2cylhx3gtgxkuptytxuctigzehlipuebi73m6coilu
+  models.py: bafybeifm7qguxbxf7atrjfml27ediguyuo5x2yr7yv3fvt5ptdcymqauqq
   tests/__init__.py: bafybeigb2ji4vkcap3hokcedggjwsrah7te2nxjhkorwf3ibwgyaa2glma
   tests/test_metrics.py: bafybeickohfwbhq46m4c5deutqkqkeztygfyu7gpxkgme5rfa5iwujbr7i
   tests/test_metrics_dialogues.py: bafybeicaqx7bykvl3dqkvcpdpft4l5g6huxyhrljwrn2zykxavk4thqdi4
@@ -25,9 +25,7 @@ protocols:
 skills: []
 behaviours:
   main:
-    args:
-      coingecko_api_key: test_key
-      store_path: ./persistent_data
+    args: {}
     class_name: MindshareabciappFsmBehaviour
 handlers:
   metrics_handler:
@@ -47,6 +45,16 @@ models:
   trendmoon:
     args: {}
     class_name: Trendmoon
+  health_check_service:
+    args: {}
+    class_name: HealthCheckService
+  params:
+    args:
+      coingecko_api_key: test_key
+      reset_pause_duration: 10
+      store_path: ./persistent_data
+      safe_contract_addresses: '{"ethereum":"0x0000000000000000000000000000000000000000","arbitrum":"0x0000000000000000000000000000000000000000","optimism":"0x0000000000000000000000000000000000000000","mode":"0x0000000000000000000000000000000000000000"}'
+    class_name: Params
 dependencies: {}
 is_abstract: false
 customs: []

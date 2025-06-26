@@ -22,12 +22,15 @@ import os
 import json
 from abc import ABC
 from enum import Enum
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 from pathlib import Path
+from datetime import UTC, datetime
 
 from aea.skills.behaviours import State, FSMBehaviour
 
-from packages.xiuxiuxar.skills.mindshare_app.models import Coingecko, Trendmoon
+
+if TYPE_CHECKING:
+    from packages.xiuxiuxar.skills.mindshare_app.models import Coingecko, Trendmoon
 
 
 ALLOWED_ASSETS = {
@@ -87,12 +90,12 @@ class BaseState(State, ABC):
         self._is_done = False  # Initially, the state is not done
 
     @property
-    def coingecko(self) -> Coingecko:
+    def coingecko(self) -> "Coingecko":
         """Get the CoinGecko API client."""
         return cast("Coingecko", self.context.coingecko)
 
     @property
-    def trendmoon(self) -> Trendmoon:
+    def trendmoon(self) -> "Trendmoon":
         """Get the Trendmoon API client."""
         return cast("Trendmoon", self.context.trendmoon)
 
@@ -118,8 +121,6 @@ class SetupRound(BaseState):
     """This class implements the behaviour of the state SetupRound."""
 
     def __init__(self, **kwargs: Any) -> None:
-        self.coingecko_api_key = kwargs.pop("coingecko_api_key", None)
-        self.store_path = kwargs.pop("store_path", None)
         super().__init__(**kwargs)
         self._state = MindshareabciappStates.SETUPROUND
         self.setup_success: bool = False
@@ -135,7 +136,7 @@ class SetupRound(BaseState):
         """Initialize persistent storage for the agent."""
         self.context.logger.info("Initializing persistent storage...")
 
-        store_path = self.store_path
+        store_path = self.context.params.store_path
         if not store_path:
             store_path = "./persistent_data"
             self.setup_data["store_path"] = store_path
@@ -358,6 +359,9 @@ class MindshareabciappFsmBehaviour(FSMBehaviour):
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
+        self._last_transition_timestamp: datetime | None = None
+        self._previous_rounds: list[str] = []
+        self._period_count: int = 0
         self.register_state(MindshareabciappStates.SETUPROUND.value, SetupRound(**kwargs), True)
         self.register_state(MindshareabciappStates.HANDLEERRORROUND.value, HandleErrorRound(**kwargs))
         self.register_state(MindshareabciappStates.DATACOLLECTIONROUND.value, DataCollectionRound(**kwargs))
@@ -517,20 +521,63 @@ class MindshareabciappFsmBehaviour(FSMBehaviour):
             destination=MindshareabciappStates.HANDLEERRORROUND.value,
         )
 
+    def act(self) -> None:
+        """Override act to track transitions."""
+        if self.current is None:
+            super().act()
+            return
+
+        # Store the current state before potential transition
+        previous_state = self.current
+
+        # Call parent act which handles the FSM logic
+        super().act()
+
+        # Check if a transition occurred
+        if self.current != previous_state and self.current is not None:
+            # A transition occurred - track it
+            current_time = datetime.now(UTC)
+            self._last_transition_timestamp = current_time
+
+            # Track round history (keep last 25 rounds)
+            if previous_state and previous_state not in self._previous_rounds[-1:]:  # Avoid duplicates
+                self._previous_rounds.append(previous_state)
+                if len(self._previous_rounds) > 25:
+                    self._previous_rounds = self._previous_rounds[-25:]
+
+            # Check if we transitioned back to data collection round (indicates a new operational period/cycle)
+            if (
+                self.current == MindshareabciappStates.DATACOLLECTIONROUND.value
+                and previous_state != MindshareabciappStates.DATACOLLECTIONROUND.value
+            ):
+                self._period_count += 1
+                self.context.logger.info(f"FSM started new operational period: {self._period_count}")
+
+            self.context.logger.info(f"FSM transitioned from {previous_state} to {self.current}")
+
+    @property
+    def last_transition_timestamp(self) -> datetime | None:
+        """Get the timestamp of the last transition."""
+        return self._last_transition_timestamp
+
+    @property
+    def previous_rounds(self) -> list[str]:
+        """Get the history of previous rounds."""
+        return self._previous_rounds.copy()
+
+    @property
+    def period_count(self) -> int:
+        """Get the current period count."""
+        return self._period_count
+
     def setup(self) -> None:
         """Implement the setup."""
         self.context.logger.info("Setting up Mindshareabciapp FSM behaviour.")
+        self._last_transition_timestamp = datetime.now(UTC)
 
     def teardown(self) -> None:
         """Implement the teardown."""
         self.context.logger.info("Tearing down Mindshareabciapp FSM behaviour.")
-
-    def act(self) -> None:
-        """Implement the act."""
-        super().act()
-        if self.current is None:
-            self.context.logger.info("No state to act on.")
-            self.terminate()
 
     def terminate(self) -> None:
         """Implement the termination."""
