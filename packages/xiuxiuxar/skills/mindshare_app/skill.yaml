@@ -25,7 +25,9 @@ protocols:
 skills: []
 behaviours:
   main:
-    args: {}
+    args:
+      coingecko_api_key: test_key
+      store_path: ./persistent_data
     class_name: MindshareabciappFsmBehaviour
 handlers:
   metrics_handler:

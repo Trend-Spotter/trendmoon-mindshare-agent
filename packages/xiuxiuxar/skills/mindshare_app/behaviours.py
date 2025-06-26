@@ -28,6 +28,16 @@ from datetime import UTC, datetime
 
 from aea.skills.behaviours import State, FSMBehaviour
 
+from packages.xiuxiuxar.skills.mindshare_app.models import Coingecko, Trendmoon
+
+
+ALLOWED_ASSETS = {
+    "base": {
+        # BASE Uniswap tokens
+        "0x...": "WETH",
+    }
+}
+
 
 if TYPE_CHECKING:
     from packages.xiuxiuxar.skills.mindshare_app.models import Coingecko, Trendmoon
@@ -121,6 +131,8 @@ class SetupRound(BaseState):
     """This class implements the behaviour of the state SetupRound."""
 
     def __init__(self, **kwargs: Any) -> None:
+        self.coingecko_api_key = kwargs.pop("coingecko_api_key", None)
+        self.store_path = kwargs.pop("store_path", None)
         super().__init__(**kwargs)
         self._state = MindshareabciappStates.SETUPROUND
         self.setup_success: bool = False
@@ -137,6 +149,7 @@ class SetupRound(BaseState):
         self.context.logger.info("Initializing persistent storage...")
 
         store_path = self.context.params.store_path
+
         if not store_path:
             store_path = "./persistent_data"
             self.setup_data["store_path"] = store_path
@@ -296,7 +309,7 @@ class AnalysisRound(BaseState):
         self._is_done = True
         self._event = MindshareabciappEvents.DONE
 
-
+        
 class SignalAggregationRound(BaseState):
     """This class implements the behaviour of the state SignalAggregationRound."""
 
@@ -362,6 +375,7 @@ class MindshareabciappFsmBehaviour(FSMBehaviour):
         self._last_transition_timestamp: datetime | None = None
         self._previous_rounds: list[str] = []
         self._period_count: int = 0
+
         self.register_state(MindshareabciappStates.SETUPROUND.value, SetupRound(**kwargs), True)
         self.register_state(MindshareabciappStates.HANDLEERRORROUND.value, HandleErrorRound(**kwargs))
         self.register_state(MindshareabciappStates.DATACOLLECTIONROUND.value, DataCollectionRound(**kwargs))
