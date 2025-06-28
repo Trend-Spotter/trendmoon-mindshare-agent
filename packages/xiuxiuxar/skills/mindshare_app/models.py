@@ -21,6 +21,7 @@
 from typing import TYPE_CHECKING, Any, cast
 from datetime import UTC, datetime
 
+import requests
 from aea.skills.base import Model
 
 
@@ -37,6 +38,79 @@ class Coingecko(Model):
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
+        self.coingecko_api_key: str = kwargs.get("coingecko_api_key")
+
+    def validate_required_params(self, params: dict[str, str], required_keys: list[str], param_type: str) -> None:
+        """Validate that required parameters are present and not None."""
+        if params is None or params == {}:
+            msg = f"{param_type} is required"
+            raise ValueError(msg)
+
+        for key in required_keys:
+            if key not in params or params[key] is None:
+                msg = f"{key} is required in {param_type}"
+                raise ValueError(msg)
+
+    def coin_ohlc_chart_by_id(self, path_params: dict[str, str], query_params: dict[str, str]) -> list[list[Any]]:
+        """Fetch OHLC data for a coin from CoinGecko."""
+        try:
+            self.validate_required_params(path_params, ["id"], "path_params")
+            self.validate_required_params(query_params, ["vs_currency", "days"], "query_params")
+
+            base_url = f"https://api.coingecko.com/api/v3/coins/{path_params['id']}/ohlc"
+            url = f"{base_url}?" + "&".join(f"{k}={v}" for k, v in query_params.items())
+
+            headers = {"accept": "application/json", "x-cg-demo-api-key": self.coingecko_api_key}
+
+            response = requests.get(url, headers=headers, timeout=10)
+            response.raise_for_status()
+
+            return response.json()
+
+        except requests.exceptions.RequestException as e:
+            # Log the error and return empty list to avoid crashing
+            logging.exception(f"Error fetching OHLC data: {e!s}")
+            return []
+
+    def coin_price_by_id(self, query_params: dict[str, str]) -> dict[str, Any]:
+        """Fetch price data for a coin from CoinGecko."""
+        try:
+            self.validate_required_params(query_params, ["vs_currencies"], "query_params")
+
+            base_url = "https://api.coingecko.com/api/v3/simple/price"
+            url = f"{base_url}?" + "&".join(f"{k}={v}" for k, v in query_params.items())
+
+            headers = {"accept": "application/json", "x-cg-demo-api-key": self.coingecko_api_key}
+
+            response = requests.get(url, headers=headers, timeout=10)
+            response.raise_for_status()
+            return response.json()
+
+        except requests.exceptions.RequestException as e:
+            # Log the error and return empty dict to avoid crashing
+            logging.exception(f"Error fetching price data: {e!s}")
+            return {}
+
+    def coin_historical_data_by_id(self, path_params: dict[str, str], query_params: dict[str, str]) -> dict[str, Any]:
+        """Fetch historical data for a coin from CoinGecko."""
+        try:
+            self.validate_required_params(path_params, ["id"], "path_params")
+            self.validate_required_params(query_params, ["date"], "query_params")
+
+            base_url = f"https://api.coingecko.com/api/v3/coins/{path_params['id']}/history"
+            url = f"{base_url}?" + "&".join(f"{k}={v}" for k, v in query_params.items())
+
+            headers = {"accept": "application/json", "x-cg-demo-api-key": self.coingecko_api_key}
+
+            response = requests.get(url, headers=headers, timeout=10)
+            response.raise_for_status()
+
+            return response.json()
+
+        except requests.exceptions.RequestException as e:
+            # Log the error and return empty dict to avoid crashing
+            logging.exception(f"Error fetching historical data: {e!s}")
+            return {}
 
 
 class Trendmoon(Model):

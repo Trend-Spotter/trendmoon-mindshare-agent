@@ -143,6 +143,7 @@ class SetupRound(BaseState):
         """Perform the setup."""
         super().setup()
         self._is_done = False
+        self.coingecko = Coingecko(args=None, kwargs={"coingecko_api_key": self.coingecko_api_key})
 
     def _initialize_state(self) -> None:
         """Initialize persistent storage for the agent."""
@@ -186,6 +187,7 @@ class SetupRound(BaseState):
             self.context.setup_data = self.setup_data
             self.setup_success = True
             self._event = MindshareabciappEvents.DONE
+
         except Exception as e:
             self.context.logger.exception(f"Setup failed. {e!s}")
             self.context.error_context = {
