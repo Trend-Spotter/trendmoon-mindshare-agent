@@ -20,14 +20,14 @@
 
 import os
 import json
-import pandas as pd
-import pandas_ta as ta
 from abc import ABC
 from enum import Enum
 from typing import TYPE_CHECKING, Any, cast
 from pathlib import Path
 from datetime import UTC, datetime
 
+import pandas as pd
+import pandas_ta as ta
 from aea.skills.behaviours import State, FSMBehaviour
 
 from packages.xiuxiuxar.skills.mindshare_app.models import Coingecko, Trendmoon
@@ -226,29 +226,23 @@ class DataCollectionRound(BaseState):
         data = data.set_index("date")  # Set date as index
         data = data.astype(float)  # Convert price columns to float
 
-
         # Moving averages
         data["SMA_20"] = ta.sma(data["close"], length=20)
         data["SMA_50"] = ta.sma(data["close"], length=50)
         data["SMA_200"] = ta.sma(data["close"], length=200)
 
-
         data["EMA_20"] = ta.ema(data["close"], length=20)
         data["EMA_50"] = ta.ema(data["close"], length=50)
         data["EMA_200"] = ta.ema(data["close"], length=200)
 
-
         # RSI
         data["RSI"] = ta.rsi(data["close"], length=14)
-
 
         # MACD
         data["MACD"] = ta.macd(data["close"], length=12, fast=26, slow=9)
 
-
         # ADX
         data["ADX"] = ta.adx(data["high"], data["low"], data["close"], length=14)
-
 
         # Bollinger Bands
         data["BB_upper"], data["BB_middle"], data["BB_lower"] = ta.bbands(data["close"], length=20, std=2)
