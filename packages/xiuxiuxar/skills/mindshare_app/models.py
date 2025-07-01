@@ -18,9 +18,9 @@
 
 """This module contains the model for the Mindshare app."""
 
+import logging
 from typing import TYPE_CHECKING, Any, cast
 from datetime import UTC, datetime
-import logging
 
 import requests
 from aea.skills.base import Model
