@@ -20,6 +20,8 @@
 
 import os
 import json
+import pandas as pd
+import pandas_ta as ta
 from abc import ABC
 from enum import Enum
 from typing import TYPE_CHECKING, Any, cast
@@ -215,6 +217,41 @@ class DataCollectionRound(BaseState):
         self.context.logger.info(f"Entering {self._state} state.")
         self._is_done = True
         self._event = MindshareabciappEvents.DONE
+
+    def calculate_technical_indicators(self, ohlc_data: list[list[Any]]) -> None:
+        """Calculate technical indicators for a coin."""
+        # Convert OHLC data to DataFrame with proper columns and types
+        data = pd.DataFrame(ohlc_data, columns=["timestamp", "open", "high", "low", "close"])
+        data["date"] = pd.to_datetime(data["timestamp"], unit="s")  # Convert timestamp from ms to datetime
+        data = data.set_index("date")  # Set date as index
+        data = data.astype(float)  # Convert price columns to float
+
+
+        # Moving averages
+        data["SMA_20"] = ta.sma(data["close"], length=20)
+        data["SMA_50"] = ta.sma(data["close"], length=50)
+        data["SMA_200"] = ta.sma(data["close"], length=200)
+
+
+        data["EMA_20"] = ta.ema(data["close"], length=20)
+        data["EMA_50"] = ta.ema(data["close"], length=50)
+        data["EMA_200"] = ta.ema(data["close"], length=200)
+
+
+        # RSI
+        data["RSI"] = ta.rsi(data["close"], length=14)
+
+
+        # MACD
+        data["MACD"] = ta.macd(data["close"], length=12, fast=26, slow=9)
+
+
+        # ADX
+        data["ADX"] = ta.adx(data["high"], data["low"], data["close"], length=14)
+
+
+        # Bollinger Bands
+        data["BB_upper"], data["BB_middle"], data["BB_lower"] = ta.bbands(data["close"], length=20, std=2)
 
 
 class PausedRound(BaseState):
