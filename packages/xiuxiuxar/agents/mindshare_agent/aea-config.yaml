@@ -20,7 +20,7 @@ protocols:
 - open_aea/signing:1.0.0:bafybeig2d36zxy65vd7fwhs7scotuktydcarm74aprmrb5nioiymr3yixm
 skills:
 - eightballer/prometheus:0.1.0:bafybeicl5i7e467aowfarke4bbyixo2dggar276njmvyuwbsby5pxshhtu
-- xiuxiuxar/mindshare_app:0.1.0:bafybeichtw4upcqxjlbizyjywppke43xs7mfz6cprobz57raxowpfv7i64
+- xiuxiuxar/mindshare_app:0.1.0:bafybeicxr7x57nahm6fgaizyiacn2w4qkyxv2d3z3uh2uedppdzkotthqq
 customs: []
 default_ledger: ethereum
 required_ledgers:

@@ -212,40 +212,74 @@ class DataCollectionRound(BaseState):
         """Fetch token prices."""
         self.context.logger.info("Fetching token prices...")
 
+    def calculate_technical_indicators(
+        self,
+        ohlcv_data: list[list[Any]],
+        sma_length: int = 20,
+        ema_length: int = 20,
+        rsi_length: int = 14,
+        macd_fast: int = 12,
+        macd_slow: int = 26,
+        macd_signal: int = 9,
+        adx_length: int = 14,
+        bb_length: int = 20,
+        bb_std: int = 2,
+    ) -> pd.DataFrame:
+        """Calculate core technical indicators for a coin using pandas-ta with validation."""
+        # Input validation
+        if not isinstance(ohlcv_data, list) or len(ohlcv_data) == 0:
+            msg = "ohlcv_data must be a non-empty list of lists."
+            raise ValueError(msg)
+        for row in ohlcv_data:
+            if not (isinstance(row, list) and len(row) >= 5):
+                msg = "Each row must be a list with at least 5 elements: timestamp, open, high, low, close."
+                raise ValueError(msg)
+
+        # Convert to DataFrame
+        data = pd.DataFrame(
+            ohlcv_data,
+            columns=["timestamp", "open", "high", "low", "close"]
+        )
+        data["date"] = pd.to_datetime(data["timestamp"], unit="s")
+        data = data.set_index("date")
+        for col in ["open", "high", "low", "close"]:
+            data[col] = pd.to_numeric(data[col], errors="coerce")
+        data = data.dropna()
+
+        # Moving Averages
+        data[f"SMA_{sma_length}"] = ta.sma(data["close"], length=sma_length)
+        data[f"EMA_{ema_length}"] = ta.ema(data["close"], length=ema_length)
+
+        # RSI (normalized 0-100)
+        data[f"RSI_{rsi_length}"] = ta.rsi(data["close"], length=rsi_length)
+        data[f"RSI_{rsi_length}"] = data[f"RSI_{rsi_length}"].clip(0, 100)
+
+        # MACD (returns DataFrame with MACD, Signal, Histogram)
+        macd = ta.macd(data["close"], fast=macd_fast, slow=macd_slow, signal=macd_signal)
+        if macd is not None:
+            data[f"MACD_{macd_fast}_{macd_slow}_{macd_signal}"] = macd[f"MACD_{macd_fast}_{macd_slow}_{macd_signal}"]
+            data[f"MACDh_{macd_fast}_{macd_slow}_{macd_signal}"] = macd[f"MACDh_{macd_fast}_{macd_slow}_{macd_signal}"]
+            data[f"MACDs_{macd_fast}_{macd_slow}_{macd_signal}"] = macd[f"MACDs_{macd_fast}_{macd_slow}_{macd_signal}"]
+
+        # ADX
+        adx = ta.adx(data["high"], data["low"], data["close"], length=adx_length)
+        if adx is not None:
+            data[f"ADX_{adx_length}"] = adx[f"ADX_{adx_length}"]
+
+        # Bollinger Bands
+        bbands = ta.bbands(data["close"], length=bb_length, std=bb_std)
+        if bbands is not None:
+            data[f"BBL_{bb_length}_{bb_std}"] = bbands[f"BBL_{bb_length}_{bb_std}"]
+            data[f"BBM_{bb_length}_{bb_std}"] = bbands[f"BBM_{bb_length}_{bb_std}"]
+            data[f"BBU_{bb_length}_{bb_std}"] = bbands[f"BBU_{bb_length}_{bb_std}"]
+
+        return data
+
     def act(self) -> None:
         """Perform the act."""
         self.context.logger.info(f"Entering {self._state} state.")
         self._is_done = True
         self._event = MindshareabciappEvents.DONE
-
-    def calculate_technical_indicators(self, ohlc_data: list[list[Any]]) -> None:
-        """Calculate technical indicators for a coin."""
-        # Convert OHLC data to DataFrame with proper columns and types
-        data = pd.DataFrame(ohlc_data, columns=["timestamp", "open", "high", "low", "close"])
-        data["date"] = pd.to_datetime(data["timestamp"], unit="s")  # Convert timestamp from ms to datetime
-        data = data.set_index("date")  # Set date as index
-        data = data.astype(float)  # Convert price columns to float
-
-        # Moving averages
-        data["SMA_20"] = ta.sma(data["close"], length=20)
-        data["SMA_50"] = ta.sma(data["close"], length=50)
-        data["SMA_200"] = ta.sma(data["close"], length=200)
-
-        data["EMA_20"] = ta.ema(data["close"], length=20)
-        data["EMA_50"] = ta.ema(data["close"], length=50)
-        data["EMA_200"] = ta.ema(data["close"], length=200)
-
-        # RSI
-        data["RSI"] = ta.rsi(data["close"], length=14)
-
-        # MACD
-        data["MACD"] = ta.macd(data["close"], length=12, fast=26, slow=9)
-
-        # ADX
-        data["ADX"] = ta.adx(data["high"], data["low"], data["close"], length=14)
-
-        # Bollinger Bands
-        data["BB_upper"], data["BB_middle"], data["BB_lower"] = ta.bbands(data["close"], length=20, std=2)
 
 
 class PausedRound(BaseState):
