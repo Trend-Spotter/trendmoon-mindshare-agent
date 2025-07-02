@@ -236,10 +236,7 @@ class DataCollectionRound(BaseState):
                 raise ValueError(msg)
 
         # Convert to DataFrame
-        data = pd.DataFrame(
-            ohlcv_data,
-            columns=["timestamp", "open", "high", "low", "close"]
-        )
+        data = pd.DataFrame(ohlcv_data, columns=["timestamp", "open", "high", "low", "close"])
         data["date"] = pd.to_datetime(data["timestamp"], unit="s")
         data = data.set_index("date")
         for col in ["open", "high", "low", "close"]:
