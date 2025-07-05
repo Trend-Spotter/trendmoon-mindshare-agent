@@ -31,24 +31,30 @@ from aea.skills.behaviours import State, FSMBehaviour
 from packages.xiuxiuxar.skills.mindshare_app.models import Coingecko, Trendmoon
 
 
-ALLOWED_ASSETS = {
-    "base": {
-        # BASE Uniswap tokens
-        "0x...": "WETH",
-    }
+ALLOWED_ASSETS: dict[str, list[dict[str, str]]] = {
+    "base": [
+        # BASE-chain Uniswap tokens
+        {
+            "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+            "symbol": "USDC",
+            "coingecko_id": "usd-coin",
+        },
+        {
+            "address": "0x0b3e328455c4059EEb9e3f84b5543F74E24e7E1b",
+            "symbol": "VIRTUAL",
+            "coingecko_id": "virtual-protocol",
+        },
+        {
+            "address": "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf",
+            "symbol": "cbBTC",
+            "coingecko_id": "coinbase-wrapped-btc",
+        },
+    ]
 }
 
 
 if TYPE_CHECKING:
     from packages.xiuxiuxar.skills.mindshare_app.models import Coingecko, Trendmoon
-
-
-ALLOWED_ASSETS = {
-    "base": {
-        # BASE Uniswap tokens
-        "0x...": "WETH",
-    }
-}
 
 
 class MindshareabciappEvents(Enum):
@@ -131,8 +137,6 @@ class SetupRound(BaseState):
     """This class implements the behaviour of the state SetupRound."""
 
     def __init__(self, **kwargs: Any) -> None:
-        self.coingecko_api_key = kwargs.pop("coingecko_api_key", None)
-        self.store_path = kwargs.pop("store_path", None)
         super().__init__(**kwargs)
         self._state = MindshareabciappStates.SETUPROUND
         self.setup_success: bool = False
@@ -183,7 +187,6 @@ class SetupRound(BaseState):
 
         try:
             self._initialize_state()
-            self.context.setup_data = self.setup_data
             self.setup_success = True
             self._event = MindshareabciappEvents.DONE
         except Exception as e:
@@ -205,16 +208,183 @@ class DataCollectionRound(BaseState):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._state = MindshareabciappStates.DATACOLLECTIONROUND
+        self.collected_data: dict[str, Any] = {}
+        self.started_at: datetime | None = None
+        self.collection_initialized = False
+        self.pending_tokens: list[dict[str, str]] = []
+        self.completed_tokens: list[dict[str, str]] = []
+        self.failed_tokens: list[dict[str, str]] = []
 
-    def _fetch_token_prices(self) -> float:
-        """Fetch token prices."""
-        self.context.logger.info("Fetching token prices...")
+    def setup(self) -> None:
+        """Perform the setup."""
+        super().setup()
+        self._is_done = False
+
+    def _initialize_collection(self) -> None:
+        """Initialize data collection on first run."""
+        if self.collection_initialized:
+            return
+
+        self.context.logger.info("Initializing data collection...")
+
+        self.pending_tokens = ALLOWED_ASSETS["base"].copy()
+        self.completed_tokens = []
+        self.failed_tokens = []
+
+        self.collected_data = {
+            "ohlcv": {},
+            "current_prices": {},
+            "market_data": {},
+            "social_data": {},
+            "fundamental_data": {},
+            "onchain_data": {},
+            "collection_timestamp": datetime.now(UTC).isoformat(),
+            "errors": [],
+            "cache_hits": 0,
+            "api_calls": 0,
+        }
+
+        self.started_at = datetime.now(UTC)
+        self.collection_initialized = True
+        self.context.logger.info(f"Initialized batch collection for {len(self.pending_tokens)} tokens")
+
+    def _collect_token_data(self, token_info: dict[str, str]) -> None:
+        """Collect data for a single token."""
+        symbol = token_info["symbol"]
+        address = token_info["address"]
+
+        self.context.logger.debug(f"Collecting data for {symbol} ({address})")
+
+        try:
+            ohlcv_data, price_data = self._fetch_coingecko_data(token_info)
+
+            if ohlcv_data:
+                self.collected_data["ohlcv"][symbol] = ohlcv_data
+            if price_data:
+                self.collected_data["current_prices"][symbol] = price_data
+
+            self.completed_tokens.append(token_info)
+            self.context.logger.debug(f"Successfully collected data for {symbol}")
+
+        except (ValueError, KeyError, ConnectionError, TimeoutError) as e:
+            self.context.logger.warning(f"Failed to collect data for {symbol}: {e}")
+            self.failed_tokens.append(token_info)
+            self.collected_data["errors"].append(f"Error processing {symbol} ({address}): {e}")
 
     def act(self) -> None:
         """Perform the act."""
         self.context.logger.info(f"Entering {self._state} state.")
-        self._is_done = True
-        self._event = MindshareabciappEvents.DONE
+
+        try:
+            self._initialize_collection()
+
+            while self.pending_tokens:
+                token_info = self.pending_tokens.pop(0)
+                self._collect_token_data(token_info)
+
+            self._finalize_collection()
+            self._event = MindshareabciappEvents.DONE if self._is_data_sufficient() else MindshareabciappEvents.ERROR
+            self._is_done = True
+
+        except Exception as e:
+            self.context.logger.exception(f"Data collection failed: {e}")
+            self.context.error_context = {
+                "error_type": "data_collection_error",
+                "error_message": str(e),
+                "originating_round": str(self._state),
+            }
+            self._event = MindshareabciappEvents.ERROR
+            self._is_done = True
+
+    def _store_collected_data(self) -> None:
+        """Store collected data to persistent storage."""
+        if not hasattr(self.context, "store_path") or not self.context.store_path:
+            self.context.logger.warning("No store path available, skipping data storage")
+            return
+
+        try:
+            data_file = self.context.store_path / "collected_data.json"
+            with open(data_file, "w", encoding="utf-8") as f:
+                json.dump(self.collected_data, f, indent=2)
+            self.context.logger.info(f"Collected data stored to {data_file}")
+        except Exception as e:
+            self.context.logger.exception(f"Failed to store collected data: {e}")
+
+    def _log_collection_summary(self) -> None:
+        """Log collection summary."""
+        completed = len(self.completed_tokens)
+        failed = len(self.failed_tokens)
+        total = completed + failed
+        collection_time = self.collected_data.get("collection_time", 0)
+        api_calls = self.collected_data.get("api_calls", 0)
+
+        self.context.logger.info(
+            f"Batch collection summary: {completed}/{total} successful, "
+            f"{failed} failed, {collection_time:.1f}s, {api_calls} API calls"
+        )
+
+    def _is_data_sufficient(self) -> bool:
+        """Check if collected data is sufficient for analysis."""
+        min_required = max(1, len(ALLOWED_ASSETS["base"]) * self.context.params.data_sufficiency_threshold)
+        successful_count = len(self.completed_tokens)
+        return successful_count >= min_required
+
+    def _finalize_collection(self) -> None:
+        """Finalize data collection and store results."""
+        if self.started_at:
+            collection_time = (datetime.now(UTC) - self.started_at).total_seconds()
+            self.collected_data["collection_time"] = collection_time
+
+        self._store_collected_data()
+        self._log_collection_summary()
+
+    def _fetch_coingecko_data(self, token_info: dict[str, str]) -> tuple[dict | None, dict | None]:
+        """Fetch OHLCV and price data from CoinGecko API.
+
+        Args:
+        ----
+            token_info: Dict containing symbol, address, and coingecko_id
+
+        Returns:
+        -------
+            Tuple of (ohlcv_data, price_data) or (None, None) on error
+
+        Expected data structure:
+        - price_data: Current market data with price, volume, market cap, 24h change
+        - ohlcv_data: Historical OHLCV data for the last 90 days
+
+        """
+        symbol = token_info["symbol"]
+        coingecko_id = token_info["coingecko_id"]
+
+        try:
+            # Fetch current price and market data for the token
+            self.collected_data["api_calls"] += 1
+            price_data = self._get_current_price_data(coingecko_id)
+
+            # Fetch historical OHLCV data for the token
+            self.collected_data["api_calls"] += 1
+            ohlcv_data = self._get_historical_ohlcv_data(coingecko_id)
+
+            if not ohlcv_data or not price_data:
+                error_msg = "No data returned from CoinGecko API"
+                raise ValueError(error_msg)
+
+            return ohlcv_data, price_data
+
+        except (ValueError, KeyError, ConnectionError, TimeoutError) as e:
+            self.context.logger.warning(f"CoinGecko API error for {symbol}: {e}")
+            return None, None
+
+    def _get_current_price_data(self, coingecko_id: str) -> dict | None:
+        """Get current price and market data for a token."""
+
+        return self.context.coingecko.get_current_price(coingecko_id)
+
+    def _get_historical_ohlcv_data(self, coingecko_id: str) -> dict | None:
+        """Get historical OHLCV data for a token."""
+
+        return self.context.coingecko.get_historical_ohlcv(coingecko_id, days=90)
 
 
 class PausedRound(BaseState):
