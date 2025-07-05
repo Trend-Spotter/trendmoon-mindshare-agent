@@ -12,7 +12,7 @@ fingerprint:
   behaviours.py: bafybeia7vpvgpib5uetkm44bx6rqq7bxeg3cihczw4yb2rlsn5bpfupdyu
   dialogues.py: bafybeidsfl6lkjntm4ntuwx2clyq5ra2yyl632tmwzzizrcipejuxr2ium
   handlers.py: bafybeibwx3laovbm2cylhx3gtgxkuptytxuctigzehlipuebi73m6coilu
-  models.py: bafybeifm7qguxbxf7atrjfml27ediguyuo5x2yr7yv3fvt5ptdcymqauqq
+  models.py: bafybeibexrsygoipfilitpc6uvlkew6gcrnksiawqwyiqqrc4pr4bslwkm
   tests/__init__.py: bafybeigb2ji4vkcap3hokcedggjwsrah7te2nxjhkorwf3ibwgyaa2glma
   tests/test_metrics.py: bafybeickohfwbhq46m4c5deutqkqkeztygfyu7gpxkgme5rfa5iwujbr7i
   tests/test_metrics_dialogues.py: bafybeicaqx7bykvl3dqkvcpdpft4l5g6huxyhrljwrn2zykxavk4thqdi4
@@ -25,9 +25,7 @@ protocols:
 skills: []
 behaviours:
   main:
-    args:
-      coingecko_api_key: test_key
-      store_path: ./persistent_data
+    args: {}
     class_name: MindshareabciappFsmBehaviour
 handlers:
   metrics_handler:
@@ -53,6 +51,7 @@ models:
   params:
     args:
       coingecko_api_key: test_key
+      data_sufficiency_threshold: 0.5
       reset_pause_duration: 10
       store_path: ./persistent_data
       safe_contract_addresses: '{"ethereum":"0x0000000000000000000000000000000000000000","arbitrum":"0x0000000000000000000000000000000000000000","optimism":"0x0000000000000000000000000000000000000000","mode":"0x0000000000000000000000000000000000000000"}'
