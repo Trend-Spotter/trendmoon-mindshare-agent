@@ -283,8 +283,9 @@ class Params(Model):
     """This class implements the parameters for the Mindshare app."""
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
-        self.safe_contract_addresses = kwargs.pop("safe_contract_addresses", {})
         self.coingecko_api_key = kwargs.pop("coingecko_api_key", "")
+        self.data_sufficiency_threshold = kwargs.pop("data_sufficiency_threshold", 0.5)
+        self.safe_contract_addresses = kwargs.pop("safe_contract_addresses", {})
         self.store_path = kwargs.pop("store_path", "./persistent_data")
         self.reset_pause_duration = kwargs.pop("reset_pause_duration", 10)
         super().__init__(*args, **kwargs)
