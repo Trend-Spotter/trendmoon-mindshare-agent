@@ -52,7 +52,7 @@ class Coingecko(Model):
                 msg = f"{key} is required in {param_type}"
                 raise ValueError(msg)
 
-    def coin_ohlc_chart_by_id(self, path_params: dict[str, str], query_params: dict[str, str]) -> list[list[Any]]:
+    def get_historical_ohlcv(self, path_params: dict[str, str], query_params: dict[str, str]) -> list[list[Any]]:
         """Fetch OHLC data for a coin from CoinGecko."""
         try:
             self.validate_required_params(path_params, ["id"], "path_params")
@@ -73,7 +73,7 @@ class Coingecko(Model):
             logging.exception(f"Error fetching OHLC data: {e!s}")
             return []
 
-    def coin_price_by_id(self, query_params: dict[str, str]) -> dict[str, Any]:
+    def get_current_price(self, query_params: dict[str, str]) -> dict[str, Any]:
         """Fetch price data for a coin from CoinGecko."""
         try:
             self.validate_required_params(query_params, ["vs_currencies"], "query_params")

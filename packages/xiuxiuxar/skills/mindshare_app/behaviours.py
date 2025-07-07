@@ -54,7 +54,7 @@ ALLOWED_ASSETS: dict[str, list[dict[str, str]]] = {
 
 
 if TYPE_CHECKING:
-    from packages.xiuxiuxar.skills.mindshare_app.models import Coingecko, Trendmoon
+    from packages.xiuxiuxar.skills.mindshare_app.models import Trendmoon
 
 
 class MindshareabciappEvents(Enum):
@@ -142,12 +142,13 @@ class SetupRound(BaseState):
         self.setup_success: bool = False
         self.setup_data: dict[str, Any] = {}
         self.started: bool = False
+        self.coingecko_api_key: str = self.context.config.coingecko_api_key
 
     def setup(self) -> None:
         """Perform the setup."""
         super().setup()
         self._is_done = False
-        self.coingecko = Coingecko(args=None, kwargs={"coingecko_api_key": self.coingecko_api_key})
+        self.context.coingecko = Coingecko(coingecko_api_key=self.coingecko_api_key)
 
     def _initialize_state(self) -> None:
         """Initialize persistent storage for the agent."""
@@ -381,12 +382,17 @@ class DataCollectionRound(BaseState):
     def _get_current_price_data(self, coingecko_id: str) -> dict | None:
         """Get current price and market data for a token."""
 
-        return self.context.coingecko.get_current_price(coingecko_id)
+        query_params = {"ids": coingecko_id, "vs_currencies": "usd"}
+
+        return self.context.coingecko.get_current_price(query_params)
 
     def _get_historical_ohlcv_data(self, coingecko_id: str) -> dict | None:
         """Get historical OHLCV data for a token."""
 
-        return self.context.coingecko.get_historical_ohlcv(coingecko_id, days=90)
+        path_params = {"id": coingecko_id}
+        query_params = {"vs_currency": "usd", "days": 90}
+
+        return self.context.coingecko.get_historical_ohlcv(path_params, query_params)
 
 
 class PausedRound(BaseState):
