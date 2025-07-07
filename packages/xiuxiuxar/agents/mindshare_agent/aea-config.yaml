@@ -20,7 +20,7 @@ protocols:
 - open_aea/signing:1.0.0:bafybeig2d36zxy65vd7fwhs7scotuktydcarm74aprmrb5nioiymr3yixm
 skills:
 - eightballer/prometheus:0.1.0:bafybeicl5i7e467aowfarke4bbyixo2dggar276njmvyuwbsby5pxshhtu
-- xiuxiuxar/mindshare_app:0.1.0:bafybeibkdmkpw4nxqetyqnkhefqyabusf46cnygan5wx2himiexxchoira
+- xiuxiuxar/mindshare_app:0.1.0:bafybeia3gqoommiwai5sog4cvckwj5a5ypuyoq3qpwvlsyh5kkfq4ic3pq
 customs: []
 default_ledger: ethereum
 required_ledgers:
@@ -68,7 +68,8 @@ type: skill
 models:
   params:
     args:
-      store_path: ${SKILL_MINDSHARE_APP_MAIN_ARGS_STORE_PATH:str:./persistent_data}
-      safe_contract_addresses: ${str:{"ethereum":"0x0000000000000000000000000000000000000000","base":"0x0000000000000000000000000000000000000000"}}
       coingecko_api_key: ${str:test_key}
+      data_sufficiency_threshold: ${float:0.5}
+      store_path: ${str:./persistent_data}
+      safe_contract_addresses: ${str:{"ethereum":"0x0000000000000000000000000000000000000000","base":"0x0000000000000000000000000000000000000000"}}
       reset_pause_duration: ${int:10}
