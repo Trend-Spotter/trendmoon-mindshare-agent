@@ -26,9 +26,17 @@ from typing import TYPE_CHECKING, Any, cast
 from pathlib import Path
 from datetime import UTC, datetime
 
+from aea.protocols.base import Message
 from aea.skills.behaviours import State, FSMBehaviour
+from aea.protocols.dialogue.base import Dialogue as BaseDialogue
 
+from packages.valory.protocols.contract_api import ContractApiMessage
+from packages.eightballer.contracts.erc_20.contract import Erc20
 from packages.xiuxiuxar.skills.mindshare_app.models import Coingecko, Trendmoon
+from packages.xiuxiuxar.skills.mindshare_app.dialogues import (
+    ContractApiDialogue,
+    ContractApiDialogues,
+)
 
 
 ALLOWED_ASSETS: dict[str, list[dict[str, str]]] = {
@@ -104,6 +112,8 @@ class BaseState(State, ABC):
         super().__init__(**kwargs)
         self._event = None
         self._is_done = False  # Initially, the state is not done
+        self.supported_protocols = {ContractApiMessage.protocol_id: []}
+        self._message = None
 
     @property
     def coingecko(self) -> "Coingecko":
@@ -128,6 +138,66 @@ class BaseState(State, ABC):
     def event(self) -> str | None:
         """Current event."""
         return self._event
+
+    @classmethod
+    def _get_request_nonce_from_dialogue(cls, dialogue: BaseDialogue) -> str:
+        """Get the request nonce for the request, from the protocol's dialogue."""
+        return dialogue.dialogue_label.dialogue_reference[0]
+
+    def get_dialogue_callback_request(self):
+        """Get callback request for dialogue handling."""
+
+        def callback_request(message: Message, dialogue: BaseDialogue, behaviour: Any) -> None:
+            """The callback request."""
+            if message.protocol_id in self.supported_protocols:
+                self.context.logger.debug(f"Message: {message} {dialogue}: {behaviour}")
+                self._message = message
+                self.supported_protocols.get(message.protocol_id).append(message)
+
+                # Check if this dialogue has a validation function
+                if hasattr(dialogue, "validation_func") and callable(dialogue.validation_func):
+                    try:
+                        # Call the validation function
+                        is_valid = dialogue.validation_func(message, dialogue)
+                        if is_valid:
+                            self.context.logger.info(
+                                "Message validated successfully for dialogue "
+                                f"{dialogue.dialogue_label.dialogue_reference[0]}"
+                            )
+                        else:
+                            self.context.logger.info(
+                                "Message validation failed for dialogue "
+                                f"{dialogue.dialogue_label.dialogue_reference[0]}"
+                            )
+                    except Exception as e:
+                        self.context.logger.exception(f"Error in validation function: {e}")
+
+                return
+
+            self.context.logger.info(
+                f"Message not supported: {message.protocol_id}. Supported protocols: {self.supported_protocols}"
+            )
+
+        return callback_request
+
+    def submit_msg(
+        self,
+        performative: Message.Performative,
+        connection_id: str,
+        **kwargs: Any,
+    ) -> ContractApiDialogue:
+        """Submit a message and return the dialogue."""
+        # Get contract API dialogues
+        contract_api_dialogues = cast("ContractApiDialogues", self.context.contract_api_dialogues)
+
+        # Create message and dialogue
+        msg, dialogue = contract_api_dialogues.create(counterparty=connection_id, performative=performative, **kwargs)
+        msg._sender = str(self.context.skill_id)  # noqa: SLF001
+
+        request_nonce = self._get_request_nonce_from_dialogue(dialogue)
+        self.context.requests.request_id_to_callback[request_nonce] = self.get_dialogue_callback_request()
+        self.context.outbox.put_message(message=msg)
+        return dialogue
 
 
 # Define states
@@ -756,12 +826,396 @@ class PortfolioValidationRound(BaseState):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._state = MindshareabciappStates.PORTFOLIOVALIDATIONROUND
+        self.validation_initialized: bool = False
+        self.portfolio_metrics: dict[str, Any] = {}
+        self.open_positions: list[dict[str, Any]] = []
+        self.validation_result: str = ""
+        self.pending_contract_calls: list[ContractApiDialogue] = []
+        self.contract_responses: dict[str, Any] = {}
+        self.capital_loading_complete: bool = False
+        self.contract_call_submitted: bool = False
+
+    def setup(self) -> None:
+        """Perform the setup."""
+        super().setup()
+        self._is_done = False
+        self.validation_initialized = False
+        self.portfolio_metrics = {}
+        self.open_positions = []
+        self.validation_result = ""
+        self.pending_contract_calls = []
+        self.contract_responses = {}
+        self.capital_loading_complete = False
+        self.contract_call_submitted = False
 
     def act(self) -> None:
-        """Perform the act."""
-        self.context.logger.info(f"Entering {self._state} state.")
-        self._is_done = True
-        self._event = MindshareabciappEvents.CAN_TRADE
+        """Perform the act using simple state-based flow."""
+        try:
+            # Initialize validation on first call
+            if not self.validation_initialized:
+                self.context.logger.info(f"Entering {self._state} state.")
+                self._initialize_validation()
+
+                if not self._load_portfolio_data():
+                    self.context.logger.error("Failed to load portfolio data")
+                    self._event = MindshareabciappEvents.ERROR
+                    self._is_done = True
+                    return
+
+            # Submit contract call if not already submitted
+            if not self.contract_call_submitted:
+                self.context.logger.info("Submitting USDC balance contract call")
+                self._load_available_capital_async()
+                return  # Exit early, let FSM cycle for async response
+
+            # Check for contract responses if call submitted but not complete
+            if not self.capital_loading_complete:
+                self._check_contract_responses()
+                if not self.capital_loading_complete:
+                    return  # Still waiting for response, let FSM cycle
+
+            # Proceed with validation once capital loading is complete
+            validation_checks = [
+                self._check_position_limits(),
+                self._check_available_capital(),
+                self._check_exposure_limits(),
+            ]
+
+            can_trade = all(validation_checks)
+            self._log_validation_summary()
+
+            if can_trade:
+                self.context.logger.info("Portfolio validation passed - can proceed with new trades")
+                self._event = MindshareabciappEvents.CAN_TRADE
+            else:
+                self.context.logger.info(f"Portfolio validation failed: {self.validation_result}")
+                self._event = MindshareabciappEvents.AT_LIMIT
+
+            self._is_done = True
+
+        except Exception as e:
+            self.context.logger.exception(f"Portfolio validation failed: {e}")
+            self.context.error_context = {
+                "error_type": "portfolio_validation_error",
+                "error_message": str(e),
+                "originating_round": str(self._state),
+            }
+            self._event = MindshareabciappEvents.ERROR
+            self._is_done = True
+
+    def _initialize_validation(self) -> None:
+        """Initialize portfolio validation on first call."""
+        if self.validation_initialized:
+            return
+
+        self.context.logger.info("Initializing portfolio validation...")
+
+        self.portfolio_metrics = {
+            "max_positions": self.context.params.max_positions,
+            "current_positions": 0,
+            "available_capital_usdc": 0.0,
+            "total_portfolio_value": 0.0,
+            "total_exposure": 0.0,
+            "max_exposure_per_position": self.context.params.max_exposure_per_position,
+            "max_total_exposure": self.context.params.max_total_exposure,
+            "min_capital_buffer": self.context.params.min_capital_buffer,
+        }
+
+        self.validation_initialized = True
+
+    def _load_portfolio_data(self) -> bool:
+        """Load portfolio data from persistent storage."""
+        try:
+            if not hasattr(self.context, "store_path") or not self.context.store_path:
+                self.context.logger.warning("No store path available")
+                return False
+
+            positions_file = self.context.store_path / "positions.json"
+            if positions_file.exists():
+                with open(positions_file, encoding="utf-8") as f:
+                    positions_data = json.load(f)
+
+                self.open_positions = [
+                    pos for pos in positions_data.get("positions", []) if pos.get("status") == "open"
+                ]
+
+                self.portfolio_metrics["current_positions"] = len(self.open_positions)
+                self.portfolio_metrics["total_portfolio_value"] = positions_data.get("total_portfolio_value", 0.0)
+
+                total_exposure = sum(pos.get("entry_value_usdc", 0.0) for pos in self.open_positions)
+                self.portfolio_metrics["total_exposure"] = total_exposure
+
+            else:
+                self.context.logger.info("No open positions found - assuming empty portfolio")
+                self.open_positions = []
+
+            return True
+
+        except (FileNotFoundError, PermissionError, OSError) as e:
+            self.context.logger.exception(f"Failed to access portfolio files: {e}")
+            return False
+        except (json.JSONDecodeError, KeyError, ValueError) as e:
+            self.context.logger.exception(f"Failed to parse portfolio data: {e}")
+            return False
+        except Exception as e:
+            self.context.logger.exception(f"Unexpected error loading portfolio data: {e}")
+            return False
+
+    def _load_available_capital_async(self) -> None:
+        """Load available capital from USDC balance in the agent's SAFE asynchronously."""
+        try:
+            target_chains = ["base"]
+            chain = target_chains[0] if target_chains else "base"
+
+            safe_addresses = self.context.params.safe_contract_addresses
+
+            # Handle case where safe_addresses might be a string instead of dict
+            if isinstance(safe_addresses, str):
+                self.context.logger.info(f"Safe addresses is a string: {safe_addresses}")
+                try:
+                    safe_addresses_dict = json.loads(safe_addresses)
+                    safe_address = safe_addresses_dict.get(chain)
+                except json.JSONDecodeError:
+                    self.context.logger.warning(f"Failed to parse safe_addresses JSON string: {safe_addresses}")
+                    safe_address = None
+            elif isinstance(safe_addresses, dict):
+                safe_address = safe_addresses.get(chain)
+            else:
+                self.context.logger.warning(f"Unexpected safe_addresses type: {type(safe_addresses)}")
+                safe_address = None
+
+            if not safe_address:
+                self.context.logger.warning(f"No SAFE address found for chain {chain}")
+                self.portfolio_metrics["available_capital_usdc"] = 0.0
+                self.capital_loading_complete = True
+                return
+
+            usdc_addresses = {
+                "base": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+            }
+
+            usdc_address = usdc_addresses.get(chain)
+            if not usdc_address:
+                self.context.logger.warning(f"No USDC address found for chain {chain}")
+                self.portfolio_metrics["available_capital_usdc"] = 0.0
+                self.capital_loading_complete = True
+                return
+
+            # Submit async contract call for USDC balance
+            self._submit_usdc_balance_request(chain, safe_address, usdc_address)
+            self.contract_call_submitted = True
+
+        except Exception as e:
+            self.context.logger.exception(f"Failed to load available capital: {e}")
+            self.portfolio_metrics["available_capital_usdc"] = 0.0
+            self.capital_loading_complete = True
+
+    def _submit_usdc_balance_request(self, chain: str, safe_address: str, usdc_address: str) -> None:
+        """Submit a contract call request for USDC balance."""
+        try:
+            self.context.logger.info(f"Requesting USDC balance for {safe_address} on {chain}")
+
+            # Submit the contract call
+            dialogue = self.submit_msg(
+                performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,
+                connection_id="valory/ledger:0.19.0",
+                contract_address=usdc_address,
+                contract_id=str(Erc20.contract_id),
+                callable="balance_of",
+                ledger_id="ethereum",  # Use ethereum ledger for Base chain (L2)
+                kwargs=ContractApiMessage.Kwargs({"account": safe_address, "chain_id": "base"}),
+            )
+
+            # Add validation function and metadata
+            dialogue.validation_func = self._validate_usdc_balance_response
+            dialogue.chain = chain
+            dialogue.safe_address = safe_address
+            dialogue.usdc_address = usdc_address
+
+            request_nonce = self._get_request_nonce_from_dialogue(dialogue)
+            self.context.requests.request_id_to_callback[request_nonce] = self.get_dialogue_callback_request()
+
+            # Track the pending call
+            self.pending_contract_calls.append(dialogue)
+
+            self.context.logger.debug(f"Submitted USDC balance request for {safe_address}")
+
+        except Exception as e:
+            self.context.logger.exception(f"Failed to submit USDC balance request: {e}")
+            self.portfolio_metrics["available_capital_usdc"] = 0.0
+            self.capital_loading_complete = True
+
+    def _validate_usdc_balance_response(self, message: Message, dialogue: ContractApiDialogue) -> bool:
+        """Validate USDC balance response message."""
+        try:
+            if message.performative == ContractApiMessage.Performative.RAW_TRANSACTION:
+                if hasattr(message, "raw_transaction") and message.raw_transaction:
+                    balance = message.raw_transaction.body.get("int")
+                    if balance is not None:
+                        # Store the response
+                        self.contract_responses[dialogue.dialogue_label.dialogue_reference[0]] = {
+                            "balance": int(balance),
+                            "chain": dialogue.chain,
+                            "safe_address": dialogue.safe_address,
+                        }
+                        self.context.logger.info(f"Received USDC balance: {balance}")
+                        return True
+
+            elif message.performative == ContractApiMessage.Performative.ERROR:
+                self.context.logger.warning(f"Contract API error: {message.message}")
+
+            return False
+
+        except Exception as e:
+            self.context.logger.exception(f"Error validating USDC balance response: {e}")
+            return False
+
+    def _check_contract_responses(self) -> None:
+        """Check if contract responses have arrived and process them."""
+        try:
+            # Process any received responses
+            for dialogue in self.pending_contract_calls.copy():
+                request_nonce = dialogue.dialogue_label.dialogue_reference[0]
+
+                if request_nonce in self.contract_responses:
+                    response = self.contract_responses[request_nonce]
+
+                    # Process USDC balance response
+                    if "balance" in response:
+                        balance_raw = response["balance"]
+                        usdc_balance = float(balance_raw) / (10**6)
+                        self.portfolio_metrics["available_capital_usdc"] = usdc_balance
+                        self.context.logger.info(f"Available USDC capital: ${usdc_balance:.2f}")
+                        self.capital_loading_complete = True
+
+                    # Remove from pending
+                    self.pending_contract_calls.remove(dialogue)
+
+            # If we still have pending calls, keep waiting (no timeout logic)
+            if self.pending_contract_calls and not self.capital_loading_complete:
+                return  # Keep waiting for responses
+
+            # If no pending calls or we have responses, mark as complete
+            if not self.pending_contract_calls and not self.capital_loading_complete:
+                # No responses received, use fallback
+                self.portfolio_metrics["available_capital_usdc"] = 1000.0
+                self.capital_loading_complete = True
+                self.context.logger.info("No contract responses received, using fallback capital value")
+
+        except Exception as e:
+            self.context.logger.exception(f"Error checking contract responses: {e}")
+            self.portfolio_metrics["available_capital_usdc"] = 1000.0
+            self.capital_loading_complete = True
+
+    def _check_position_limits(self) -> bool:
+        """Check if the number of open positions exceeds the limit."""
+        max_positions = self.portfolio_metrics["max_positions"]
+        current_positions = self.portfolio_metrics["current_positions"]
+
+        if current_positions >= max_positions:
+            self.validation_result = f"Max positions limit reached ({current_positions}/{max_positions})"
+            self.context.logger.info(self.validation_result)
+            return False
+
+        self.context.logger.info(f"Position limit check: PASSED - {current_positions}/{max_positions} positions")
+        return True
+
+    def _check_available_capital(self) -> bool:
+        """Check if there is enough available capital to open a new position."""
+        available_capital = self.portfolio_metrics["available_capital_usdc"]
+        min_capital_buffer = self.portfolio_metrics["min_capital_buffer"]
+
+        if available_capital <= min_capital_buffer:
+            self.validation_result = (
+                f"Insufficient available capital (${available_capital:.2f} <= ${min_capital_buffer:.2f})"
+            )
+            self.context.logger.info(self.validation_result)
+            return False
+
+        min_position_size = self.context.params.min_position_size_usdc
+        available_for_trading = available_capital - min_capital_buffer
+
+        if available_for_trading < min_position_size:
+            self.validation_result = (
+                f"Insufficient available capital for trading (${available_for_trading:.2f} < ${min_position_size:.2f})"
+            )
+            self.context.logger.info(self.validation_result)
+            return False
+
+        self.context.logger.info(
+            f"Available capital check: PASSED - {available_capital:.2f} > {min_capital_buffer:.2f}"
+        )
+        return True
+
+    def _check_exposure_limits(self) -> bool:
+        """Check if the total exposure exceeds the limit."""
+        total_exposure = self.portfolio_metrics["total_exposure"]
+        max_total_exposure = self.portfolio_metrics["max_total_exposure"]
+        available_capital = self.portfolio_metrics["available_capital_usdc"]
+
+        total_portfolio_value = total_exposure + available_capital
+
+        if total_portfolio_value > 0:
+            exposure_percentage = (total_exposure / total_portfolio_value) * 100
+
+            if exposure_percentage >= max_total_exposure:
+                self.validation_result = (
+                    f"Total exposure exceeds maximum limit ({exposure_percentage:.1f}% > {max_total_exposure:.1f}%)"
+                )
+                self.context.logger.info(self.validation_result)
+                return False
+
+        max_exposure_per_position = self.portfolio_metrics["max_exposure_per_position"]
+        max_new_position_value = (total_portfolio_value * max_exposure_per_position) / 100
+        available_for_trading = available_capital - self.portfolio_metrics["min_capital_buffer"]
+        if max_new_position_value > available_for_trading:
+            self.context.logger.info(
+                f"Position size will be limited by available capital (${available_for_trading:.2f}) "
+                f"rather than exposure limit (${max_new_position_value:.2f})"
+            )
+
+        exposure_percentage = (total_exposure / total_portfolio_value * 100) if total_portfolio_value > 0 else 0
+        self.context.logger.info(
+            f"Exposure limit check: PASSED - {exposure_percentage:.1f}% exposure < {max_total_exposure:.1f}% limit"
+        )
+        return True
+
+    def _log_validation_summary(self) -> None:
+        """Log the validation summary."""
+        metrics = self.portfolio_metrics
+
+        self.context.logger.info("=== Portfolio Validation Summary ===")
+        self.context.logger.info(f"Open Positions: {metrics['current_positions']}/{metrics['max_positions']}")
+        self.context.logger.info(f"Available Capital: ${metrics['available_capital_usdc']:.2f}")
+        self.context.logger.info(f"Total Exposure: ${metrics['total_exposure']:.2f}")
+
+        if metrics["total_exposure"] + metrics["available_capital_usdc"] > 0:
+            total_value = metrics["total_exposure"] + metrics["available_capital_usdc"]
+            exposure_pct = (metrics["total_exposure"] / total_value) * 100
+            self.context.logger.info(f"Portfolio Exposure: {exposure_pct:.1f}%")
+
+        if self.open_positions:
+            self.context.logger.info("Current Positions:")
+            for pos in self.open_positions:
+                symbol = pos.get("symbol", "Unknown")
+                value = pos.get("entry_value_usdc", 0)
+                pnl = pos.get("unrealized_pnl", 0)
+                self.context.logger.info(f"  {symbol}: ${value:.2f} (P&L: ${pnl:.2f})")
+
+        self.context.logger.info("====================================")
+
+    @property
+    def can_add_position(self) -> bool:
+        """Check if we can add a new position based on current constraints."""
+        return (
+            self.portfolio_metrics["current_positions"] < self.portfolio_metrics["max_positions"]
+            and self.portfolio_metrics["available_capital_usdc"] > self.portfolio_metrics["min_capital_buffer"]
+        )
+
+    @property
+    def available_trading_capital(self) -> float:
+        """Get the amount of capital available for new trades."""
+        return max(0, self.portfolio_metrics["available_capital_usdc"] - self.portfolio_metrics["min_capital_buffer"])
 
 
 class AnalysisRound(BaseState):

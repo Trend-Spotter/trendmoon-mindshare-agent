@@ -1,17 +1,26 @@
 {
     "dev": {
-        "skill/xiuxiuxar/mindshare_app/0.1.0": "bafybeihtaqhfvpyo7ddxbriucbllsvqrqfurw2kuyyfdq5hhuw3g65x63m",
-        "agent/xiuxiuxar/mindshare_agent/0.1.0": "bafybeibd4sl3i4cumtnxdhqjw7brovz3fgfmn4zrsqykqrjs5bcyqsw3ri",
-        "service/xiuxiuxar/mindshare_agent/0.1.0": "bafybeiewvme25s34qgahw636smswgmlrqfkw3dceowy5svukuco3ojghwa"
+        "skill/xiuxiuxar/mindshare_app/0.1.0": "bafybeieis4r5cf7btvfgixleu7wktxxhaoz2zzaytqhkhxp6ki6hinwl4e",
+        "agent/xiuxiuxar/mindshare_agent/0.1.0": "bafybeidy4zjg6hkvkjhid2vvjw7mhco6uvi7s5f7f45jn3n5h4al3qfh3y",
+        "service/xiuxiuxar/mindshare_agent/0.1.0": "bafybeidzegewmwivmuraewufwlrbjzxdg46av2xq4nzekdbg3nsidee5fu"
     },
     "third_party": {
+        "protocol/valory/contract_api/1.0.0": "bafybeid247uig2ekykdumh7ewhp2cdq7rchaeqjj6e7urx35zfpdl5zrn4",
         "protocol/eightballer/default/0.1.0": "bafybeicsdb3bue2xoopc6lue7njtyt22nehrnkevmkuk2i6ac65w722vwy",
         "protocol/eightballer/http/0.1.0": "bafybeid75xhq7hfdt7sgj7yrn44yj57xrgxscaw34ir46tndfzvodioxme",
         "protocol/eightballer/prometheus/1.0.0": "bafybeidxo32tu43ru3xlk3kd5b6xlwf6vaytxvvhtjbh7ag52kexos4ke4",
         "protocol/open_aea/signing/1.0.0": "bafybeig2d36zxy65vd7fwhs7scotuktydcarm74aprmrb5nioiymr3yixm",
+        "protocol/valory/ledger_api/1.0.0": "bafybeihmqzcbj6t7vxz2aehd5726ofnzsfjs5cwlf42ro4tn6i34cbfrc4",
+        "protocol/valory/ipfs/0.1.0": "bafybeifi2nri7sprmkez4rqzwb4lnu6peoy3bax5k6asf6k5ms7kmjpmkq",
+        "protocol/valory/http/1.0.0": "bafybeih4azmfwtamdbkhztkm4xitep3gx6tfdnoz6tvllmaqnhu3klejfa",
+        "protocol/valory/tendermint/0.1.0": "bafybeigydrbfrlmr4f7shbtqx44kvmbg22im27mxdap2e3m5tkti6t445y",
+        "contract/eightballer/erc_20/0.1.0": "bafybeiegd5pdj34s4cuhiaxermjdtyhnapu5usy545vcf6mi5grfazlnpa",
         "connection/eightballer/http_client/0.1.0": "bafybeiaz5auftwxpt4czrmeeesggqlkc2kosmetq6adrebeu6g7bkhqc2u",
         "connection/eightballer/http_server/0.1.0": "bafybeidrvllrr23mc6bvjxn6v3hny6oiwhfgi72n2b7w6ck5luousjfbbq",
         "connection/eightballer/prometheus/0.1.1": "bafybeicy4ck2wvauo2vh6ji64xrzlgezh27powi6ztokr4yujtf3cft6wi",
+        "connection/valory/ledger/0.19.0": "bafybeibdsjmy4w2eyilbqc7yzutopl65qpeyspxwz7mjvirr52twhjlf5y",
+        "connection/valory/ipfs/0.1.0": "bafybeiamz23olgtow4wqf7zpsfnfzf7pxiognrxl2mhn5kvqutlwhgukxa",
+        "connection/valory/http_client/0.23.0": "bafybeid5ffvg76ejjoese7brj5ji3lx66cu7p2ixfwflpo6rgofkypfd7y",
         "skill/eightballer/prometheus/0.1.0": "bafybeicl5i7e467aowfarke4bbyixo2dggar276njmvyuwbsby5pxshhtu"
     }
 }
