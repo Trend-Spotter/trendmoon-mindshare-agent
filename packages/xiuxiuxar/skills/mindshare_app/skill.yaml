@@ -9,17 +9,19 @@ aea_version: '>=1.0.0, <2.0.0'
 fingerprint:
   README.md: bafybeiesl5jlvvu4enydib32bpyfqphlkdulxy3oqid3t32cjxya5qykci
   __init__.py: bafybeifhcjbfwkkjfaq57azgh24ufuo4pvjm4vguozhbg3qsrn4tw5ukge
-  behaviours.py: bafybeia7vpvgpib5uetkm44bx6rqq7bxeg3cihczw4yb2rlsn5bpfupdyu
-  dialogues.py: bafybeidsfl6lkjntm4ntuwx2clyq5ra2yyl632tmwzzizrcipejuxr2ium
-  handlers.py: bafybeibwx3laovbm2cylhx3gtgxkuptytxuctigzehlipuebi73m6coilu
-  models.py: bafybeibexrsygoipfilitpc6uvlkew6gcrnksiawqwyiqqrc4pr4bslwkm
+  behaviours.py: bafybeicqw6qf6zka4x3ftau2ghlwbcg6s554ruq23dz4roctvknxc7jaea
+  dialogues.py: bafybeifxneexozuk3gkvqreq56kripha6egkgz4nip52b2kpuxe53mjmwi
+  handlers.py: bafybeibssygi2hz2r7rg42cdeh53ia2dxkrfm4t76o2wb2vjqyzlervik4
+  models.py: bafybeibtn3davvucvr75lffeoowwezyx767izx7mkc3ytmk4y7f5swyge4
   tests/__init__.py: bafybeigb2ji4vkcap3hokcedggjwsrah7te2nxjhkorwf3ibwgyaa2glma
   tests/test_metrics.py: bafybeickohfwbhq46m4c5deutqkqkeztygfyu7gpxkgme5rfa5iwujbr7i
   tests/test_metrics_dialogues.py: bafybeicaqx7bykvl3dqkvcpdpft4l5g6huxyhrljwrn2zykxavk4thqdi4
 fingerprint_ignore_patterns: []
 connections: []
-contracts: []
+contracts:
+- eightballer/erc_20:0.1.0:bafybeiegd5pdj34s4cuhiaxermjdtyhnapu5usy545vcf6mi5grfazlnpa
 protocols:
+- valory/contract_api:1.0.0:bafybeid247uig2ekykdumh7ewhp2cdq7rchaeqjj6e7urx35zfpdl5zrn4
 - eightballer/default:0.1.0:bafybeicsdb3bue2xoopc6lue7njtyt22nehrnkevmkuk2i6ac65w722vwy
 - eightballer/http:0.1.0:bafybeid75xhq7hfdt7sgj7yrn44yj57xrgxscaw34ir46tndfzvodioxme
 skills: []
@@ -32,6 +34,9 @@ handlers:
     args:
       enable_cors: false
     class_name: HttpHandler
+  contract_api_handler:
+    args: {}
+    class_name: ContractApiHandler
 models:
   default_dialogues:
     args: {}
@@ -39,6 +44,9 @@ models:
   http_dialogues:
     args: {}
     class_name: HttpDialogues
+  contract_api_dialogues:
+    args: {}
+    class_name: ContractApiDialogues
   coingecko:
     args: {}
     class_name: Coingecko
@@ -48,13 +56,21 @@ models:
   health_check_service:
     args: {}
     class_name: HealthCheckService
+  requests:
+    args: {}
+    class_name: Requests
   params:
     args:
       coingecko_api_key: test_key
       data_sufficiency_threshold: 0.5
+      max_positions: 5
+      max_exposure_per_position: 20.0
+      max_total_exposure: 80.0
+      min_capital_buffer: 500.0
+      min_position_size_usd: 100.0
       reset_pause_duration: 10
       store_path: ./persistent_data
-      safe_contract_addresses: '{"ethereum":"0x0000000000000000000000000000000000000000","arbitrum":"0x0000000000000000000000000000000000000000","optimism":"0x0000000000000000000000000000000000000000","mode":"0x0000000000000000000000000000000000000000"}'
+      safe_contract_addresses: '{"ethereum":"0x0000000000000000000000000000000000000000","arbitrum":"0x0000000000000000000000000000000000000000","base":"0x0000000000000000000000000000000000000000","optimism":"0x0000000000000000000000000000000000000000","mode":"0x0000000000000000000000000000000000000000"}'
     class_name: Params
 dependencies: {}
 is_abstract: false

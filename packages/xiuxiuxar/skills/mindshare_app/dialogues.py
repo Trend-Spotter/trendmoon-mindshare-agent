@@ -24,6 +24,13 @@
 - HttpDialogues: The dialogues class keeps track of all dialogues of type http.
 """
 
+from typing import Any
+
+from aea.skills.base import Model
+from aea.protocols.base import Address, Message
+from aea.protocols.dialogue.base import Dialogue as BaseDialogue, DialogueLabel as BaseDialogueLabel
+
+from packages.valory.protocols.contract_api import ContractApiMessage
 from packages.eightballer.protocols.http.dialogues import (
     HttpDialogue as BaseHttpDialogue,
     HttpDialogues as BaseHttpDialogues,
@@ -31,6 +38,10 @@ from packages.eightballer.protocols.http.dialogues import (
 from packages.eightballer.protocols.default.dialogues import (
     DefaultDialogue as BaseDefaultDialogue,
     DefaultDialogues as BaseDefaultDialogues,
+)
+from packages.valory.protocols.contract_api.dialogues import (
+    ContractApiDialogue as BaseContractApiDialogue,
+    ContractApiDialogues as BaseContractApiDialogues,
 )
 
 
@@ -40,3 +51,48 @@ DefaultDialogues = BaseDefaultDialogues
 
 HttpDialogue = BaseHttpDialogue
 HttpDialogues = BaseHttpDialogues
+
+
+class ContractApiDialogue(BaseContractApiDialogue):
+    """This class maintains state of a dialogue for contract api."""
+
+    __slots__ = ("_terms",)
+
+    def __init__(
+        self,
+        dialogue_label: BaseDialogueLabel,
+        self_address: Address,
+        role: BaseDialogue.Role,
+        message_class: type[ContractApiMessage] = ContractApiMessage,
+    ) -> None:
+        """Initialize a dialogue."""
+        BaseContractApiDialogue.__init__(
+            self,
+            dialogue_label=dialogue_label,
+            self_address=self_address,
+            role=role,
+            message_class=message_class,
+        )
+        self._terms = None  # type: Optional[Terms]
+
+
+class ContractApiDialogues(Model, BaseContractApiDialogues):
+    """This class keeps track of all contact api dialogues."""
+
+    def __init__(self, **kwargs: Any) -> None:
+        """Initialize dialogues."""
+        Model.__init__(self, **kwargs)
+
+        def role_from_first_message(  # pylint: disable=unused-argument
+            message: Message, receiver_address: Address
+        ) -> BaseDialogue.Role:
+            """Infer the role of the agent from an incoming/outgoing first message."""
+            del receiver_address, message
+            return BaseContractApiDialogue.Role.AGENT
+
+        BaseContractApiDialogues.__init__(
+            self,
+            self_address=str(self.skill_id),
+            role_from_first_message=role_from_first_message,
+            dialogue_class=ContractApiDialogue,
+        )
