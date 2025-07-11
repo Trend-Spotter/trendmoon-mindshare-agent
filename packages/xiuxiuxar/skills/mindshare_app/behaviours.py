@@ -391,7 +391,7 @@ class DataCollectionRound(BaseState):
         """Get historical OHLCV data for a token."""
 
         return self.context.coingecko.get_historical_ohlcv(coingecko_id, days=90)
-    
+
     def _get_technical_data(
         self,
         ohlcv_data: list[list[Any]],
@@ -424,53 +424,42 @@ class DataCollectionRound(BaseState):
         data = data.dropna()
 
         # Moving Averages
-        data[f"SMA"] = ta.sma(data["close"], length=sma_length)
-        data[f"EMA"] = ta.ema(data["close"], length=ema_length)
+        data["SMA"] = ta.sma(data["close"], length=sma_length)
+        data["EMA"] = ta.ema(data["close"], length=ema_length)
 
         # RSI (normalized 0-100)
-        data[f"RSI"] = ta.rsi(data["close"], length=rsi_length)
-        data[f"RSI"] = data[f"RSI"].clip(0, 100)
+        data["RSI"] = ta.rsi(data["close"], length=rsi_length)
+        data["RSI"] = data["RSI"].clip(0, 100)
 
         # MACD (returns DataFrame with MACD, Signal, Histogram)
         macd = ta.macd(data["close"], fast=macd_fast, slow=macd_slow, signal=macd_signal)
         if macd is not None:
-            data[f"MACD"] = macd[f"MACD_{macd_fast}_{macd_slow}_{macd_signal}"]
-            data[f"MACDh"] = macd[f"MACDh_{macd_fast}_{macd_slow}_{macd_signal}"]
-            data[f"MACDs"] = macd[f"MACDs_{macd_fast}_{macd_slow}_{macd_signal}"]
+            data["MACD"] = macd[f"MACD_{macd_fast}_{macd_slow}_{macd_signal}"]
+            data["MACDh"] = macd[f"MACDh_{macd_fast}_{macd_slow}_{macd_signal}"]
+            data["MACDs"] = macd[f"MACDs_{macd_fast}_{macd_slow}_{macd_signal}"]
 
         # ADX
         adx = ta.adx(data["high"], data["low"], data["close"], length=adx_length)
         if adx is not None:
-            data[f"ADX"] = adx[f"ADX_{adx_length}"]
+            data["ADX"] = adx[f"ADX_{adx_length}"]
 
         # Bollinger Bands
         bbands = ta.bbands(data["close"], length=bb_length, std=bb_std)
         if bbands is not None:
-            data[f"BBL"] = bbands[f"BBL_{bb_length}_{bb_std}"]
-            data[f"BBM"] = bbands[f"BBM_{bb_length}_{bb_std}"]
-            data[f"BBU"] = bbands[f"BBU_{bb_length}_{bb_std}"]
-
+            data["BBL"] = bbands[f"BBL_{bb_length}_{bb_std}"]
+            data["BBM"] = bbands[f"BBM_{bb_length}_{bb_std}"]
+            data["BBU"] = bbands[f"BBU_{bb_length}_{bb_std}"]
 
         # Get latest indicators
         latest_data = data.iloc[-1]
-        indicators = [
+        return [
             ("SMA", latest_data["SMA"]),
-            ("EMA", latest_data["EMA"]), 
+            ("EMA", latest_data["EMA"]),
             ("RSI", latest_data["RSI"]),
-            ("MACD", {
-                "MACD": latest_data["MACD"],
-                "MACDh": latest_data["MACDh"],
-                "MACDs": latest_data["MACDs"]
-            }),
+            ("MACD", {"MACD": latest_data["MACD"], "MACDh": latest_data["MACDh"], "MACDs": latest_data["MACDs"]}),
             ("ADX", latest_data["ADX"]),
-            ("BB", {
-                "Lower": latest_data["BBL"],
-                "Middle": latest_data["BBM"], 
-                "Upper": latest_data["BBU"]
-            })
+            ("BB", {"Lower": latest_data["BBL"], "Middle": latest_data["BBM"], "Upper": latest_data["BBU"]}),
         ]
-
-        return indicators
 
 
 class PausedRound(BaseState):
