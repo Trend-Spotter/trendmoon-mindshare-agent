@@ -142,13 +142,11 @@ class SetupRound(BaseState):
         self.setup_success: bool = False
         self.setup_data: dict[str, Any] = {}
         self.started: bool = False
-        self.coingecko_api_key: str = self.context.config.coingecko_api_key
 
     def setup(self) -> None:
         """Perform the setup."""
         super().setup()
         self._is_done = False
-        self.context.coingecko = Coingecko(coingecko_api_key=self.coingecko_api_key)
 
     def _initialize_state(self) -> None:
         """Initialize persistent storage for the agent."""
@@ -179,6 +177,9 @@ class SetupRound(BaseState):
 
         self.context.store_path = store_path
         self.context.logger.info(f"Persistent storage initialized at: {store_path}")
+
+        coingecko_api_key = self.context.params.coingecko_api_key
+        self.context.coingecko = Coingecko(coingecko_api_key=coingecko_api_key)
 
     def act(self) -> None:
         """Perform the act."""
@@ -264,7 +265,7 @@ class DataCollectionRound(BaseState):
             if ohlcv_data:
                 self.collected_data["ohlcv"][symbol] = ohlcv_data
             if price_data:
-                self.collected_data["current_prices"][symbol] = price_data
+                self.collected_data["current_prices"][symbol] = price_data[symbol]
 
             self.completed_tokens.append(token_info)
             self.context.logger.debug(f"Successfully collected data for {symbol}")
@@ -384,15 +385,36 @@ class DataCollectionRound(BaseState):
 
         query_params = {"ids": coingecko_id, "vs_currencies": "usd"}
 
-        return self.context.coingecko.get_current_price(query_params)
+        return self.context.coingecko.coin_price_by_id(query_params)
 
-    def _get_historical_ohlcv_data(self, coingecko_id: str) -> dict | None:
+    def _get_historical_ohlcv_data(self, coingecko_id: str) -> list[list[Any]] | None:
         """Get historical OHLCV data for a token."""
 
         path_params = {"id": coingecko_id}
-        query_params = {"vs_currency": "usd", "days": 90}
+        query_params = {"vs_currency": "usd", "days": 30}
 
-        return self.context.coingecko.get_historical_ohlcv(path_params, query_params)
+        ohlc_data = self.context.coingecko.coin_ohlc_data_by_id(path_params, query_params)
+        volume_data = self.context.coingecko.coin_historical_chart_data_by_id(path_params, query_params)
+        return self._merge_ohlc_and_volume_data(ohlc_data, volume_data)
+
+    def _merge_ohlc_and_volume_data(self, ohlc_data: list[list[Any]], volume_data: list[list[Any]]) -> list[list[Any]]:
+        """Merge OHLCV and volume data by matching closest timestamps."""
+        ohlcv_data = []
+
+        total_volumes = volume_data["total_volumes"]
+
+        for ohlc in ohlc_data:
+            ohlc_timestamp = ohlc[0]
+
+            # Find the volume entry with the closest timestamp to the OHLC timestamp
+            closest_volume_entry = min(total_volumes, key=lambda x: abs(x[0] - ohlc_timestamp))
+            volume = closest_volume_entry[1]
+
+            # Create OHLCV entry: [timestamp, open, high, low, close, volume]
+            ohlcv_entry = [ohlc_timestamp] + ohlc[1:] + [volume]
+            ohlcv_data.append(ohlcv_entry)
+
+        return ohlcv_data
 
 
 class PausedRound(BaseState):
