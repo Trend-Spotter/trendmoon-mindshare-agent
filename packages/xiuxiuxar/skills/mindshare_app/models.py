@@ -25,6 +25,8 @@ from aea.skills.base import Model
 
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from packages.xiuxiuxar.skills.mindshare_app.behaviours import (
         MindshareabciappFsmBehaviour,
     )
@@ -212,5 +214,20 @@ class Params(Model):
         self.data_sufficiency_threshold = kwargs.pop("data_sufficiency_threshold", 0.5)
         self.safe_contract_addresses = kwargs.pop("safe_contract_addresses", {})
         self.store_path = kwargs.pop("store_path", "./persistent_data")
+        self.max_positions = kwargs.pop("max_positions", 10)
+        self.max_exposure_per_position = kwargs.pop("max_exposure_per_position", 20.0)
+        self.max_total_exposure = kwargs.pop("max_total_exposure", 80.0)
+        self.min_capital_buffer = kwargs.pop("min_capital_buffer", 500.0)
+        self.min_position_size_usdc = kwargs.pop("min_position_size_usdc", 100)
         self.reset_pause_duration = kwargs.pop("reset_pause_duration", 10)
+        super().__init__(*args, **kwargs)
+
+
+class Requests(Model):
+    """Keep the current pending requests."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        """Initialize the state."""
+        # mapping from dialogue reference nonce to callback
+        self.request_id_to_callback: dict[str, Callable] = {}
         super().__init__(*args, **kwargs)

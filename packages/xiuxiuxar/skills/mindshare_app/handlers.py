@@ -23,18 +23,28 @@ from typing import TYPE_CHECKING, cast
 
 from aea.skills.base import Handler
 from aea.protocols.base import Message
+from aea.configurations.data_types import PublicId
 
 from packages.eightballer.protocols.default import DefaultMessage
+from packages.valory.protocols.contract_api import ContractApiMessage
 from packages.eightballer.protocols.http.message import HttpMessage
 from packages.xiuxiuxar.skills.mindshare_app.dialogues import (
     HttpDialogue,
     HttpDialogues,
     DefaultDialogues,
+    ContractApiDialogue,
+    ContractApiDialogues,
 )
 
 
 if TYPE_CHECKING:
-    from packages.xiuxiuxar.skills.mindshare_app.models import HealthCheckService
+    from collections.abc import Callable
+
+    from packages.xiuxiuxar.skills.mindshare_app.models import Requests, HealthCheckService
+
+
+class MinshareAppHandlerError(Exception):
+    """Exception for the Mindshare app handler."""
 
 
 class HttpHandler(Handler):
@@ -188,3 +198,69 @@ class HttpHandler(Handler):
         """Initialise the handler."""
         self.enable_cors = kwargs.pop("enable_cors", False)
         super().__init__(**kwargs)
+
+
+class ContractApiHandler(Handler):
+    """Handler for contract API responses."""
+
+    SUPPORTED_PROTOCOL: PublicId | None = ContractApiMessage.protocol_id
+
+    allowed_response_performatives = frozenset(
+        {
+            ContractApiMessage.Performative.RAW_TRANSACTION,
+            ContractApiMessage.Performative.RAW_MESSAGE,
+            ContractApiMessage.Performative.ERROR,
+            ContractApiMessage.Performative.STATE,
+        }
+    )
+
+    def setup(self) -> None:
+        """Implement the setup."""
+
+    def teardown(self) -> None:
+        """Implement the handler teardown."""
+
+    def handle(self, message: Message) -> None:
+        """Handle contract API messages."""
+        contract_msg = cast("ContractApiMessage", message)
+
+        # Recover dialogue
+        contract_api_dialogues = cast("ContractApiDialogues", self.context.contract_api_dialogues)
+        contract_dialogue = cast("ContractApiDialogue", contract_api_dialogues.update(contract_msg))
+
+        if contract_dialogue is None:
+            self._handle_unidentified_dialogue(contract_msg)
+            return
+
+        if message.performative not in self.allowed_response_performatives:
+            self._handle_unallowed_performative(message)
+            return
+
+        request_nonce = contract_dialogue.dialogue_label.dialogue_reference[0]
+        ctx_requests = cast("Requests", self.context.requests)
+
+        try:
+            callback = cast(
+                "Callable",
+                ctx_requests.request_id_to_callback.pop(request_nonce),
+            )
+        except KeyError as e:
+            msg = f"No callback defined for request with nonce: {request_nonce}"
+            raise MinshareAppHandlerError(msg) from e
+
+        self._log_message_handling(message)
+        callback(message, contract_dialogue, None)
+
+        self.context.logger.info(f"Received contract API response: {contract_msg.performative}")
+
+    def _handle_unidentified_dialogue(self, message: Message) -> None:
+        """Handle an unidentified dialogue."""
+        self.context.logger.warning("Received invalid message: unidentified dialogue. message=%s", message)
+
+    def _handle_unallowed_performative(self, message: Message) -> None:
+        """Handle a message with an unallowed response performative."""
+        self.context.logger.warning("Received invalid message: unallowed performative. message=%s.", message)
+
+    def _log_message_handling(self, message: Message) -> None:
+        """Log the handling of the message."""
+        self.context.logger.debug("Calling registered callback with message=%s", message)
