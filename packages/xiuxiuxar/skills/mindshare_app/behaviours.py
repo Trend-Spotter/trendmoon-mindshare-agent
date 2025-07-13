@@ -355,7 +355,7 @@ class DataCollectionRound(BaseState):
 
         Expected data structure:
         - price_data: Current market data with price, volume, market cap, 24h change
-        - ohlcv_data: Historical OHLCV data for the last 90 days
+        - ohlcv_data: Historical OHLCV data for the last 30 days
 
         """
         symbol = token_info["symbol"]
@@ -383,9 +383,14 @@ class DataCollectionRound(BaseState):
     def _get_current_price_data(self, coingecko_id: str) -> dict | None:
         """Get current price and market data for a token."""
 
-        query_params = {"ids": coingecko_id, "vs_currencies": "usd"}
+        query_params = {"ids": coingecko_id, "vs_currencies": "usd", "include_market_cap": "true", "include_24hr_vol": "true", "include_24hr_change": "true"}
 
-        return self.context.coingecko.coin_price_by_id(query_params)
+        price_data = self.context.coingecko.coin_price_by_id(query_params)
+
+        if price_data:
+            return price_data[coingecko_id]
+
+        return None
 
     def _get_historical_ohlcv_data(self, coingecko_id: str) -> list[list[Any]] | None:
         """Get historical OHLCV data for a token."""
