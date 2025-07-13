@@ -383,7 +383,13 @@ class DataCollectionRound(BaseState):
     def _get_current_price_data(self, coingecko_id: str) -> dict | None:
         """Get current price and market data for a token."""
 
-        query_params = {"ids": coingecko_id, "vs_currencies": "usd", "include_market_cap": "true", "include_24hr_vol": "true", "include_24hr_change": "true"}
+        query_params = {
+            "ids": coingecko_id,
+            "vs_currencies": "usd",
+            "include_market_cap": "true",
+            "include_24hr_vol": "true",
+            "include_24hr_change": "true",
+        }
 
         price_data = self.context.coingecko.coin_price_by_id(query_params)
 
