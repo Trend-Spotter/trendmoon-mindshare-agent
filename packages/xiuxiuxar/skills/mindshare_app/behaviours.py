@@ -24,19 +24,38 @@ from abc import ABC
 from enum import Enum
 from typing import TYPE_CHECKING, Any, cast
 from pathlib import Path
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from dataclasses import dataclass
+from collections.abc import Generator
 
 from aea.protocols.base import Message
 from aea.skills.behaviours import State, FSMBehaviour
+from aea.configurations.base import PublicId
 from aea.protocols.dialogue.base import Dialogue as BaseDialogue
 
+from packages.eightballer.connections.dcxt import PUBLIC_ID as DCXT_PUBLIC_ID
 from packages.valory.protocols.contract_api import ContractApiMessage
 from packages.eightballer.contracts.erc_20.contract import Erc20
+from packages.eightballer.protocols.tickers.message import TickersMessage
 from packages.xiuxiuxar.skills.mindshare_app.models import Coingecko, Trendmoon
 from packages.xiuxiuxar.skills.mindshare_app.dialogues import (
     ContractApiDialogue,
-    ContractApiDialogues,
 )
+
+
+DEFAULT_ENCODING = "utf-8"
+PRICE_COLLECTION_TIMEOUT_SECONDS = 15
+
+
+@dataclass
+class PriceRequest:
+    """Price request."""
+
+    symbol: str
+    exchange_id: str
+    ledger_id: str
+    ticker_dialogue: Any
+    request_timestamp: datetime
 
 
 ALLOWED_ASSETS: dict[str, list[dict[str, str]]] = {
@@ -48,9 +67,9 @@ ALLOWED_ASSETS: dict[str, list[dict[str, str]]] = {
             "coingecko_id": "usd-coin",
         },
         {
-            "address": "0x0b3e328455c4059EEb9e3f84b5543F74E24e7E1b",
-            "symbol": "VIRTUAL",
-            "coingecko_id": "virtual-protocol",
+            "address": "0x2Ae3F1Ec7F1F5012CFEab0185bfc7aa3cf0DEc22",
+            "symbol": "cbETH",
+            "coingecko_id": "coinbase-wrapped-staked-eth",
         },
         {
             "address": "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf",
@@ -63,6 +82,7 @@ ALLOWED_ASSETS: dict[str, list[dict[str, str]]] = {
 
 if TYPE_CHECKING:
     from packages.xiuxiuxar.skills.mindshare_app.models import Coingecko, Trendmoon
+    from packages.eightballer.protocols.tickers.custom_types import Ticker
 
 
 class MindshareabciappEvents(Enum):
@@ -108,12 +128,31 @@ class BaseState(State, ABC):
 
     _state: MindshareabciappStates = None
 
+    supported_protocols: dict[PublicId, list] = {}
+
+    def setup(self) -> None:
+        """Perform the setup."""
+        self.started = False
+        self._is_done = False
+        self._message = None
+
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._event = None
         self._is_done = False  # Initially, the state is not done
-        self.supported_protocols = {ContractApiMessage.protocol_id: []}
         self._message = None
+        self._performative_to_dialogue_class = None  # Will be initialized lazily
+
+    @property
+    def performative_to_dialogue_class(self) -> dict:
+        """Get the performative to dialogue class mapping, initializing if needed."""
+        if self._performative_to_dialogue_class is None:
+            self._performative_to_dialogue_class = {
+                ContractApiMessage.Performative.GET_STATE: self.context.contract_api_dialogues,
+                ContractApiMessage.Performative.GET_RAW_TRANSACTION: self.context.contract_api_dialogues,
+                TickersMessage.Performative.GET_TICKER: self.context.tickers_dialogues,
+            }
+        return self._performative_to_dialogue_class
 
     @property
     def coingecko(self) -> "Coingecko":
@@ -185,13 +224,13 @@ class BaseState(State, ABC):
         performative: Message.Performative,
         connection_id: str,
         **kwargs: Any,
-    ) -> ContractApiDialogue:
+    ) -> BaseDialogue:
         """Submit a message and return the dialogue."""
-        # Get contract API dialogues
-        contract_api_dialogues = cast("ContractApiDialogues", self.context.contract_api_dialogues)
+
+        dialogue_class: BaseDialogue = self.performative_to_dialogue_class[performative]
 
         # Create message and dialogue
-        msg, dialogue = contract_api_dialogues.create(counterparty=connection_id, performative=performative, **kwargs)
+        msg, dialogue = dialogue_class.create(counterparty=connection_id, performative=performative, **kwargs)
         msg._sender = str(self.context.skill_id)  # noqa: SLF001
 
         request_nonce = self._get_request_nonce_from_dialogue(dialogue)
@@ -368,7 +407,7 @@ class DataCollectionRound(BaseState):
 
     def _store_collected_data(self) -> None:
         """Store collected data to persistent storage."""
-        if not hasattr(self.context, "store_path") or not self.context.store_path:
+        if not self.context.store_path:
             self.context.logger.warning("No store path available, skipping data storage")
             return
 
@@ -523,7 +562,6 @@ class PositionMonitoringRound(BaseState):
 
     def setup(self) -> None:
         """Perform the setup."""
-        super().setup()
         self._is_done = False
         self.positions_to_exit = []
         self.position_updates = []
@@ -531,6 +569,7 @@ class PositionMonitoringRound(BaseState):
         self.completed_positions = []
         self.monitoring_initialized = False
         self.started_data = None
+        super().setup()
 
     def act(self) -> None:
         """Perform the act."""
@@ -644,7 +683,7 @@ class PositionMonitoringRound(BaseState):
 
     def _load_open_positions(self) -> list[dict[str, Any]]:
         """Load open positions from persistent storage."""
-        if not hasattr(self.context, "store_path") or not self.context.store_path:
+        if not self.context.store_path:
             return []
 
         positions_file = self.context.store_path / "positions.json"
@@ -722,7 +761,7 @@ class PositionMonitoringRound(BaseState):
 
         try:
             # Check if we have collected data available
-            if not hasattr(self.context, "store_path") or not self.context.store_path:
+            if not self.context.store_path:
                 return price
 
             data_file = self.context.store_path / "collected_data.json"
@@ -771,7 +810,7 @@ class PositionMonitoringRound(BaseState):
 
     def _update_positions_storage(self, updated_positions: list[dict[str, Any]]) -> None:
         """Update positions in persistent storage."""
-        if not hasattr(self.context, "store_path") or not self.context.store_path:
+        if not self.context.store_path:
             return
 
         positions_file = self.context.store_path / "positions.json"
@@ -823,6 +862,10 @@ class PositionMonitoringRound(BaseState):
 class PortfolioValidationRound(BaseState):
     """This class implements the behaviour of the state PortfolioValidationRound."""
 
+    supported_protocols = {
+        ContractApiMessage.protocol_id: [],
+    }
+
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._state = MindshareabciappStates.PORTFOLIOVALIDATIONROUND
@@ -847,6 +890,8 @@ class PortfolioValidationRound(BaseState):
         self.contract_responses = {}
         self.capital_loading_complete = False
         self.contract_call_submitted = False
+        for k in self.supported_protocols:
+            self.supported_protocols[k] = []
 
     def act(self) -> None:
         """Perform the act using simple state-based flow."""
@@ -926,7 +971,7 @@ class PortfolioValidationRound(BaseState):
     def _load_portfolio_data(self) -> bool:
         """Load portfolio data from persistent storage."""
         try:
-            if not hasattr(self.context, "store_path") or not self.context.store_path:
+            if not self.context.store_path:
                 self.context.logger.warning("No store path available")
                 return False
 
@@ -1263,16 +1308,658 @@ class RiskEvaluationRound(BaseState):
 class TradeConstructionRound(BaseState):
     """This class implements the behaviour of the state TradeConstructionRound."""
 
+    supported_protocols = {
+        TickersMessage.protocol_id: [],
+    }
+
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._state = MindshareabciappStates.TRADECONSTRUCTIONROUND
+        self.construction_initialized: bool = False
+        self.trade_signal: dict[str, Any] = {}
+        self.constructed_trade: dict[str, Any] = {}
+        self.market_data: dict[str, Any] = {}
+        self.risk_parameters: dict[str, Any] = {}
+        self.pending_price_requests: list[str] = []
+        self.price_collection_started: bool = False
+        self.started_at: datetime | None = None
 
-    def act(self) -> None:
+    def setup(self) -> None:
+        """Setup the state."""
+        self._is_done = False
+        self.construction_initialized = False
+        self.trade_signal = {}
+        self.constructed_trade = {}
+        self.market_data = {}
+        self.risk_parameters = {}
+        self.pending_price_requests = []
+        self.price_collection_started = False
+        self.started_at = None
+        for k in self.supported_protocols:
+            self.supported_protocols[k] = []
+
+    def act(self) -> Generator:
         """Perform the act."""
-        self.context.logger.info(f"Entering {self._state} state.")
+        try:
+            if self._process_trade_construction():
+                self._event = MindshareabciappEvents.DONE
+                self._is_done = True
+            elif self._is_timeout_reached():
+                self._event = MindshareabciappEvents.ERROR
+                self._is_done = True
 
+        except Exception as e:
+            self.context.logger.exception(f"Error in {self._state} state: {e!s}")
+            self.context.error_context = {
+                "error_type": "trade_construction_error",
+                "error_message": str(e),
+                "originating_round": str(self._state),
+            }
+            self._event = MindshareabciappEvents.ERROR
+            self._is_done = True
+
+        return None
+
+    def _process_trade_construction(self) -> bool:
+        """Process the trade construction workflow step by step."""
+        if not self.construction_initialized:
+            self.context.logger.info(f"Entering {self._state} state.")
+            self._initialize_construction()
+
+            if not self._load_trade_signal():
+                self.context.logger.error("Failed to load trade signal from previous round.")
+                self._set_error_state()
+                return False
+
+        if not self.price_collection_started:
+            self.context.logger.info("Starting CowSwap price collection.")
+            self._start_price_collection()
+            return False
+
+        if not self._check_price_collection_complete():
+            return False
+
+        construction_steps = [
+            (self._process_price_responses, "Failed to process price responses"),
+            (self._construct_trade_parameters, "Failed to construct trade parameters"),
+            (self._validate_constructed_trade, "Failed to validate constructed trade."),
+        ]
+
+        for step_func, error_msg in construction_steps:
+            if not step_func():
+                self.context.logger.error(error_msg)
+                self._set_error_state()
+                return False
+
+        self._store_constructed_trade()
+        self._log_construction_summary()
+        self.context.logger.info("Trade construction completed successfully.")
+        return True
+
+    def _is_timeout_reached(self) -> bool:
+        """Check if timeout has been reached during price collection."""
+        return self.started_at and datetime.now(UTC) - self.started_at > timedelta(
+            seconds=PRICE_COLLECTION_TIMEOUT_SECONDS
+        )
+
+    def _set_error_state(self) -> None:
+        """Set the error state and mark as done."""
+        self._event = MindshareabciappEvents.ERROR
         self._is_done = True
-        self._event = MindshareabciappEvents.DONE
+
+    def _initialize_construction(self) -> None:
+        """Initialize the construction."""
+        if self.construction_initialized:
+            return
+
+        self.context.logger.info("Initializing trade construction.")
+
+        self.risk_parameters = {
+            "strategy": self.context.params.trading_strategy,
+            "max_slippage": self.context.params.max_slippage_bps / 10000,
+            "stop_loss_multiplier": self.context.params.stop_loss_atr_multiplier,
+            "take_profit_ratio": self.context.params.take_profit_risk_ratio,
+            "min_position_size": self.context.params.min_position_size_usdc,
+            "max_position_size": self.context.params.max_position_size_usdc,
+        }
+
+        self.construction_initialized = True
+
+    def _load_trade_signal(self) -> bool:
+        """Load the trade signal from the previous round."""
+        try:
+            if hasattr(self.context, "approved_trade_signal") and self.context.approved_trade_signal:
+                self.trade_signal = self.context.approved_trade_signal
+                self.context.logger.info(
+                    f"Loaded approved trade signal for {self.trade_signal.get('symbol', 'Unknown')}"
+                )
+                return True
+
+            if not self.context.store_path:
+                self.context.logger.warning("No store path available, skipping trade signal loading.")
+                return False
+
+            signals_file = self.context.store_path / "signals.json"
+            if not signals_file.exists():
+                self.context.logger.warning("No signals file found")
+                return False
+
+            with open(signals_file, encoding="utf-8") as f:
+                signals_data = json.load(f)
+
+            latest_signal = signals_data.get("last_signal")
+
+            if not latest_signal or latest_signal.get("status") != "approved":
+                self.context.logger.warning("No approved signal found, skipping trade signal loading.")
+                return False
+
+            self.trade_signal = latest_signal
+            self.context.logger.info(f"Loaded approved trade signal for {self.trade_signal.get('symbol', 'Unknown')}")
+            return True
+
+        except Exception as e:
+            self.context.logger.exception(f"Error loading trade signal: {e!s}")
+            return False
+
+    def _start_price_collection(self) -> None:
+        """Start price collection for the trade signal."""
+        try:
+            symbol = self.trade_signal.get("symbol")
+            if not symbol:
+                self.context.logger.error("No symbol in trade signal")
+                return
+
+            token_info = self._get_token_info(symbol)
+            if not token_info:
+                self.context.logger.error(f"Failed to get token info for {symbol}")
+                return
+
+            position_size_usdc = self.trade_signal.get("position_size_usdc")
+
+            price_request = self._submit_cowswap_ticker_request(token_info, position_size_usdc)
+            if price_request:
+                self.pending_price_requests.append(price_request)
+                self.price_collection_started = True
+                self.started_at = datetime.now(UTC)
+                self.context.logger.info(f"Started price collection for {symbol}")
+
+        except Exception as e:
+            self.context.logger.exception(f"Error requesting market prices: {e!s}")
+
+    def _get_token_info(self, symbol: str) -> dict[str, Any] | None:
+        """Get token info from allowed assets."""
+        for token in ALLOWED_ASSETS["base"]:
+            if token.get("symbol") == symbol:
+                return token
+        return None
+
+    def _submit_cowswap_ticker_request(
+        self, token_info: dict[str, str], position_size_usdc: float
+    ) -> PriceRequest | None:
+        """Submit a price request to the dxct connection."""
+        try:
+            symbol = token_info.get("symbol")
+
+            trading_pair = f"{symbol}/USDC"
+            params = []
+
+            def encode_dict(d: dict) -> bytes:
+                """Encode a dictionary to a hex string."""
+                return json.dumps(d).encode(DEFAULT_ENCODING)
+
+            params.append({"asset_a": symbol, "asset_b": "USDC", "params": encode_dict({"amount": position_size_usdc})})
+
+            for param in params:
+                ticker_dialogue = self.submit_msg(
+                    TickersMessage.Performative.GET_TICKER,
+                    connection_id=str(DCXT_PUBLIC_ID),
+                    exchange_id="cowswap",
+                    ledger_id="base",
+                    **param,
+                )
+
+            ticker_dialogue.validation_func = self._validate_ticker_msg
+            ticker_dialogue.exchange_id = "cowswap"
+            ticker_dialogue.ledger_id = "base"
+            ticker_dialogue.symbol = symbol
+            ticker_dialogue.trading_pair = trading_pair
+
+            price_request = PriceRequest(
+                symbol=symbol,
+                exchange_id="cowswap",
+                ledger_id="base",
+                ticker_dialogue=ticker_dialogue,
+                request_timestamp=datetime.now(UTC),
+            )
+
+            self.context.logger.info(f"Submitted ticker request for {trading_pair}")
+            return price_request
+
+        except Exception as e:
+            self.context.logger.exception(f"Error submitting ticker request: {e!s}")
+            return None
+
+    def _validate_ticker_msg(self, ticker_msg: TickersMessage, _dialogue: BaseDialogue) -> bool:
+        """Validate the ticker message."""
+        try:
+            if ticker_msg is None:
+                return False
+
+            if not isinstance(ticker_msg, TickersMessage):
+                return False
+
+            if ticker_msg.performative == TickersMessage.Performative.ERROR:
+                self.context.logger.warning(
+                    f"Received error from CowSwap: {getattr(ticker_msg, 'error_msg', 'Unknown error')}"
+                )
+                return False
+
+            if ticker_msg.performative == TickersMessage.Performative.TICKER and ticker_msg.ticker is not None:
+                self.context.logger.info(f"Received valid ticker: {ticker_msg.ticker.symbol}")
+                return True
+
+            return False
+
+        except Exception as e:
+            self.context.logger.exception(f"Error validating ticker message: {e!s}")
+            return False
+
+    def _check_price_collection_complete(self) -> bool:
+        """Check if all price collection is complete."""
+        try:
+            # Check if we have received responses for all requests
+            received_responses = len(self.supported_protocols.get(TickersMessage.protocol_id, []))
+            expected_responses = len(self.pending_price_requests)
+
+            if received_responses < expected_responses:
+                self.context.logger.debug(f"Waiting for price responses: {received_responses}/{expected_responses}")
+                return False
+
+            # Validate all received messages
+            for price_request in self.pending_price_requests:
+                dialogue = price_request.ticker_dialogue
+                if not dialogue.validation_func(dialogue.last_incoming_message, dialogue):
+                    self.context.logger.error(f"Invalid ticker message for {price_request.symbol}")
+                    return False
+
+            return True
+
+        except Exception as e:
+            self.context.logger.exception(f"Error checking price collection completion: {e}")
+            return False
+
+    def _process_price_responses(self) -> bool:
+        """Process the collected price responses from CowSwap."""
+        try:
+            if not self.pending_price_requests:
+                self.context.logger.error("No price requests to process")
+                return False
+
+            # Get the price request (should be only one for the target symbol)
+            price_request = self.pending_price_requests[0]
+            dialogue = price_request.ticker_dialogue
+            ticker_msg = dialogue.last_incoming_message
+
+            if not ticker_msg or not ticker_msg.ticker:
+                self.context.logger.error("No ticker data in response")
+                return False
+
+            ticker: Ticker = ticker_msg.ticker
+
+            # Extract pricing data from CowSwap ticker
+            current_price = float(ticker.bid)  # Use bid price for buying
+            bid_price = float(ticker.bid)
+            ask_price = float(ticker.ask)
+
+            # Store market data
+            self.market_data = {
+                "current_price": current_price,
+                "bid_price": bid_price,
+                "ask_price": ask_price,
+                "symbol": ticker.symbol,
+                "exchange": "cowswap",
+                "timestamp": ticker.datetime,
+                "cowswap_ticker": ticker.dict(),
+                # Calculate effective spread
+                "spread": (ask_price - bid_price) / current_price if current_price > 0 else 0,
+                "volume_24h": getattr(ticker, "volume", 0),
+                "high_24h": getattr(ticker, "high", current_price),
+                "low_24h": getattr(ticker, "low", current_price),
+            }
+
+            self.context.logger.info(
+                f"Processed CowSwap pricing for {ticker.symbol}: "
+                f"${current_price:.6f} (bid: ${bid_price:.6f}, ask: ${ask_price:.6f})"
+            )
+            return True
+
+        except Exception as e:
+            self.context.logger.exception(f"Error processing price responses: {e}")
+            return False
+
+    def _construct_trade_parameters(self) -> bool:
+        """Construct complete trade parameters using CowSwap pricing."""
+        try:
+            symbol = self.trade_signal.get("symbol")
+            trade_direction = self.trade_signal.get("direction", "buy")
+            signal_strength = self.trade_signal.get("signal_strength", 0.5)
+
+            token_info = self._get_token_info(symbol)
+            if not token_info:
+                return False
+
+            position_size_usdc = self._calculate_position_size(signal_strength)
+
+            current_price = self.market_data.get("current_price", 0)
+            if current_price <= 0:
+                self.context.logger.error("Invalid current price from CowSwap")
+                return False
+
+            slippage_tolerance = self._calculate_slippage_tolerance()
+            stop_loss_price = self._calculate_stop_loss_price(current_price, trade_direction)
+            take_profit_price = self._calculate_take_profit_price(current_price, trade_direction, stop_loss_price)
+
+            token_quantity = position_size_usdc / current_price
+
+            self.constructed_trade = {
+                "trade_id": f"trade_{symbol}_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}",
+                "timestamp": datetime.now(UTC).isoformat(),
+                "status": "constructed",
+                # Asset details
+                "symbol": symbol,
+                "contract_address": token_info["address"],
+                "coingecko_id": token_info["coingecko_id"],
+                "trading_pair": f"{symbol}/USDC",
+                # Trade direction and size
+                "direction": trade_direction,
+                "position_size_usdc": round(position_size_usdc, 2),
+                "token_quantity": round(token_quantity, 6),
+                # CowSwap pricing
+                "entry_price": current_price,
+                "bid_price": self.market_data.get("bid_price", current_price),
+                "ask_price": self.market_data.get("ask_price", current_price),
+                "cowswap_spread": self.market_data.get("spread", 0),
+                # Risk management
+                "stop_loss_price": round(stop_loss_price, 6),
+                "take_profit_price": round(take_profit_price, 6),
+                "slippage_tolerance": slippage_tolerance,
+                # CowSwap execution parameters
+                "execution_strategy": "cowswap",
+                "exchange_id": "cowswap",
+                "ledger_id": "base",
+                "max_execution_time": 300,  # 5 minutes
+                "partial_fills_allowed": True,
+                # Order configuration for CowSwap
+                "sell_token": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",  # USDC on Base
+                "buy_token": token_info["address"],
+                "sell_amount_usdc": position_size_usdc,
+                "min_buy_amount": token_quantity * (1 - slippage_tolerance),
+                # Signal context
+                "signal_strength": signal_strength,
+                "originating_signal": self.trade_signal.get("signal_id"),
+                # Market data snapshot
+                "market_data": self.market_data,
+                # Risk parameters used
+                "risk_parameters": self.risk_parameters,
+            }
+
+            return True
+
+        except Exception as e:
+            self.context.logger.exception(f"Failed to construct trade parameters: {e}")
+            return False
+
+    def _calculate_position_size(self, signal_strength: float) -> float:
+        """Calculate position size based on signal strength and risk parameters."""
+        try:
+            # Get available trading capital from portfolio validation
+            available_capital = getattr(self.context, "available_trading_capital", 5000.0)
+
+            base_position_pct = 0.10  # 10% base allocation
+
+            # Adjust based on signal strength (0.5 = neutral, 1.0 = very bullish, 0.0 = very bearish)
+            strength_multiplier = signal_strength if signal_strength > 0.5 else (1 - signal_strength)
+            position_pct = base_position_pct * (0.5 + strength_multiplier)  # Range: 5% - 15%
+
+            # Calculate position size
+            position_size = available_capital * position_pct
+
+            # Apply min/max constraints
+            min_size = self.risk_parameters["min_position_size"]
+            max_size = min(self.risk_parameters["max_position_size"], available_capital * 0.20)  # Max 20% of capital
+
+            position_size = max(min_size, min(position_size, max_size))
+
+            self.context.logger.info(f"Calculated position size: ${position_size:.2f} (signal: {signal_strength:.2f})")
+            return position_size
+
+        except Exception as e:
+            self.context.logger.exception(f"Failed to calculate position size: {e}")
+            return self.risk_parameters["min_position_size"]
+
+    def _calculate_slippage_tolerance(self) -> float:
+        """Calculate slippage tolerance based on CowSwap market conditions."""
+        try:
+            # Base slippage from configuration
+            base_slippage = self.risk_parameters["max_slippage"]
+
+            # Adjust based on CowSwap spread
+            spread = self.market_data.get("spread", 0)
+
+            # Add spread to base slippage with minimum protection
+            slippage = max(base_slippage, spread * 2.0)  # Use 2x spread as minimum
+            slippage = min(slippage, 0.05)  # Cap at 5%
+
+            return round(slippage, 4)
+
+        except Exception as e:
+            self.context.logger.exception(f"Failed to calculate slippage tolerance: {e}")
+            return self.risk_parameters["max_slippage"]
+
+    def _calculate_stop_loss_price(self, current_price: float, direction: str) -> float:
+        """Calculate stop-loss price based on ATR and risk parameters."""
+        try:
+            # Get ATR-based stop loss multiplier
+            atr_multiplier = self.risk_parameters["stop_loss_multiplier"]
+
+            # Calculate ATR approximation from CowSwap market data
+            high_24h = self.market_data.get("high_24h", current_price * 1.02)
+            low_24h = self.market_data.get("low_24h", current_price * 0.98)
+            estimated_atr = abs(high_24h - low_24h) / 2  # Simple ATR estimate
+
+            # Ensure minimum ATR
+            estimated_atr = max(estimated_atr, current_price * 0.015)  # Min 1.5% ATR
+
+            stop_distance = estimated_atr * atr_multiplier
+
+            stop_loss = current_price - stop_distance if direction == "buy" else current_price + stop_distance
+
+            return max(stop_loss, 0.000001)  # Ensure positive price
+
+        except Exception as e:
+            self.context.logger.exception(f"Failed to calculate stop loss price: {e}")
+            return current_price * 0.90 if direction == "buy" else current_price * 1.10
+
+    def _calculate_take_profit_price(self, current_price: float, direction: str, stop_loss_price: float) -> float:
+        """Calculate take-profit price based on risk-reward ratio."""
+        try:
+            # Calculate risk (distance to stop loss)
+            if direction == "buy":
+                risk = current_price - stop_loss_price
+                reward = risk * self.risk_parameters["take_profit_ratio"]
+                take_profit = current_price + reward
+            else:  # sell
+                risk = stop_loss_price - current_price
+                reward = risk * self.risk_parameters["take_profit_ratio"]
+                take_profit = current_price - reward
+
+            return max(take_profit, 0.000001)  # Ensure positive price
+
+        except Exception as e:
+            self.context.logger.exception(f"Failed to calculate take profit price: {e}")
+            return current_price * 1.20 if direction == "buy" else current_price * 0.80
+
+    def _validate_constructed_trade(self) -> bool:
+        """Validate the constructed trade for completeness and sanity."""
+        try:
+            errors = []
+
+            # Perform all validation checks
+            errors.extend(self._validate_required_fields())
+            errors.extend(self._validate_price_relationships())
+            errors.extend(self._validate_position_size())
+            errors.extend(self._validate_slippage_tolerance())
+
+            # Report all errors or success
+            if errors:
+                for error in errors:
+                    self.context.logger.error(error)
+                return False
+
+            self.context.logger.info("Trade construction validation passed")
+            return True
+
+        except Exception as e:
+            self.context.logger.exception(f"Failed to validate constructed trade: {e}")
+            return False
+
+    def _validate_required_fields(self) -> list[str]:
+        """Validate that all required fields are present and valid."""
+        required_fields = [
+            "trade_id",
+            "symbol",
+            "contract_address",
+            "direction",
+            "position_size_usdc",
+            "token_quantity",
+            "entry_price",
+            "stop_loss_price",
+            "take_profit_price",
+            "slippage_tolerance",
+            "sell_token",
+            "buy_token",
+            "exchange_id",
+            "ledger_id",
+        ]
+
+        errors = []
+        for field in required_fields:
+            if field not in self.constructed_trade:
+                errors.append(f"Missing required field: {field}")
+                continue
+
+            value = self.constructed_trade[field]
+            if value is None or (isinstance(value, int | float) and value <= 0):
+                errors.append(f"Invalid value for {field}: {value}")
+
+        return errors
+
+    def _validate_price_relationships(self) -> list[str]:
+        """Validate price relationships for buy orders."""
+        errors = []
+
+        if self.constructed_trade.get("direction") == "buy":
+            entry = self.constructed_trade.get("entry_price", 0)
+            stop = self.constructed_trade.get("stop_loss_price", 0)
+            take_profit = self.constructed_trade.get("take_profit_price", 0)
+
+            if stop >= entry:
+                errors.append(f"Invalid stop loss: {stop} >= {entry}")
+
+            if take_profit <= entry:
+                errors.append(f"Invalid take profit: {take_profit} <= {entry}")
+
+        return errors
+
+    def _validate_position_size(self) -> list[str]:
+        """Validate position size is within reasonable bounds."""
+        errors = []
+        position_size = self.constructed_trade.get("position_size_usdc", 0)
+
+        if position_size < self.risk_parameters["min_position_size"]:
+            errors.append(f"Position size too small: ${position_size}")
+
+        if position_size > self.risk_parameters["max_position_size"]:
+            errors.append(f"Position size too large: ${position_size}")
+
+        return errors
+
+    def _validate_slippage_tolerance(self) -> list[str]:
+        """Validate slippage tolerance is within acceptable range."""
+        errors = []
+        slippage = self.constructed_trade.get("slippage_tolerance", 0)
+
+        if slippage > 0.10:  # 10% max
+            errors.append(f"Slippage tolerance too high: {slippage * 100:.2f}%")
+
+        return errors
+
+    def _store_constructed_trade(self) -> None:
+        """Store the constructed trade for the ExecutionRound."""
+        try:
+            # Store in context for immediate access by ExecutionRound
+            self.context.constructed_trade = self.constructed_trade
+
+            # Also persist to storage
+            if self.context.store_path:
+                trades_file = self.context.store_path / "pending_trades.json"
+
+                # Load existing pending trades
+                pending_trades = {"trades": []}
+                if trades_file.exists():
+                    with open(trades_file, encoding="utf-8") as f:
+                        pending_trades = json.load(f)
+
+                # Add new trade
+                pending_trades["trades"].append(self.constructed_trade)
+                pending_trades["last_updated"] = datetime.now(UTC).isoformat()
+
+                # Save updated trades
+                with open(trades_file, "w", encoding="utf-8") as f:
+                    json.dump(pending_trades, f, indent=2)
+
+                self.context.logger.info(f"Stored constructed trade: {self.constructed_trade['trade_id']}")
+
+        except Exception as e:
+            self.context.logger.exception(f"Failed to store constructed trade: {e}")
+
+    def _log_construction_summary(self) -> None:
+        """Log a summary of the constructed trade."""
+        try:
+            trade = self.constructed_trade
+            symbol = trade["symbol"]
+            direction = trade["direction"]
+            position_size = trade["position_size_usdc"]
+            entry_price = trade["entry_price"]
+            stop_loss = trade["stop_loss_price"]
+            take_profit = trade["take_profit_price"]
+            slippage = trade["slippage_tolerance"]
+
+            self.context.logger.info("=== CowSwap Trade Construction Summary ===")
+            self.context.logger.info(f"Trade ID: {trade['trade_id']}")
+            self.context.logger.info(f"Asset: {symbol} ({trade['contract_address'][:10]}...)")
+            self.context.logger.info(f"Direction: {direction.upper()}")
+            self.context.logger.info(f"Position Size: ${position_size:.2f}")
+            self.context.logger.info(f"Token Quantity: {trade['token_quantity']:.6f}")
+            self.context.logger.info(f"Entry Price: ${entry_price:.6f}")
+            self.context.logger.info(f"CowSwap Spread: {trade['cowswap_spread']:.4f}%")
+            self.context.logger.info(f"Stop Loss: ${stop_loss:.6f}")
+            self.context.logger.info(f"Take Profit: ${take_profit:.6f}")
+            self.context.logger.info(f"Slippage Tolerance: {slippage * 100:.2f}%")
+            self.context.logger.info(f"Exchange: {trade['exchange_id']} on {trade['ledger_id']}")
+
+            # Calculate risk metrics
+            risk_amount = abs(entry_price - stop_loss) * trade["token_quantity"]
+            reward_amount = abs(take_profit - entry_price) * trade["token_quantity"]
+            risk_reward_ratio = reward_amount / risk_amount if risk_amount > 0 else 0
+
+            self.context.logger.info(f"Risk Amount: ${risk_amount:.2f}")
+            self.context.logger.info(f"Reward Amount: ${reward_amount:.2f}")
+            self.context.logger.info(f"Risk/Reward Ratio: 1:{risk_reward_ratio:.2f}")
+            self.context.logger.info("==========================================")
+
+        except Exception as e:
+            self.context.logger.exception(f"Failed to log construction summary: {e}")
 
 
 class ExecutionRound(BaseState):

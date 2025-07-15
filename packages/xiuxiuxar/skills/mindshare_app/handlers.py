@@ -26,12 +26,15 @@ from aea.protocols.base import Message
 from aea.configurations.data_types import PublicId
 
 from packages.eightballer.protocols.default import DefaultMessage
+from packages.eightballer.protocols.tickers import TickersMessage
 from packages.valory.protocols.contract_api import ContractApiMessage
 from packages.eightballer.protocols.http.message import HttpMessage
 from packages.xiuxiuxar.skills.mindshare_app.dialogues import (
     HttpDialogue,
     HttpDialogues,
+    TickersDialogue,
     DefaultDialogues,
+    TickersDialogues,
     ContractApiDialogue,
     ContractApiDialogues,
 )
@@ -252,6 +255,70 @@ class ContractApiHandler(Handler):
         callback(message, contract_dialogue, None)
 
         self.context.logger.info(f"Received contract API response: {contract_msg.performative}")
+
+    def _handle_unidentified_dialogue(self, message: Message) -> None:
+        """Handle an unidentified dialogue."""
+        self.context.logger.warning("Received invalid message: unidentified dialogue. message=%s", message)
+
+    def _handle_unallowed_performative(self, message: Message) -> None:
+        """Handle a message with an unallowed response performative."""
+        self.context.logger.warning("Received invalid message: unallowed performative. message=%s.", message)
+
+    def _log_message_handling(self, message: Message) -> None:
+        """Log the handling of the message."""
+        self.context.logger.debug("Calling registered callback with message=%s", message)
+
+
+class TickersHandler(Handler):
+    """Handler for tickers messages."""
+
+    SUPPORTED_PROTOCOL: PublicId | None = TickersMessage.protocol_id
+
+    allowed_response_performatives = frozenset(
+        {
+            TickersMessage.Performative.TICKER,
+            TickersMessage.Performative.ERROR,
+        }
+    )
+
+    def setup(self) -> None:
+        """Implement the setup."""
+
+    def teardown(self) -> None:
+        """Implement the handler teardown."""
+
+    def handle(self, message: Message) -> None:
+        """Handle tickers messages."""
+        tickers_msg = cast("TickersMessage", message)
+
+        # Recover dialogue
+        tickers_dialogues = cast("TickersDialogues", self.context.tickers_dialogues)
+        tickers_dialogue = cast("TickersDialogue", tickers_dialogues.update(tickers_msg))
+
+        if tickers_dialogue is None:
+            self._handle_unidentified_dialogue(tickers_msg)
+            return
+
+        if message.performative not in self.allowed_response_performatives:
+            self._handle_unallowed_performative(message)
+            return
+
+        request_nonce = tickers_dialogue.dialogue_label.dialogue_reference[0]
+        ctx_requests = cast("Requests", self.context.requests)
+
+        try:
+            callback = cast(
+                "Callable",
+                ctx_requests.request_id_to_callback.pop(request_nonce),
+            )
+        except KeyError as e:
+            msg = f"No callback defined for request with nonce: {request_nonce}"
+            raise MinshareAppHandlerError(msg) from e
+
+        self._log_message_handling(message)
+        callback(message, tickers_dialogue, None)
+
+        self.context.logger.info(f"Received tickers response: {tickers_msg.performative}")
 
     def _handle_unidentified_dialogue(self, message: Message) -> None:
         """Handle an unidentified dialogue."""

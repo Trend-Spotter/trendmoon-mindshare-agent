@@ -39,6 +39,10 @@ from packages.eightballer.protocols.default.dialogues import (
     DefaultDialogue as BaseDefaultDialogue,
     DefaultDialogues as BaseDefaultDialogues,
 )
+from packages.eightballer.protocols.tickers.dialogues import (
+    TickersDialogue as BaseTickersDialogue,
+    TickersDialogues as BaseTickersDialogues,
+)
 from packages.valory.protocols.contract_api.dialogues import (
     ContractApiDialogue as BaseContractApiDialogue,
     ContractApiDialogues as BaseContractApiDialogues,
@@ -51,6 +55,10 @@ DefaultDialogues = BaseDefaultDialogues
 
 HttpDialogue = BaseHttpDialogue
 HttpDialogues = BaseHttpDialogues
+
+
+TickersDialogue = BaseTickersDialogue
+TickersDialogues = BaseTickersDialogues
 
 
 class ContractApiDialogue(BaseContractApiDialogue):
