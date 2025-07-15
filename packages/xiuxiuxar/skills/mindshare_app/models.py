@@ -220,6 +220,14 @@ class Params(Model):
         self.min_capital_buffer = kwargs.pop("min_capital_buffer", 500.0)
         self.min_position_size_usdc = kwargs.pop("min_position_size_usdc", 100)
         self.reset_pause_duration = kwargs.pop("reset_pause_duration", 10)
+        self.trading_strategy = kwargs.pop("trading_strategy", "balanced")
+        self.max_slippage_bps = kwargs.pop("max_slippage_bps", 150)
+        self.stop_loss_atr_multiplier = kwargs.pop("stop_loss_atr_multiplier", 1.5)
+        self.take_profit_risk_ratio = kwargs.pop("take_profit_risk_ratio", 2.0)
+        self.max_position_size_usdc = kwargs.pop("max_position_size_usdc", 5000.0)
+        self.price_collection_timeout = kwargs.pop("price_collection_timeout", 15)
+        self.cowswap_slippage_tolerance = kwargs.pop("cowswap_slippage_tolerance", 0.005)
+        self.cowswap_timeout_seconds = kwargs.pop("cowswap_timeout_seconds", 300)
         super().__init__(*args, **kwargs)
 
 
