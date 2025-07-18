@@ -1,8 +1,8 @@
 {
     "dev": {
-        "skill/xiuxiuxar/mindshare_app/0.1.0": "bafybeib3sqnpggpk6lgy3zdvu4b34uyqqy54qt7uyijtb3ypxzohts3dqq",
-        "agent/xiuxiuxar/mindshare_agent/0.1.0": "bafybeidaturgh5u5j47vktr2fvn5v3zah2hkg6tsgutocshlvymk22ryoy",
-        "service/xiuxiuxar/mindshare_agent/0.1.0": "bafybeie2fbw34baki7smr2xlnkah4r3foo43js2oft4yliteqayrhnx37e"
+        "skill/xiuxiuxar/mindshare_app/0.1.0": "bafybeiertcdve7tsaxkejpmzu3gmo5k3wtje7zc3evd2z5qig35plw3nsq",
+        "agent/xiuxiuxar/mindshare_agent/0.1.0": "bafybeiadyp6k5tl3a7aw2rn2ckq37r5f36aiwgeo5xtxmmfxy2latw42qq",
+        "service/xiuxiuxar/mindshare_agent/0.1.0": "bafybeibdlctmi3555qydfamilfbnbbngskdc3edcj5xsethmgyqz4bxgme"
     },
     "third_party": {
         "protocol/valory/contract_api/1.0.0": "bafybeid247uig2ekykdumh7ewhp2cdq7rchaeqjj6e7urx35zfpdl5zrn4",
@@ -25,10 +25,14 @@
         "protocol/zarathustra/asset_bridging/0.1.0": "bafybeietwg5egxy2slyrxgarhilcqcbkkiwgvjgdn22z63ef3c7rhldb54",
         "protocol/eightballer/approvals/0.1.0": "bafybeie7z3qdnfifpjddzutmdg3p52uskt7admpan4ucmrijazbmpc7usa",
         "contract/eightballer/erc_20/0.1.0": "bafybeiegd5pdj34s4cuhiaxermjdtyhnapu5usy545vcf6mi5grfazlnpa",
+        "contract/valory/gnosis_safe/0.1.0": "bafybeihqefvhxbdocjphrcz33txmbgembl35qtcc7nusdvymrh4o3sp5um",
+        "contract/valory/multisend/0.1.0": "bafybeig5byt5urg2d2bsecufxe5ql7f4mezg3mekfleeh32nmuusx66p4y",
+        "contract/valory/gnosis_safe_proxy_factory/0.1.0": "bafybeiegj5zx4wrahc6gpunxvxgjkzdg4nvdojbqkk5xggv2mt56oecpoa",
+        "contract/valory/erc20/0.1.0": "bafybeiczphtgmlot3tbsqwfstagnuffw6rlzlxpodnvafodwq573q555ye",
         "connection/eightballer/http_client/0.1.0": "bafybeiaz5auftwxpt4czrmeeesggqlkc2kosmetq6adrebeu6g7bkhqc2u",
         "connection/eightballer/http_server/0.1.0": "bafybeidrvllrr23mc6bvjxn6v3hny6oiwhfgi72n2b7w6ck5luousjfbbq",
         "connection/eightballer/prometheus/0.1.1": "bafybeicy4ck2wvauo2vh6ji64xrzlgezh27powi6ztokr4yujtf3cft6wi",
-        "connection/eightballer/dcxt/0.1.0": "bafybeicmrkkvyrg5en2auz43klzl2kmfqpwa2jx65p44zn7spp3sfkt5qu",
+        "connection/eightballer/dcxt/0.1.0": "bafybeig5j6wm76brp7klcfnnd3op3i5aa7wkvqzulihy4c4fftrl6pdkda",
         "connection/valory/ledger/0.19.0": "bafybeibdsjmy4w2eyilbqc7yzutopl65qpeyspxwz7mjvirr52twhjlf5y",
         "connection/valory/ipfs/0.1.0": "bafybeiamz23olgtow4wqf7zpsfnfzf7pxiognrxl2mhn5kvqutlwhgukxa",
         "connection/valory/http_client/0.23.0": "bafybeid5ffvg76ejjoese7brj5ji3lx66cu7p2ixfwflpo6rgofkypfd7y",
