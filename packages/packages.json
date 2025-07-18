@@ -1,11 +1,11 @@
 {
     "dev": {
-        "skill/xiuxiuxar/mindshare_app/0.1.0": "bafybeihbt56tk527lazs5ikhtjyuzstvmulqeu6cjk6c3wzuumknhdofzu",
-        "agent/xiuxiuxar/mindshare_agent/0.1.0": "bafybeihibjs5ibq3bk7e4pkabhkm5ouzvgbkcyoaqwcxqryr5hzevywzqy",
-        "service/xiuxiuxar/mindshare_agent/0.1.0": "bafybeigtatm6fwdav2clt7ggbgl466tue436pjvjuiblsxslgyuyzigtqi"
+        "skill/xiuxiuxar/mindshare_app/0.1.0": "bafybeibbzetq6f27r4jdjkum3go22jidtpztnta3ta64zt4dxcf5v2bca4",
+        "agent/xiuxiuxar/mindshare_agent/0.1.0": "bafybeiaxhzgzjrusx3nrorsnygkod7nab7w56ui3x2us6v4x6v2aly4vn4",
+        "service/xiuxiuxar/mindshare_agent/0.1.0": "bafybeifppdr3rkysi7xiblayrsl2f4e4znwhfnwn5goojhgqb6gl3mluki"
     },
     "third_party": {
-        "protocol/eightballer/default/0.1.0": "bafybeicsdb3bue2xoopc6lue7njtyt22nehrnkevmkuk2i6ac65w722vwy",
+        "protocol/eightballer/default/0.1.0": "bafybeickzbjjhatxl2a5gq3qr2taczznuw7co7w7et33gtb3hagx2wlesy",
         "protocol/eightballer/http/0.1.0": "bafybeid75xhq7hfdt7sgj7yrn44yj57xrgxscaw34ir46tndfzvodioxme",
         "protocol/eightballer/prometheus/1.0.0": "bafybeidxo32tu43ru3xlk3kd5b6xlwf6vaytxvvhtjbh7ag52kexos4ke4",
         "protocol/open_aea/signing/1.0.0": "bafybeig2d36zxy65vd7fwhs7scotuktydcarm74aprmrb5nioiymr3yixm",

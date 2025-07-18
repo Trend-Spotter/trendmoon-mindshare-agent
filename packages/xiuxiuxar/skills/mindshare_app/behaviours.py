@@ -28,7 +28,7 @@ from datetime import UTC, datetime
 
 from aea.skills.behaviours import State, FSMBehaviour
 
-from packages.xiuxiuxar.skills.mindshare_app.models import Coingecko, Trendmoon
+from packages.xiuxiuxar.skills.mindshare_app.models import Trendmoon
 
 
 ALLOWED_ASSETS: dict[str, list[dict[str, str]]] = {
@@ -54,7 +54,7 @@ ALLOWED_ASSETS: dict[str, list[dict[str, str]]] = {
 
 
 if TYPE_CHECKING:
-    from packages.xiuxiuxar.skills.mindshare_app.models import Trendmoon
+    from packages.xiuxiuxar.skills.mindshare_app.models import Coingecko, Trendmoon
 
 
 class MindshareabciappEvents(Enum):
@@ -179,7 +179,8 @@ class SetupRound(BaseState):
         self.context.logger.info(f"Persistent storage initialized at: {store_path}")
 
         coingecko_api_key = self.context.params.coingecko_api_key
-        self.context.coingecko = Coingecko(coingecko_api_key=coingecko_api_key)
+        self.context.logger.info(f"Setting CoinGecko API key: {coingecko_api_key}")
+        self.context.coingecko.set_api_key(coingecko_api_key)
 
     def act(self) -> None:
         """Perform the act."""
@@ -265,7 +266,7 @@ class DataCollectionRound(BaseState):
             if ohlcv_data:
                 self.collected_data["ohlcv"][symbol] = ohlcv_data
             if price_data:
-                self.collected_data["current_prices"][symbol] = price_data[symbol]
+                self.collected_data["current_prices"][symbol] = price_data
 
             self.completed_tokens.append(token_info)
             self.context.logger.debug(f"Successfully collected data for {symbol}")
@@ -366,9 +367,13 @@ class DataCollectionRound(BaseState):
             self.collected_data["api_calls"] += 1
             price_data = self._get_current_price_data(coingecko_id)
 
+            self.context.logger.debug(f"Collected price data for {symbol}: {price_data}")
+
             # Fetch historical OHLCV data for the token
             self.collected_data["api_calls"] += 1
             ohlcv_data = self._get_historical_ohlcv_data(coingecko_id)
+
+            self.context.logger.debug(f"Collected OHLCV data for {symbol}: {ohlcv_data}")
 
             if not ohlcv_data or not price_data:
                 error_msg = "No data returned from CoinGecko API"
@@ -404,28 +409,7 @@ class DataCollectionRound(BaseState):
         path_params = {"id": coingecko_id}
         query_params = {"vs_currency": "usd", "days": 30}
 
-        ohlc_data = self.context.coingecko.coin_ohlc_data_by_id(path_params, query_params)
-        volume_data = self.context.coingecko.coin_historical_chart_data_by_id(path_params, query_params)
-        return self._merge_ohlc_and_volume_data(ohlc_data, volume_data)
-
-    def _merge_ohlc_and_volume_data(self, ohlc_data: list[list[Any]], volume_data: list[list[Any]]) -> list[list[Any]]:
-        """Merge OHLCV and volume data by matching closest timestamps."""
-        ohlcv_data = []
-
-        total_volumes = volume_data["total_volumes"]
-
-        for ohlc in ohlc_data:
-            ohlc_timestamp = ohlc[0]
-
-            # Find the volume entry with the closest timestamp to the OHLC timestamp
-            closest_volume_entry = min(total_volumes, key=lambda x: abs(x[0] - ohlc_timestamp))
-            volume = closest_volume_entry[1]
-
-            # Create OHLCV entry: [timestamp, open, high, low, close, volume]
-            ohlcv_entry = [ohlc_timestamp] + ohlc[1:] + [volume]
-            ohlcv_data.append(ohlcv_entry)
-
-        return ohlcv_data
+        return self.context.coingecko.get_ohlcv_data(path_params, query_params)
 
 
 class PausedRound(BaseState):

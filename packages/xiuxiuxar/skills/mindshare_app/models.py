@@ -18,7 +18,6 @@
 
 """This module contains the model for the Mindshare app."""
 
-import logging
 from typing import TYPE_CHECKING, Any, cast
 from datetime import UTC, datetime
 
@@ -41,6 +40,10 @@ class Coingecko(Model):
         self.coingecko_api_key = kwargs.pop("coingecko_api_key", "")
         super().__init__(*args, **kwargs)
 
+    def set_api_key(self, coingecko_api_key: str) -> None:
+        """Set the CoinGecko API key."""
+        self.coingecko_api_key = coingecko_api_key
+
     def validate_required_params(self, params: dict[str, str], required_keys: list[str], param_type: str) -> None:
         """Validate that required parameters are present and not None."""
         if params is None or params == {}:
@@ -55,6 +58,10 @@ class Coingecko(Model):
     def coin_ohlc_data_by_id(self, path_params: dict[str, str], query_params: dict[str, str]) -> list[list[Any]]:
         """Fetch OHLC data for a coin from CoinGecko."""
         try:
+            if self.coingecko_api_key is None or self.coingecko_api_key == "":
+                msg = "Coingecko API key is not set"
+                raise ValueError(msg)
+
             self.validate_required_params(path_params, ["id"], "path_params")
             self.validate_required_params(query_params, ["vs_currency", "days"], "query_params")
 
@@ -68,16 +75,19 @@ class Coingecko(Model):
 
             return response.json()
 
-        except requests.exceptions.RequestException as e:
-            # Log the error and return empty list to avoid crashing
-            logging.exception(f"Error fetching OHLC data: {e!s}")
+        except Exception as e:
+            self.context.logger.exception(f"Error fetching OHLC data: {e!s}")
             return []
 
     def coin_historical_chart_data_by_id(
         self, path_params: dict[str, str], query_params: dict[str, str]
-    ) -> list[list[Any]]:
+    ) -> dict[str, Any]:
         """Fetch historical chart data for a coin from CoinGecko."""
         try:
+            if self.coingecko_api_key is None or self.coingecko_api_key == "":
+                msg = "Coingecko API key is not set"
+                raise ValueError(msg)
+
             self.validate_required_params(path_params, ["id"], "path_params")
             self.validate_required_params(query_params, ["vs_currency", "days"], "query_params")
 
@@ -91,14 +101,17 @@ class Coingecko(Model):
 
             return response.json()
 
-        except requests.exceptions.RequestException as e:
-            # Log the error and return empty list to avoid crashing
-            logging.exception(f"Error fetching OHLC data: {e!s}")
-            return []
+        except Exception as e:
+            self.context.logger.exception(f"Error fetching OHLC data: {e!s}")
+            return None
 
     def coin_price_by_id(self, query_params: dict[str, str]) -> dict[str, Any]:
         """Fetch price data for a coin from CoinGecko."""
         try:
+            if self.coingecko_api_key is None or self.coingecko_api_key == "":
+                error_msg = "Coingecko API key is not set"
+                raise ValueError(error_msg)
+
             self.validate_required_params(query_params, ["vs_currencies"], "query_params")
 
             base_url = "https://api.coingecko.com/api/v3/simple/price"
@@ -110,10 +123,35 @@ class Coingecko(Model):
             response.raise_for_status()
             return response.json()
 
-        except requests.exceptions.RequestException as e:
-            # Log the error and return empty dict to avoid crashing
-            logging.exception(f"Error fetching price data: {e!s}")
-            return {}
+        except Exception as e:
+            self.context.logger.exception(f"Error fetching price data: {e!s}")
+            return None
+
+    def get_ohlcv_data(self, path_params: dict[str, str], query_params: dict[str, str]) -> list[list[Any]]:
+        """Merge OHLCV and volume data by matching closest timestamps."""
+        ohlcv_data = []
+
+        ohlc_data = self.context.coingecko.coin_ohlc_data_by_id(path_params, query_params)
+        volume_data = self.context.coingecko.coin_historical_chart_data_by_id(path_params, query_params)
+
+        if not ohlc_data or not volume_data:
+            self.context.logger.error("Missing data returned from CoinGecko")
+            return None
+
+        total_volumes = volume_data["total_volumes"]
+
+        for ohlc in ohlc_data:
+            ohlc_timestamp = ohlc[0]
+
+            # Find the volume entry with the closest timestamp to the OHLC timestamp
+            closest_volume_entry = min(total_volumes, key=lambda x: abs(x[0] - ohlc_timestamp))
+            volume = closest_volume_entry[1]
+
+            # Create OHLCV entry: [timestamp, open, high, low, close, volume]
+            ohlcv_entry = [ohlc_timestamp] + ohlc[1:] + [volume]
+            ohlcv_data.append(ohlcv_entry)
+
+        return ohlcv_data
 
 
 class Trendmoon(Model):
