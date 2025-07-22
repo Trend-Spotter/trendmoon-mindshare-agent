@@ -266,8 +266,6 @@ class DataCollectionRound(BaseState):
             if price_data:
                 self.collected_data["current_prices"][symbol] = price_data
 
-
-            moving_average_length = self.context.params.moving_average_length
             technical_data = self._get_technical_data(ohlcv_data)
             self.collected_data["technical_data"][symbol] = technical_data
 
@@ -394,11 +392,7 @@ class DataCollectionRound(BaseState):
 
         return self.context.coingecko.get_historical_ohlcv(coingecko_id, days=90)
 
-    def _get_technical_data(
-        self,
-        ohlcv_data: list[list[Any]],
-        moving_average_length: int = 20
-    ) -> list:
+    def _get_technical_data(self, ohlcv_data: list[list[Any]], moving_average_length: int = 20) -> list:
         """Calculate core technical indicators for a coin using pandas-ta with validation."""
         # Input validation
         if not isinstance(ohlcv_data, list) or len(ohlcv_data) == 0:
@@ -408,7 +402,7 @@ class DataCollectionRound(BaseState):
             if not (isinstance(row, list) and len(row) >= 6):
                 msg = "Each row must be a list with at least 6 elements: timestamp, open, high, low, close, volume."
                 raise ValueError(msg)
-            
+
         rsi_length = 14
         macd_fast = 12
         macd_slow = 26
