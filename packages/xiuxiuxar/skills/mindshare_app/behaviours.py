@@ -266,6 +266,8 @@ class DataCollectionRound(BaseState):
             if price_data:
                 self.collected_data["current_prices"][symbol] = price_data
 
+
+            moving_average_length = self.context.params.moving_average_length
             technical_data = self._get_technical_data(ohlcv_data)
             self.collected_data["technical_data"][symbol] = technical_data
 
@@ -395,15 +397,7 @@ class DataCollectionRound(BaseState):
     def _get_technical_data(
         self,
         ohlcv_data: list[list[Any]],
-        sma_length: int = 20,
-        ema_length: int = 20,
-        rsi_length: int = 14,
-        macd_fast: int = 12,
-        macd_slow: int = 26,
-        macd_signal: int = 9,
-        adx_length: int = 14,
-        bb_length: int = 20,
-        bb_std: int = 2,
+        moving_average_length: int = 20
     ) -> list:
         """Calculate core technical indicators for a coin using pandas-ta with validation."""
         # Input validation
@@ -411,21 +405,29 @@ class DataCollectionRound(BaseState):
             msg = "ohlcv_data must be a non-empty list of lists."
             raise ValueError(msg)
         for row in ohlcv_data:
-            if not (isinstance(row, list) and len(row) >= 5):
-                msg = "Each row must be a list with at least 5 elements: timestamp, open, high, low, close."
+            if not (isinstance(row, list) and len(row) >= 6):
+                msg = "Each row must be a list with at least 6 elements: timestamp, open, high, low, close, volume."
                 raise ValueError(msg)
+            
+        rsi_length = 14
+        macd_fast = 12
+        macd_slow = 26
+        macd_signal = 9
+        adx_length = 14
+        bb_length = 20
+        bb_std = 2
 
         # Convert to DataFrame
-        data = pd.DataFrame(ohlcv_data, columns=["timestamp", "open", "high", "low", "close"])
+        data = pd.DataFrame(ohlcv_data, columns=["timestamp", "open", "high", "low", "close", "volume"])
         data["date"] = pd.to_datetime(data["timestamp"], unit="s")
         data = data.set_index("date")
-        for col in ["open", "high", "low", "close"]:
+        for col in ["open", "high", "low", "close", "volume"]:
             data[col] = pd.to_numeric(data[col], errors="coerce")
         data = data.dropna()
 
         # Moving Averages
-        data["SMA"] = ta.sma(data["close"], length=sma_length)
-        data["EMA"] = ta.ema(data["close"], length=ema_length)
+        data["SMA"] = ta.sma(data["close"], length=moving_average_length)
+        data["EMA"] = ta.ema(data["close"], length=moving_average_length)
 
         # RSI (normalized 0-100)
         data["RSI"] = ta.rsi(data["close"], length=rsi_length)

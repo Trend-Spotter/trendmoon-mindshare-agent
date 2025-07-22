@@ -213,4 +213,5 @@ class Params(Model):
         self.safe_contract_addresses = kwargs.pop("safe_contract_addresses", {})
         self.store_path = kwargs.pop("store_path", "./persistent_data")
         self.reset_pause_duration = kwargs.pop("reset_pause_duration", 10)
+        self.moving_average_length = kwargs.pop("moving_average_length", 20)
         super().__init__(*args, **kwargs)

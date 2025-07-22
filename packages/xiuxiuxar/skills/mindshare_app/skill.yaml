@@ -55,6 +55,7 @@ models:
       reset_pause_duration: 10
       store_path: ./persistent_data
       safe_contract_addresses: '{"ethereum":"0x0000000000000000000000000000000000000000","arbitrum":"0x0000000000000000000000000000000000000000","optimism":"0x0000000000000000000000000000000000000000","mode":"0x0000000000000000000000000000000000000000"}'
+      moving_average_length: 20
     class_name: Params
 dependencies:
   pandas:

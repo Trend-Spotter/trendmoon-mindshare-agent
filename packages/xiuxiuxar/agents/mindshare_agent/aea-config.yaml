@@ -73,3 +73,4 @@ models:
       store_path: ${str:./persistent_data}
       safe_contract_addresses: ${str:{"ethereum":"0x0000000000000000000000000000000000000000","base":"0x0000000000000000000000000000000000000000"}}
       reset_pause_duration: ${int:10}
+      moving_average_length: ${int:20}
