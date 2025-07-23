@@ -1,12 +1,18 @@
 """Test the Coingecko model."""
 
+import os
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+from dotenv import load_dotenv
 from aea.test_tools.test_skill import BaseSkillTestCase
 
 from packages.xiuxiuxar.skills.mindshare_app.models import Coingecko
+
+
+load_dotenv()
+coingecko_api_key = os.environ.get("SKILL_MINDSHARE_APP_MODELS_PARAMS_ARGS_COINGECKO_API_KEY", "test-key")
 
 
 class TestCoingeckoModel(BaseSkillTestCase):
@@ -17,16 +23,17 @@ class TestCoingeckoModel(BaseSkillTestCase):
     def setup(self):
         """Setup the test class."""
         super().setup()
+
         self.coingecko_model = Coingecko(
             name="coingecko",
-            coingecko_api_key="test-key",
             skill_context=self.skill.skill_context,
         )
         self.logger = self.skill.skill_context.logger
+        self.coingecko_model.set_api_key(coingecko_api_key)
 
     def test_initialization(self):
         """Test that the Coingecko model is initialized correctly."""
-        assert self.coingecko_model.coingecko_api_key == "test-key"
+        assert self.coingecko_model.coingecko_api_key != "test-key"
 
     def test_set_api_key(self):
         """Test the set_api_key method."""
@@ -39,10 +46,50 @@ class TestCoingeckoModel(BaseSkillTestCase):
             self.coingecko_model.validate_required_params(None, ["id"], "path_params")
 
         with pytest.raises(ValueError, match="id is required in path_params"):
-            self.coingecko_model.validate_required_params({}, ["id"], "path_params")
+            self.coingecko_model.validate_required_params({"currency": "usd", "days": "1"}, ["id"], "path_params")
 
         # This should not raise an error
         self.coingecko_model.validate_required_params({"id": "bitcoin"}, ["id"], "path_params")
+
+    def test_make_coingecko_request(self):
+        """Test make_coingecko_request with incorrect/missing API key."""
+        # Test with None API key
+        self.coingecko_model.set_api_key(None)
+        with pytest.raises(ValueError, match="Coingecko API key is not set"):
+            self.coingecko_model.make_coingecko_request(
+                "https://api.coingecko.com/", {"vs_currency": "usd", "days": "1"}
+            )
+
+        self.coingecko_model.set_api_key("")
+        # Test with empty string API key
+        with pytest.raises(ValueError, match="Coingecko API key is not set"):
+            self.coingecko_model.make_coingecko_request(
+                "https://api.coingecko.com/", {"vs_currency": "usd", "days": "1"}
+            )
+
+        # Reset API key for subsequent tests and test with valid key
+        self.coingecko_model.set_api_key(coingecko_api_key)
+        with patch("requests.get") as mock_get:
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = {"status": "OK"}
+            mock_get.return_value = mock_response
+
+            result = self.coingecko_model.make_coingecko_request("https://api.coingecko.com/api/v3/ping", {})
+            assert result is not None
+            assert result == {"status": "OK"}
+
+    @patch("requests.get")
+    def test_make_coingecko_request_empty_query_params(self, mock_get):
+        """Test make_coingecko_request with empty query params."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"status": "OK"}
+        mock_get.return_value = mock_response
+
+        result = self.coingecko_model.make_coingecko_request("https://api.coingecko.com/api/v3/ping", {})
+        assert result is not None
+        assert result == {"status": "OK"}
 
     @patch("requests.get")
     def test_coin_ohlc_data_by_id_success(self, mock_get):
@@ -75,7 +122,7 @@ class TestCoingeckoModel(BaseSkillTestCase):
 
         result = self.coingecko_model.coin_ohlc_data_by_id(path_params, query_params)
 
-        assert result == []
+        assert result is None
 
     @patch("requests.get")
     def test_coin_historical_chart_data_by_id_success(self, mock_get):

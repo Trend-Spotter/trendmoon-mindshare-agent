@@ -37,7 +37,6 @@ class Coingecko(Model):
     """This class implements the CoinGecko API client."""
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
-        self.coingecko_api_key = kwargs.pop("coingecko_api_key", "")
         super().__init__(*args, **kwargs)
 
     def set_api_key(self, coingecko_api_key: str) -> None:
@@ -55,74 +54,60 @@ class Coingecko(Model):
                 msg = f"{key} is required in {param_type}"
                 raise ValueError(msg)
 
+    def make_coingecko_request(self, base_url: str, query_params: dict[str, str]) -> Any:
+        """Make a request to the CoinGecko API."""
+        if self.coingecko_api_key is None or self.coingecko_api_key == "":
+            msg = "Coingecko API key is not set"
+            raise ValueError(msg)
+
+        if query_params is None or query_params == {}:
+            url = base_url
+        else:
+            url = f"{base_url}?" + "&".join(f"{k}={v}" for k, v in query_params.items())
+
+        headers = {"accept": "application/json", "x-cg-demo-api-key": self.coingecko_api_key}
+
+        response = requests.get(url, headers=headers, timeout=10)
+        response.raise_for_status()
+
+        return response.json()
+
     def coin_ohlc_data_by_id(self, path_params: dict[str, str], query_params: dict[str, str]) -> list[list[Any]]:
         """Fetch OHLC data for a coin from CoinGecko."""
         try:
-            if self.coingecko_api_key is None or self.coingecko_api_key == "":
-                msg = "Coingecko API key is not set"
-                raise ValueError(msg)
-
             self.validate_required_params(path_params, ["id"], "path_params")
             self.validate_required_params(query_params, ["vs_currency", "days"], "query_params")
 
             base_url = f"https://api.coingecko.com/api/v3/coins/{path_params['id']}/ohlc"
-            url = f"{base_url}?" + "&".join(f"{k}={v}" for k, v in query_params.items())
 
-            headers = {"accept": "application/json", "x-cg-demo-api-key": self.coingecko_api_key}
-
-            response = requests.get(url, headers=headers, timeout=10)
-            response.raise_for_status()
-
-            return response.json()
-
+            return self.make_coingecko_request(base_url, query_params)
         except Exception as e:
             self.context.logger.exception(f"Error fetching OHLC data: {e!s}")
-            return []
+            return None
 
     def coin_historical_chart_data_by_id(
         self, path_params: dict[str, str], query_params: dict[str, str]
     ) -> dict[str, Any]:
         """Fetch historical chart data for a coin from CoinGecko."""
         try:
-            if self.coingecko_api_key is None or self.coingecko_api_key == "":
-                msg = "Coingecko API key is not set"
-                raise ValueError(msg)
-
             self.validate_required_params(path_params, ["id"], "path_params")
             self.validate_required_params(query_params, ["vs_currency", "days"], "query_params")
 
             base_url = f"https://api.coingecko.com/api/v3/coins/{path_params['id']}/market_chart"
-            url = f"{base_url}?" + "&".join(f"{k}={v}" for k, v in query_params.items())
 
-            headers = {"accept": "application/json", "x-cg-demo-api-key": self.coingecko_api_key}
-
-            response = requests.get(url, headers=headers, timeout=10)
-            response.raise_for_status()
-
-            return response.json()
-
+            return self.make_coingecko_request(base_url, query_params)
         except Exception as e:
-            self.context.logger.exception(f"Error fetching OHLC data: {e!s}")
+            self.context.logger.exception(f"Error fetching historical chart data: {e!s}")
             return None
 
     def coin_price_by_id(self, query_params: dict[str, str]) -> dict[str, Any]:
         """Fetch price data for a coin from CoinGecko."""
         try:
-            if self.coingecko_api_key is None or self.coingecko_api_key == "":
-                error_msg = "Coingecko API key is not set"
-                raise ValueError(error_msg)
-
             self.validate_required_params(query_params, ["vs_currencies"], "query_params")
 
             base_url = "https://api.coingecko.com/api/v3/simple/price"
-            url = f"{base_url}?" + "&".join(f"{k}={v}" for k, v in query_params.items())
 
-            headers = {"accept": "application/json", "x-cg-demo-api-key": self.coingecko_api_key}
-
-            response = requests.get(url, headers=headers, timeout=10)
-            response.raise_for_status()
-            return response.json()
-
+            return self.make_coingecko_request(base_url, query_params)
         except Exception as e:
             self.context.logger.exception(f"Error fetching price data: {e!s}")
             return None

@@ -4,12 +4,14 @@ import os
 from pathlib import Path
 
 import pytest
+from dotenv import load_dotenv
 from aea.test_tools.test_skill import BaseSkillTestCase
 
 from packages.xiuxiuxar.skills.mindshare_app.models import Coingecko
 
 
-COINGECKO_API_KEY = os.environ.get("COINGECKO_API_KEY")
+load_dotenv()
+COINGECKO_API_KEY = os.environ.get("SKILL_MINDSHARE_APP_MODELS_PARAMS_ARGS_COINGECKO_API_KEY")
 
 
 @pytest.mark.integration
