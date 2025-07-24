@@ -9,10 +9,10 @@ aea_version: '>=1.0.0, <2.0.0'
 fingerprint:
   README.md: bafybeiesl5jlvvu4enydib32bpyfqphlkdulxy3oqid3t32cjxya5qykci
   __init__.py: bafybeifhcjbfwkkjfaq57azgh24ufuo4pvjm4vguozhbg3qsrn4tw5ukge
-  behaviours.py: bafybeicvraqozbsglmz2rvi42mlphvsvbaytosvviceqmy7uvcok436gmy
+  behaviours.py: bafybeih4rqaojrs7jxbni46ok6xshcwrjx4zkksa7f2snornxenqgwsgtu
   dialogues.py: bafybeidsfl6lkjntm4ntuwx2clyq5ra2yyl632tmwzzizrcipejuxr2ium
   handlers.py: bafybeibwx3laovbm2cylhx3gtgxkuptytxuctigzehlipuebi73m6coilu
-  models.py: bafybeibhmn7m5tcafioazb3wp6uinbtersy36ackfkkjqbo2s7mbpvsrga
+  models.py: bafybeiclg26ru2weyr5e7hmn3wusmivt3umq5rcfhfiyotrun44siz6dqm
   tests/__init__.py: bafybeigb2ji4vkcap3hokcedggjwsrah7te2nxjhkorwf3ibwgyaa2glma
   tests/test_coingecko_model.py: bafybeib6atjs5kavjuodqml3cm2uztesoau32ha7scxg7ddb4phcu7bthq
   tests/test_coingecko_model_integration.py: bafybeig2nv7sjgxqnt3kmopr4cb5dwbeq5lqnxxcpc2geq7lyoq7epokni
