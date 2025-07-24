@@ -9,18 +9,20 @@ aea_version: '>=1.0.0, <2.0.0'
 fingerprint:
   README.md: bafybeiesl5jlvvu4enydib32bpyfqphlkdulxy3oqid3t32cjxya5qykci
   __init__.py: bafybeifhcjbfwkkjfaq57azgh24ufuo4pvjm4vguozhbg3qsrn4tw5ukge
-  behaviours.py: bafybeielrvo72csjwc5qzxt4kzxwsxvpzps3ohgt6dbwpb4nxuddbxohli
+  behaviours.py: bafybeicvraqozbsglmz2rvi42mlphvsvbaytosvviceqmy7uvcok436gmy
   dialogues.py: bafybeidsfl6lkjntm4ntuwx2clyq5ra2yyl632tmwzzizrcipejuxr2ium
   handlers.py: bafybeibwx3laovbm2cylhx3gtgxkuptytxuctigzehlipuebi73m6coilu
-  models.py: bafybeibexrsygoipfilitpc6uvlkew6gcrnksiawqwyiqqrc4pr4bslwkm
+  models.py: bafybeibhmn7m5tcafioazb3wp6uinbtersy36ackfkkjqbo2s7mbpvsrga
   tests/__init__.py: bafybeigb2ji4vkcap3hokcedggjwsrah7te2nxjhkorwf3ibwgyaa2glma
+  tests/test_coingecko_model.py: bafybeib6atjs5kavjuodqml3cm2uztesoau32ha7scxg7ddb4phcu7bthq
+  tests/test_coingecko_model_integration.py: bafybeig2nv7sjgxqnt3kmopr4cb5dwbeq5lqnxxcpc2geq7lyoq7epokni
   tests/test_metrics.py: bafybeickohfwbhq46m4c5deutqkqkeztygfyu7gpxkgme5rfa5iwujbr7i
   tests/test_metrics_dialogues.py: bafybeicaqx7bykvl3dqkvcpdpft4l5g6huxyhrljwrn2zykxavk4thqdi4
 fingerprint_ignore_patterns: []
 connections: []
 contracts: []
 protocols:
-- eightballer/default:0.1.0:bafybeicsdb3bue2xoopc6lue7njtyt22nehrnkevmkuk2i6ac65w722vwy
+- eightballer/default:0.1.0:bafybeickzbjjhatxl2a5gq3qr2taczznuw7co7w7et33gtb3hagx2wlesy
 - eightballer/http:0.1.0:bafybeid75xhq7hfdt7sgj7yrn44yj57xrgxscaw34ir46tndfzvodioxme
 skills: []
 behaviours:
