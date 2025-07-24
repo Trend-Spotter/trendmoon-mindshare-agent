@@ -30,7 +30,7 @@ import pandas as pd
 import pandas_ta as ta
 from aea.skills.behaviours import State, FSMBehaviour
 
-from packages.xiuxiuxar.skills.mindshare_app.models import Trendmoon
+from packages.xiuxiuxar.skills.mindshare_app.models import Coingecko, Trendmoon
 
 
 ALLOWED_ASSETS: dict[str, list[dict[str, str]]] = {
@@ -180,10 +180,6 @@ class SetupRound(BaseState):
         self.context.store_path = store_path
         self.context.logger.info(f"Persistent storage initialized at: {store_path}")
 
-        coingecko_api_key = self.context.params.coingecko_api_key
-        self.context.logger.info(f"Setting CoinGecko API key: {coingecko_api_key}")
-        self.context.coingecko.set_api_key(coingecko_api_key)
-
     def act(self) -> None:
         """Perform the act."""
         self.context.logger.info(f"Entering {self._state} state.")
@@ -195,7 +191,6 @@ class SetupRound(BaseState):
             self._initialize_state()
             self.setup_success = True
             self._event = MindshareabciappEvents.DONE
-
         except Exception as e:
             self.context.logger.exception(f"Setup failed. {e!s}")
             self.context.error_context = {
@@ -271,6 +266,8 @@ class DataCollectionRound(BaseState):
             if price_data:
                 self.collected_data["current_prices"][symbol] = price_data
 
+
+            moving_average_length = self.context.params.moving_average_length
             technical_data = self._get_technical_data(ohlcv_data)
             self.collected_data["technical_data"][symbol] = technical_data
 
@@ -362,7 +359,7 @@ class DataCollectionRound(BaseState):
 
         Expected data structure:
         - price_data: Current market data with price, volume, market cap, 24h change
-        - ohlcv_data: Historical OHLCV data for the last 30 days
+        - ohlcv_data: Historical OHLCV data for the last 90 days
 
         """
         symbol = token_info["symbol"]
@@ -373,13 +370,9 @@ class DataCollectionRound(BaseState):
             self.collected_data["api_calls"] += 1
             price_data = self._get_current_price_data(coingecko_id)
 
-            self.context.logger.debug(f"Collected price data for {symbol}: {price_data}")
-
             # Fetch historical OHLCV data for the token
             self.collected_data["api_calls"] += 1
             ohlcv_data = self._get_historical_ohlcv_data(coingecko_id)
-
-            self.context.logger.debug(f"Collected OHLCV data for {symbol}: {ohlcv_data}")
 
             if not ohlcv_data or not price_data:
                 error_msg = "No data returned from CoinGecko API"
@@ -394,30 +387,18 @@ class DataCollectionRound(BaseState):
     def _get_current_price_data(self, coingecko_id: str) -> dict | None:
         """Get current price and market data for a token."""
 
-        query_params = {
-            "ids": coingecko_id,
-            "vs_currencies": "usd",
-            "include_market_cap": "true",
-            "include_24hr_vol": "true",
-            "include_24hr_change": "true",
-        }
+        return self.context.coingecko.get_current_price(coingecko_id)
 
-        price_data = self.context.coingecko.coin_price_by_id(query_params)
-
-        if price_data:
-            return price_data[coingecko_id]
-
-        return None
-
-    def _get_historical_ohlcv_data(self, coingecko_id: str) -> list[list[Any]] | None:
+    def _get_historical_ohlcv_data(self, coingecko_id: str) -> dict | None:
         """Get historical OHLCV data for a token."""
 
-        path_params = {"id": coingecko_id}
-        query_params = {"vs_currency": "usd", "days": 30}
+        return self.context.coingecko.get_historical_ohlcv(coingecko_id, days=90)
 
-        return self.context.coingecko.get_ohlcv_data(path_params, query_params)
-
-    def _get_technical_data(self, ohlcv_data: list[list[Any]], moving_average_length: int = 20) -> list:
+    def _get_technical_data(
+        self,
+        ohlcv_data: list[list[Any]],
+        moving_average_length: int = 20
+    ) -> list:
         """Calculate core technical indicators for a coin using pandas-ta with validation."""
         # Input validation
         if not isinstance(ohlcv_data, list) or len(ohlcv_data) == 0:
@@ -427,7 +408,7 @@ class DataCollectionRound(BaseState):
             if not (isinstance(row, list) and len(row) >= 6):
                 msg = "Each row must be a list with at least 6 elements: timestamp, open, high, low, close, volume."
                 raise ValueError(msg)
-
+            
         rsi_length = 14
         macd_fast = 12
         macd_slow = 26
@@ -470,6 +451,8 @@ class DataCollectionRound(BaseState):
             data["BBL"] = bbands[f"BBL_{bb_length}_{bb_std}"]
             data["BBM"] = bbands[f"BBM_{bb_length}_{bb_std}"]
             data["BBU"] = bbands[f"BBU_{bb_length}_{bb_std}"]
+
+        
 
         # Get latest indicators
         latest_data = data.iloc[-1]
