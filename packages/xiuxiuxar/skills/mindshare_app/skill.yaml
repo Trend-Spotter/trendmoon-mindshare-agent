@@ -7,7 +7,7 @@ description: The http echo skill prints out the content of received http message
 license: Apache-2.0
 aea_version: '>=1.0.0, <2.0.0'
 fingerprint:
-  README.md: bafybeiesl5jlvvu4enydib32bpyfqphlkdulxy3oqid3t32cjxya5qykci
+  README.md: bafybeifialoonpyjqnpq2c3aun5tmn225rouw3mxxcfxqcl7g3mwuzz53m
   __init__.py: bafybeifhcjbfwkkjfaq57azgh24ufuo4pvjm4vguozhbg3qsrn4tw5ukge
   behaviours.py: bafybeid4m6d7bqgrouguroylmbdplwnt5rzol36qmh76udj2c4pfvjf5vy
   dialogues.py: bafybeidsfl6lkjntm4ntuwx2clyq5ra2yyl632tmwzzizrcipejuxr2ium
@@ -18,6 +18,8 @@ fingerprint:
   tests/test_coingecko_model_integration.py: bafybeig2nv7sjgxqnt3kmopr4cb5dwbeq5lqnxxcpc2geq7lyoq7epokni
   tests/test_metrics.py: bafybeickohfwbhq46m4c5deutqkqkeztygfyu7gpxkgme5rfa5iwujbr7i
   tests/test_metrics_dialogues.py: bafybeicaqx7bykvl3dqkvcpdpft4l5g6huxyhrljwrn2zykxavk4thqdi4
+  tests/test_technical_indicators.py: bafybeihydbmtlhz6ehvsmhfgdbizbbbu5ghhebbnwq27t56wsp4sbznpdq
+  tests/test_technical_indicators_integration.py: bafybeicxalo2jlfihsvgaygubrvw3xb2qanocaqdkbikrmlyywyqlzpyoe
 fingerprint_ignore_patterns: []
 connections: []
 contracts: []
