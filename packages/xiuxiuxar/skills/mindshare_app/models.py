@@ -34,6 +34,26 @@ if TYPE_CHECKING:
 MARGIN = 5
 
 
+class FrozenMixin:  # pylint: disable=too-few-public-methods
+    """Mixin for classes to enforce read-only attributes."""
+
+    _frozen: bool = False
+
+    def __delattr__(self, *args: Any) -> None:
+        """Override __delattr__ to make object immutable."""
+        if self._frozen:
+            msg = "This object is frozen! To unfreeze switch `self._frozen` via `__dict__`."
+            raise AttributeError(msg)
+        super().__delattr__(*args)
+
+    def __setattr__(self, *args: Any) -> None:
+        """Override __setattr__ to make object immutable."""
+        if self._frozen:
+            msg = "This object is frozen! To unfreeze switch `self._frozen` via `__dict__`."
+            raise AttributeError(msg)
+        super().__setattr__(*args)
+
+
 class Coingecko(Model):
     """This class implements the CoinGecko API client."""
 
@@ -231,7 +251,7 @@ class Params(Model):
         super().__init__(*args, **kwargs)
 
 
-class Requests(Model):
+class Requests(Model, FrozenMixin):
     """Keep the current pending requests."""
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
@@ -239,3 +259,4 @@ class Requests(Model):
         # mapping from dialogue reference nonce to callback
         self.request_id_to_callback: dict[str, Callable] = {}
         super().__init__(*args, **kwargs)
+        self._frozen = True
