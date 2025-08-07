@@ -34,6 +34,26 @@ if TYPE_CHECKING:
 MARGIN = 5
 
 
+class FrozenMixin:  # pylint: disable=too-few-public-methods
+    """Mixin for classes to enforce read-only attributes."""
+
+    _frozen: bool = False
+
+    def __delattr__(self, *args: Any) -> None:
+        """Override __delattr__ to make object immutable."""
+        if self._frozen:
+            msg = "This object is frozen! To unfreeze switch `self._frozen` via `__dict__`."
+            raise AttributeError(msg)
+        super().__delattr__(*args)
+
+    def __setattr__(self, *args: Any) -> None:
+        """Override __setattr__ to make object immutable."""
+        if self._frozen:
+            msg = "This object is frozen! To unfreeze switch `self._frozen` via `__dict__`."
+            raise AttributeError(msg)
+        super().__setattr__(*args)
+
+
 class Coingecko(Model):
     """This class implements the CoinGecko API client."""
 
@@ -220,10 +240,18 @@ class Params(Model):
         self.min_capital_buffer = kwargs.pop("min_capital_buffer", 500.0)
         self.min_position_size_usdc = kwargs.pop("min_position_size_usdc", 100)
         self.reset_pause_duration = kwargs.pop("reset_pause_duration", 10)
+        self.trading_strategy = kwargs.pop("trading_strategy", "balanced")
+        self.max_slippage_bps = kwargs.pop("max_slippage_bps", 150)
+        self.stop_loss_atr_multiplier = kwargs.pop("stop_loss_atr_multiplier", 1.5)
+        self.take_profit_risk_ratio = kwargs.pop("take_profit_risk_ratio", 2.0)
+        self.max_position_size_usdc = kwargs.pop("max_position_size_usdc", 5000.0)
+        self.price_collection_timeout = kwargs.pop("price_collection_timeout", 15)
+        self.cowswap_slippage_tolerance = kwargs.pop("cowswap_slippage_tolerance", 0.005)
+        self.cowswap_timeout_seconds = kwargs.pop("cowswap_timeout_seconds", 300)
         super().__init__(*args, **kwargs)
 
 
-class Requests(Model):
+class Requests(Model, FrozenMixin):
     """Keep the current pending requests."""
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
@@ -231,3 +259,4 @@ class Requests(Model):
         # mapping from dialogue reference nonce to callback
         self.request_id_to_callback: dict[str, Callable] = {}
         super().__init__(*args, **kwargs)
+        self._frozen = True

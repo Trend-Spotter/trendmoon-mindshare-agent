@@ -25,13 +25,25 @@ from aea.skills.base import Handler
 from aea.protocols.base import Message
 from aea.configurations.data_types import PublicId
 
+from packages.open_aea.protocols.signing import SigningMessage
+from packages.valory.protocols.ledger_api import LedgerApiMessage
+from packages.eightballer.protocols.orders import OrdersMessage
 from packages.eightballer.protocols.default import DefaultMessage
+from packages.eightballer.protocols.tickers import TickersMessage
 from packages.valory.protocols.contract_api import ContractApiMessage
 from packages.eightballer.protocols.http.message import HttpMessage
 from packages.xiuxiuxar.skills.mindshare_app.dialogues import (
     HttpDialogue,
     HttpDialogues,
+    OrdersDialogue,
+    OrdersDialogues,
+    SigningDialogue,
+    TickersDialogue,
     DefaultDialogues,
+    SigningDialogues,
+    TickersDialogues,
+    LedgerApiDialogue,
+    LedgerApiDialogues,
     ContractApiDialogue,
     ContractApiDialogues,
 )
@@ -200,6 +212,73 @@ class HttpHandler(Handler):
         super().__init__(**kwargs)
 
 
+class LedgerApiHandler(Handler):
+    """Handler for ledger API responses."""
+
+    SUPPORTED_PROTOCOL: PublicId | None = LedgerApiMessage.protocol_id
+
+    allowed_response_performatives = frozenset(
+        {
+            LedgerApiMessage.Performative.TRANSACTION_DIGEST,
+            LedgerApiMessage.Performative.TRANSACTION_DIGESTS,
+            LedgerApiMessage.Performative.TRANSACTION_RECEIPT,
+            LedgerApiMessage.Performative.ERROR,
+        }
+    )
+
+    def setup(self) -> None:
+        """Implement the setup."""
+
+    def teardown(self) -> None:
+        """Implement the handler teardown."""
+
+    def handle(self, message: Message) -> None:
+        """Handle ledger API messages."""
+        ledger_msg = cast("LedgerApiMessage", message)
+
+        ledger_api_dialogues = cast("LedgerApiDialogues", self.context.ledger_api_dialogues)
+        ledger_dialogue = cast("LedgerApiDialogue", ledger_api_dialogues.update(ledger_msg))
+
+        if ledger_dialogue is None:
+            self._handle_unidentified_dialogue(ledger_msg)
+            return
+
+        if message.performative not in self.allowed_response_performatives:
+            self._handle_unallowed_performative(message)
+            return
+
+        request_nonce = ledger_dialogue.dialogue_label.dialogue_reference[0]
+        ctx_requests = cast("Requests", self.context.requests)
+
+        try:
+            callback = cast("Callable", ctx_requests.request_id_to_callback.pop(request_nonce))
+        except KeyError as e:
+            msg = f"No callback defined for request with nonce: {request_nonce}"
+            raise MinshareAppHandlerError(msg) from e
+
+        self._log_message_handling(message)
+        try:
+            # Call with correct signature - this app uses (message, dialogue) not (message, dialogue, behaviour)
+            callback(message, ledger_dialogue)
+        except Exception as e:
+            self.context.logger.exception(f"Error in callback execution for nonce {request_nonce}: {e}")
+            return
+
+        self.context.logger.info(f"Received ledger API response: {ledger_msg.performative}")
+
+    def _handle_unidentified_dialogue(self, message: Message) -> None:
+        """Handle an unidentified dialogue."""
+        self.context.logger.warning("Received invalid message: unidentified dialogue. message=%s", message)
+
+    def _handle_unallowed_performative(self, message: Message) -> None:
+        """Handle a message with an unallowed response performative."""
+        self.context.logger.warning("Received invalid message: unallowed performative. message=%s.", message)
+
+    def _log_message_handling(self, message: Message) -> None:
+        """Log the handling of the message."""
+        self.context.logger.debug("Calling registered callback with message=%s", message)
+
+
 class ContractApiHandler(Handler):
     """Handler for contract API responses."""
 
@@ -249,9 +328,214 @@ class ContractApiHandler(Handler):
             raise MinshareAppHandlerError(msg) from e
 
         self._log_message_handling(message)
-        callback(message, contract_dialogue, None)
+        try:
+            # Call with correct signature - this app uses (message, dialogue) not (message, dialogue, behaviour)
+            callback(message, contract_dialogue)
+        except Exception as e:
+            self.context.logger.exception(f"Error in callback execution for nonce {request_nonce}: {e}")
+            return
 
-        self.context.logger.info(f"Received contract API response: {contract_msg.performative}")
+    def _handle_unidentified_dialogue(self, message: Message) -> None:
+        """Handle an unidentified dialogue."""
+        self.context.logger.warning("Received invalid message: unidentified dialogue. message=%s", message)
+
+    def _handle_unallowed_performative(self, message: Message) -> None:
+        """Handle a message with an unallowed response performative."""
+        self.context.logger.warning("Received invalid message: unallowed performative. message=%s.", message)
+
+    def _log_message_handling(self, message: Message) -> None:
+        """Log the handling of the message."""
+        self.context.logger.debug("Calling registered callback with message=%s", message)
+
+
+class OrdersHandler(Handler):
+    """Handler for orders messages."""
+
+    SUPPORTED_PROTOCOL: PublicId | None = OrdersMessage.protocol_id
+
+    allowed_response_performatives = frozenset(
+        {
+            OrdersMessage.Performative.ORDER,
+            OrdersMessage.Performative.ORDER_CREATED,
+            OrdersMessage.Performative.ERROR,
+        }
+    )
+
+    def setup(self) -> None:
+        """Implement the setup."""
+
+    def teardown(self) -> None:
+        """Implement the handler teardown."""
+
+    def handle(self, message: Message) -> None:
+        """Handle orders messages."""
+        orders_msg = cast("OrdersMessage", message)
+
+        # Recover dialogue
+        orders_dialogues = cast("OrdersDialogues", self.context.orders_dialogues)
+        orders_dialogue = cast("OrdersDialogue", orders_dialogues.update(orders_msg))
+
+        if orders_dialogue is None:
+            self._handle_unidentified_dialogue(orders_msg)
+            return
+
+        if message.performative not in self.allowed_response_performatives:
+            self._handle_unallowed_performative(message)
+            return
+
+        request_nonce = orders_dialogue.dialogue_label.dialogue_reference[0]
+        ctx_requests = cast("Requests", self.context.requests)
+
+        try:
+            callback = cast("Callable", ctx_requests.request_id_to_callback.pop(request_nonce))
+        except KeyError as e:
+            msg = f"No callback defined for request with nonce: {request_nonce}"
+            raise MinshareAppHandlerError(msg) from e
+
+        self._log_message_handling(message)
+        try:
+            # Call with correct signature - this app uses (message, dialogue) not (message, dialogue, behaviour)
+            callback(message, orders_dialogue)
+        except Exception as e:
+            self.context.logger.exception(f"Error in callback execution for nonce {request_nonce}: {e}")
+            return
+
+        self.context.logger.info(f"Received orders response: {orders_msg.performative}")
+
+    def _handle_unidentified_dialogue(self, message: Message) -> None:
+        """Handle an unidentified dialogue."""
+        self.context.logger.warning("Received invalid message: unidentified dialogue. message=%s", message)
+
+    def _handle_unallowed_performative(self, message: Message) -> None:
+        """Handle a message with an unallowed response performative."""
+        self.context.logger.warning("Received invalid message: unallowed performative. message=%s.", message)
+
+    def _log_message_handling(self, message: Message) -> None:
+        """Log the handling of the message."""
+        self.context.logger.debug("Calling registered callback with message=%s", message)
+
+
+class TickersHandler(Handler):
+    """Handler for tickers messages."""
+
+    SUPPORTED_PROTOCOL: PublicId | None = TickersMessage.protocol_id
+
+    allowed_response_performatives = frozenset(
+        {
+            TickersMessage.Performative.TICKER,
+            TickersMessage.Performative.ERROR,
+        }
+    )
+
+    def setup(self) -> None:
+        """Implement the setup."""
+
+    def teardown(self) -> None:
+        """Implement the handler teardown."""
+
+    def handle(self, message: Message) -> None:
+        """Handle tickers messages."""
+        tickers_msg = cast("TickersMessage", message)
+
+        # Recover dialogue
+        tickers_dialogues = cast("TickersDialogues", self.context.tickers_dialogues)
+        tickers_dialogue = cast("TickersDialogue", tickers_dialogues.update(tickers_msg))
+
+        if tickers_dialogue is None:
+            self._handle_unidentified_dialogue(tickers_msg)
+            return
+
+        if message.performative not in self.allowed_response_performatives:
+            self._handle_unallowed_performative(message)
+            return
+
+        request_nonce = tickers_dialogue.dialogue_label.dialogue_reference[0]
+        ctx_requests = cast("Requests", self.context.requests)
+
+        try:
+            callback = cast(
+                "Callable",
+                ctx_requests.request_id_to_callback.pop(request_nonce),
+            )
+        except KeyError as e:
+            msg = f"No callback defined for request with nonce: {request_nonce}"
+            raise MinshareAppHandlerError(msg) from e
+
+        self._log_message_handling(message)
+        try:
+            # Call with correct signature - this app uses (message, dialogue) not (message, dialogue, behaviour)
+            callback(message, tickers_dialogue)
+        except Exception as e:
+            self.context.logger.exception(f"Error in callback execution for nonce {request_nonce}: {e}")
+            return
+
+        self.context.logger.info(f"Received tickers response: {tickers_msg.performative}")
+
+    def _handle_unidentified_dialogue(self, message: Message) -> None:
+        """Handle an unidentified dialogue."""
+        self.context.logger.warning("Received invalid message: unidentified dialogue. message=%s", message)
+
+    def _handle_unallowed_performative(self, message: Message) -> None:
+        """Handle a message with an unallowed response performative."""
+        self.context.logger.warning("Received invalid message: unallowed performative. message=%s.", message)
+
+    def _log_message_handling(self, message: Message) -> None:
+        """Log the handling of the message."""
+        self.context.logger.debug("Calling registered callback with message=%s", message)
+
+
+class SigningHandler(Handler):
+    """Handler for signing messages."""
+
+    SUPPORTED_PROTOCOL: PublicId | None = SigningMessage.protocol_id
+
+    allowed_response_performatives = frozenset(
+        {
+            SigningMessage.Performative.SIGNED_TRANSACTION,
+            SigningMessage.Performative.ERROR,
+        }
+    )
+
+    def setup(self) -> None:
+        """Implement the setup."""
+
+    def teardown(self) -> None:
+        """Implement the handler teardown."""
+
+    def handle(self, message: Message) -> None:
+        """Handle signing messages."""
+        signing_msg = cast("SigningMessage", message)
+
+        # Recover dialogue
+        signing_dialogues = cast("SigningDialogues", self.context.signing_dialogues)
+        signing_dialogue = cast("SigningDialogue", signing_dialogues.update(signing_msg))
+
+        if signing_dialogue is None:
+            self._handle_unidentified_dialogue(signing_msg)
+            return
+
+        if message.performative not in self.allowed_response_performatives:
+            self._handle_unallowed_performative(message)
+            return
+
+        request_nonce = signing_dialogue.dialogue_label.dialogue_reference[0]
+        ctx_requests = cast("Requests", self.context.requests)
+
+        try:
+            callback = cast("Callable", ctx_requests.request_id_to_callback.pop(request_nonce))
+        except KeyError as e:
+            msg = f"No callback defined for request with nonce: {request_nonce}"
+            raise MinshareAppHandlerError(msg) from e
+
+        self._log_message_handling(message)
+        try:
+            # Call with correct signature - this app uses (message, dialogue) not (message, dialogue, behaviour)
+            callback(message, signing_dialogue)
+        except Exception as e:
+            self.context.logger.exception(f"Error in callback execution for nonce {request_nonce}: {e}")
+            return
+
+        self.context.logger.info(f"Received signing response: {signing_msg.performative}")
 
     def _handle_unidentified_dialogue(self, message: Message) -> None:
         """Handle an unidentified dialogue."""

@@ -30,14 +30,32 @@ from aea.skills.base import Model
 from aea.protocols.base import Address, Message
 from aea.protocols.dialogue.base import Dialogue as BaseDialogue, DialogueLabel as BaseDialogueLabel
 
+from packages.open_aea.protocols.signing import SigningMessage
+from packages.valory.protocols.ledger_api import LedgerApiMessage
 from packages.valory.protocols.contract_api import ContractApiMessage
 from packages.eightballer.protocols.http.dialogues import (
     HttpDialogue as BaseHttpDialogue,
     HttpDialogues as BaseHttpDialogues,
 )
+from packages.open_aea.protocols.signing.dialogues import (
+    SigningDialogue as BaseSigningDialogue,
+    SigningDialogues as BaseSigningDialogues,
+)
+from packages.valory.protocols.ledger_api.dialogues import (
+    LedgerApiDialogue as BaseLedgerApiDialogue,
+    LedgerApiDialogues as BaseLedgerApiDialogues,
+)
+from packages.eightballer.protocols.orders.dialogues import (
+    OrdersDialogue as BaseOrdersDialogue,
+    OrdersDialogues as BaseOrdersDialogues,
+)
 from packages.eightballer.protocols.default.dialogues import (
     DefaultDialogue as BaseDefaultDialogue,
     DefaultDialogues as BaseDefaultDialogues,
+)
+from packages.eightballer.protocols.tickers.dialogues import (
+    TickersDialogue as BaseTickersDialogue,
+    TickersDialogues as BaseTickersDialogues,
 )
 from packages.valory.protocols.contract_api.dialogues import (
     ContractApiDialogue as BaseContractApiDialogue,
@@ -48,9 +66,19 @@ from packages.valory.protocols.contract_api.dialogues import (
 DefaultDialogue = BaseDefaultDialogue
 DefaultDialogues = BaseDefaultDialogues
 
+SigningDialogue = BaseSigningDialogue
+SigningDialogues = BaseSigningDialogues
+
 
 HttpDialogue = BaseHttpDialogue
 HttpDialogues = BaseHttpDialogues
+
+OrdersDialogue = BaseOrdersDialogue
+OrdersDialogues = BaseOrdersDialogues
+
+
+TickersDialogue = BaseTickersDialogue
+TickersDialogues = BaseTickersDialogues
 
 
 class ContractApiDialogue(BaseContractApiDialogue):
@@ -95,4 +123,93 @@ class ContractApiDialogues(Model, BaseContractApiDialogues):
             self_address=str(self.skill_id),
             role_from_first_message=role_from_first_message,
             dialogue_class=ContractApiDialogue,
+        )
+
+
+class LedgerApiDialogue(BaseLedgerApiDialogue):
+    """This class maintains state of a dialogue for ledger api."""
+
+    __slots__ = ("_terms",)
+
+    def __init__(
+        self,
+        dialogue_label: BaseDialogueLabel,
+        self_address: Address,
+        role: BaseDialogue.Role,
+        message_class: type[LedgerApiMessage] = LedgerApiMessage,
+    ) -> None:
+        """Initialize a dialogue."""
+        BaseLedgerApiDialogue.__init__(
+            self,
+            dialogue_label=dialogue_label,
+            self_address=self_address,
+            role=role,
+            message_class=message_class,
+        )
+        self._terms = None  # type: Optional[Terms]
+
+
+class LedgerApiDialogues(Model, BaseLedgerApiDialogues):
+    """This class keeps track of all ledger api dialogues."""
+
+    def __init__(self, **kwargs: Any) -> None:
+        """Initialize dialogues."""
+        Model.__init__(self, **kwargs)
+
+        def role_from_first_message(  # pylint: disable=unused-argument
+            message: Message, receiver_address: Address
+        ) -> BaseDialogue.Role:
+            """Infer the role of the agent from an incoming/outgoing first message."""
+            del receiver_address, message
+            return BaseLedgerApiDialogue.Role.AGENT
+
+        BaseLedgerApiDialogues.__init__(
+            self,
+            self_address=str(self.skill_id),
+            role_from_first_message=role_from_first_message,
+            dialogue_class=LedgerApiDialogue,
+        )
+
+
+class SigningDialogue(BaseSigningDialogue):
+    """This class maintains state of a dialogue for signing."""
+
+    __slots__ = ("_terms",)
+
+    def __init__(
+        self,
+        dialogue_label: BaseDialogueLabel,
+        self_address: Address,
+        role: BaseDialogue.Role,
+        message_class: type[SigningMessage] = SigningMessage,
+    ) -> None:
+        """Initialize a dialogue."""
+        BaseSigningDialogue.__init__(
+            self,
+            dialogue_label=dialogue_label,
+            self_address=self_address,
+            role=role,
+            message_class=message_class,
+        )
+
+
+class SigningDialogues(Model, BaseSigningDialogues):
+    """This class keeps track of all signing dialogues."""
+
+    def __init__(self, **kwargs: Any) -> None:
+        """Initialize dialogues."""
+        Model.__init__(self, **kwargs)
+
+        def role_from_first_message(  # pylint: disable=unused-argument
+            message: Message, receiver_address: Address
+        ) -> BaseDialogue.Role:
+            """Infer the role of the agent from an incoming/outgoing first message."""
+            del receiver_address, message
+            return SigningDialogue.Role.SKILL
+
+        BaseSigningDialogues.__init__(
+            self,
+            self_address=str(self.skill_id),
+            role_from_first_message=role_from_first_message,
+            dialogue_class=SigningDialogue,
         )
