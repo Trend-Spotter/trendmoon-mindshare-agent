@@ -66,10 +66,6 @@ from packages.valory.protocols.contract_api.dialogues import (
 DefaultDialogue = BaseDefaultDialogue
 DefaultDialogues = BaseDefaultDialogues
 
-SigningDialogue = BaseSigningDialogue
-SigningDialogues = BaseSigningDialogues
-
-
 HttpDialogue = BaseHttpDialogue
 HttpDialogues = BaseHttpDialogues
 
