@@ -18,7 +18,7 @@ fingerprint:
   tests/test_metrics_dialogues.py: bafybeicaqx7bykvl3dqkvcpdpft4l5g6huxyhrljwrn2zykxavk4thqdi4
 fingerprint_ignore_patterns: []
 connections:
-- eightballer/dcxt:0.1.0:bafybeicmrkkvyrg5en2auz43klzl2kmfqpwa2jx65p44zn7spp3sfkt5qu
+- eightballer/dcxt:0.1.0:bafybeig5j6wm76brp7klcfnnd3op3i5aa7wkvqzulihy4c4fftrl6pdkda
 contracts:
 - eightballer/erc_20:0.1.0:bafybeiegd5pdj34s4cuhiaxermjdtyhnapu5usy545vcf6mi5grfazlnpa
 protocols:
