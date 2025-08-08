@@ -1,8 +1,9 @@
 {
     "dev": {
-        "skill/xiuxiuxar/mindshare_app/0.1.0": "bafybeicr7top6tk2c7sr336aducsklyhk5m4ss2mzaaswb7x5g4rcdwnye",
-        "agent/xiuxiuxar/mindshare_agent/0.1.0": "bafybeidzvunx2vj55owh3tvhh7vpjguqn4ikfon2cy66mzk734jo6ia7vy",
-        "service/xiuxiuxar/mindshare_agent/0.1.0": "bafybeia2yuyxkkgwuz7vz4hes3xqdddfxk25oi2uyii4m7mtnklgbmp2ve"
+        "contract/xiuxiuxar/gnosis_safe/0.1.0": "bafybeibpmyamun7cjgda23kgks6qhcmkic4fhohdnhwb75xy6cdwgqwrla",
+        "skill/xiuxiuxar/mindshare_app/0.1.0": "bafybeihvh6qnprxmrrl27ynz5zriunzkhdqif6a6bzhf7uglcg4wiefecq",
+        "agent/xiuxiuxar/mindshare_agent/0.1.0": "bafybeihtj5wwsteh2yk7sogfgsg6ih4hslxt4y7327qs5si3minzfc7ciq",
+        "service/xiuxiuxar/mindshare_agent/0.1.0": "bafybeigd4o75p3zh4lnkevsyv5yekasnj4pioka4gu37qbzpurbheifqha"
     },
     "third_party": {
         "protocol/valory/contract_api/1.0.0": "bafybeid247uig2ekykdumh7ewhp2cdq7rchaeqjj6e7urx35zfpdl5zrn4",
@@ -25,7 +26,6 @@
         "protocol/zarathustra/asset_bridging/0.1.0": "bafybeietwg5egxy2slyrxgarhilcqcbkkiwgvjgdn22z63ef3c7rhldb54",
         "protocol/eightballer/approvals/0.1.0": "bafybeie7z3qdnfifpjddzutmdg3p52uskt7admpan4ucmrijazbmpc7usa",
         "contract/eightballer/erc_20/0.1.0": "bafybeiegd5pdj34s4cuhiaxermjdtyhnapu5usy545vcf6mi5grfazlnpa",
-        "contract/valory/gnosis_safe/0.1.0": "bafybeihqefvhxbdocjphrcz33txmbgembl35qtcc7nusdvymrh4o3sp5um",
         "contract/valory/multisend/0.1.0": "bafybeig5byt5urg2d2bsecufxe5ql7f4mezg3mekfleeh32nmuusx66p4y",
         "contract/valory/gnosis_safe_proxy_factory/0.1.0": "bafybeiegj5zx4wrahc6gpunxvxgjkzdg4nvdojbqkk5xggv2mt56oecpoa",
         "contract/valory/erc20/0.1.0": "bafybeiczphtgmlot3tbsqwfstagnuffw6rlzlxpodnvafodwq573q555ye",

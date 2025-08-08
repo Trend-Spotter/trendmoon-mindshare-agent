@@ -46,9 +46,9 @@ from packages.valory.connections.ledger.connection import (
 )
 from packages.eightballer.contracts.erc_20.contract import Erc20
 from packages.eightballer.protocols.tickers.message import TickersMessage
-from packages.valory.contracts.gnosis_safe.contract import SafeOperation, GnosisSafeContract
 from packages.xiuxiuxar.skills.mindshare_app.models import Coingecko, Trendmoon
 from packages.valory.protocols.ledger_api.custom_types import Terms, TransactionDigest
+from packages.xiuxiuxar.contracts.gnosis_safe.contract import SafeOperation, GnosisSafeContract
 from packages.xiuxiuxar.skills.mindshare_app.dialogues import ContractApiDialogue
 from packages.eightballer.protocols.orders.custom_types import Order, OrderSide, OrderType, OrderStatus
 
