@@ -7,9 +7,9 @@ description: The http echo skill prints out the content of received http message
 license: Apache-2.0
 aea_version: '>=1.0.0, <2.0.0'
 fingerprint:
-  README.md: bafybeiesl5jlvvu4enydib32bpyfqphlkdulxy3oqid3t32cjxya5qykci
+  README.md: bafybeifialoonpyjqnpq2c3aun5tmn225rouw3mxxcfxqcl7g3mwuzz53m
   __init__.py: bafybeifhcjbfwkkjfaq57azgh24ufuo4pvjm4vguozhbg3qsrn4tw5ukge
-  behaviours.py: bafybeicvraqozbsglmz2rvi42mlphvsvbaytosvviceqmy7uvcok436gmy
+  behaviours.py: bafybeiejzewzzib4yeu5gqgibp5t6crjlmpfufsfmkyogjofs5au5pbsoy
   dialogues.py: bafybeidsfl6lkjntm4ntuwx2clyq5ra2yyl632tmwzzizrcipejuxr2ium
   handlers.py: bafybeibwx3laovbm2cylhx3gtgxkuptytxuctigzehlipuebi73m6coilu
   models.py: bafybeibhmn7m5tcafioazb3wp6uinbtersy36ackfkkjqbo2s7mbpvsrga
@@ -18,6 +18,8 @@ fingerprint:
   tests/test_coingecko_model_integration.py: bafybeig2nv7sjgxqnt3kmopr4cb5dwbeq5lqnxxcpc2geq7lyoq7epokni
   tests/test_metrics.py: bafybeickohfwbhq46m4c5deutqkqkeztygfyu7gpxkgme5rfa5iwujbr7i
   tests/test_metrics_dialogues.py: bafybeicaqx7bykvl3dqkvcpdpft4l5g6huxyhrljwrn2zykxavk4thqdi4
+  tests/test_ohlcv_data_pipeline.py: bafybeih5xiji5hdwykbycpzqo5sy2ksmoe37cjlbktst3kfaxu42xxghuq
+  tests/test_ohlcv_data_pipeline_integration.py: bafybeiffaxp3dupg7pobrtz25zadtd6o6oqqnrxyherxeknolimkaxkqje
 fingerprint_ignore_patterns: []
 connections: []
 contracts: []
