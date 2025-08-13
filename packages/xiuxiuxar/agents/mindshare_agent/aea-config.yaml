@@ -12,15 +12,26 @@ connections:
 - eightballer/http_client:0.1.0:bafybeiaz5auftwxpt4czrmeeesggqlkc2kosmetq6adrebeu6g7bkhqc2u
 - eightballer/http_server:0.1.0:bafybeidrvllrr23mc6bvjxn6v3hny6oiwhfgi72n2b7w6ck5luousjfbbq
 - eightballer/prometheus:0.1.1:bafybeicy4ck2wvauo2vh6ji64xrzlgezh27powi6ztokr4yujtf3cft6wi
-contracts: []
+- valory/ledger:0.19.0:bafybeibdsjmy4w2eyilbqc7yzutopl65qpeyspxwz7mjvirr52twhjlf5y
+- eightballer/dcxt:0.1.0:bafybeig5j6wm76brp7klcfnnd3op3i5aa7wkvqzulihy4c4fftrl6pdkda
+contracts:
+- eightballer/erc_20:0.1.0:bafybeiegd5pdj34s4cuhiaxermjdtyhnapu5usy545vcf6mi5grfazlnpa
+- valory/erc20:0.1.0:bafybeiczphtgmlot3tbsqwfstagnuffw6rlzlxpodnvafodwq573q555ye
+- valory/multisend:0.1.0:bafybeig5byt5urg2d2bsecufxe5ql7f4mezg3mekfleeh32nmuusx66p4y
+- xiuxiuxar/gnosis_safe:0.1.0:bafybeidg4eqnaoinikb44n3erkxet2tuiurtaqdiis5iqal3ey2odf3ieu
+- valory/gnosis_safe_proxy_factory:0.1.0:bafybeiegj5zx4wrahc6gpunxvxgjkzdg4nvdojbqkk5xggv2mt56oecpoa
 protocols:
-- eightballer/default:0.1.0:bafybeicsdb3bue2xoopc6lue7njtyt22nehrnkevmkuk2i6ac65w722vwy
+- valory/contract_api:1.0.0:bafybeid247uig2ekykdumh7ewhp2cdq7rchaeqjj6e7urx35zfpdl5zrn4
+- eightballer/default:0.1.0:bafybeickzbjjhatxl2a5gq3qr2taczznuw7co7w7et33gtb3hagx2wlesy
 - eightballer/http:0.1.0:bafybeid75xhq7hfdt7sgj7yrn44yj57xrgxscaw34ir46tndfzvodioxme
 - eightballer/prometheus:1.0.0:bafybeidxo32tu43ru3xlk3kd5b6xlwf6vaytxvvhtjbh7ag52kexos4ke4
 - open_aea/signing:1.0.0:bafybeig2d36zxy65vd7fwhs7scotuktydcarm74aprmrb5nioiymr3yixm
+- eightballer/tickers:0.1.0:bafybeidyw4zdmurzeuvrdsdgv2na4wafcozefj6faosrssubolylcq3r6q
+- eightballer/orders:0.1.0:bafybeiekzeqhuos56tbvex45dd4ciqbi363dcnxv7ks54f3wrq7gqefvtu
+- valory/ledger_api:1.0.0:bafybeihmqzcbj6t7vxz2aehd5726ofnzsfjs5cwlf42ro4tn6i34cbfrc4
 skills:
 - eightballer/prometheus:0.1.0:bafybeicl5i7e467aowfarke4bbyixo2dggar276njmvyuwbsby5pxshhtu
-- xiuxiuxar/mindshare_app:0.1.0:bafybeie2rlskf64ptn6sjsen6igkh6vj3kj6p6yvumvgry5tytdo2r2eni
+- xiuxiuxar/mindshare_app:0.1.0:bafybeigo2ckym2tiuivafsatp5jdfprazmbwyqmccmc5dithwlqjhlu5ia
 customs: []
 default_ledger: ethereum
 required_ledgers:
@@ -37,6 +48,7 @@ logging_config:
     console:
       class: rich.logging.RichHandler
       level: INFO
+      markup: true
     logfile:
       class: logging.FileHandler
       filename: log.txt
@@ -51,8 +63,8 @@ logging_config:
       propagate: false
   version: 1
 dependencies:
-  open-aea-ledger-cosmos: {}
   open-aea-ledger-ethereum: {}
+  open-aea-ledger-cosmos: {}
   rich: {}
 default_connection: null
 ---
@@ -68,7 +80,62 @@ type: skill
 models:
   params:
     args:
-      store_path: ${SKILL_MINDSHARE_APP_MAIN_ARGS_STORE_PATH:str:./persistent_data}
-      safe_contract_addresses: ${str:{"ethereum":"0x0000000000000000000000000000000000000000","base":"0x0000000000000000000000000000000000000000"}}
       coingecko_api_key: ${str:test_key}
+      data_sufficiency_threshold: ${float:0.5}
+      max_exposure_per_position: ${float:20.0}
+      max_positions: ${int:5}
+      max_total_exposure: ${float:80.0}
+      min_capital_buffer: ${float:500.0}
+      min_position_size_usd: ${float:100.0}
       reset_pause_duration: ${int:10}
+      safe_contract_addresses: ${str:{"ethereum":"0x0000000000000000000000000000000000000000","base":"0x0000000000000000000000000000000000000000"}}
+      store_path: ${str:./persistent_data}
+      trading_strategy: ${str:balanced}
+---
+public_id: valory/ledger:0.19.0
+type: connection
+config:
+  ledger_apis:
+    base:
+      address: ${str:https://base.drpc.org}
+      chain_id: 8453
+      poa_chain: false
+      default_gas_price_strategy: eip1559
+      gas_price_strategies:
+        eip1559:
+          max_gas_fast: 1500
+          fee_history_blocks: 10
+          fee_history_percentile: 5
+          min_allowed_tip: 1000000000
+          fallback_estimate:
+            maxFeePerGas: 20000000000
+            maxPriorityFeePerGas: 3000000000
+      is_gas_estimation_enabled: true
+      timeout: 10
+    ethereum:
+      address: ${str:https://base.drpc.org}
+      chain_id: 8453
+      poa_chain: false
+      default_gas_price_strategy: eip1559
+      gas_price_strategies:
+        eip1559:
+          max_gas_fast: 1500
+          fee_history_blocks: 10
+          fee_history_percentile: 5
+          min_allowed_tip: 1000000000
+          fallback_estimate:
+            maxFeePerGas: 20000000000
+            maxPriorityFeePerGas: 3000000000
+      is_gas_estimation_enabled: true
+      timeout: 10
+---
+public_id: eightballer/dcxt:0.1.0:bafybeid2knx2lkd5jz64a357vtcz35gfjtoqey4shmmjtygl3r7dx6kvwq
+type: connection
+config:
+  exchanges:
+  - name: balancer
+    key_path: ethereum_private_key.txt
+    wallet: null
+    ledger_id: base
+    etherscan_api_key: ${str:test_key}
+    rpc_url: ${str:https://base.drpc.org}

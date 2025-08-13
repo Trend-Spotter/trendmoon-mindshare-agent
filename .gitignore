@@ -17,5 +17,7 @@ service/
 
 /mindshare_agent
 packages/eightballer/
+packages/valory/
 packages/open_aea/
+packages/zarathustra/
 .DS_Store
