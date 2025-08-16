@@ -39,10 +39,6 @@ class Coingecko(Model):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
 
-    def set_api_key(self, coingecko_api_key: str) -> None:
-        """Set the CoinGecko API key."""
-        self.coingecko_api_key = coingecko_api_key
-
     def validate_required_params(self, params: dict[str, str], required_keys: list[str], param_type: str) -> None:
         """Validate that required parameters are present and not None."""
         if params is None or params == {}:
@@ -56,7 +52,8 @@ class Coingecko(Model):
 
     def make_coingecko_request(self, base_url: str, query_params: dict[str, str]) -> Any:
         """Make a request to the CoinGecko API."""
-        if self.coingecko_api_key is None or self.coingecko_api_key == "":
+        coingecko_api_key = self.context.params.coingecko_api_key
+        if coingecko_api_key is None or coingecko_api_key == "":
             msg = "Coingecko API key is not set"
             raise ValueError(msg)
 
@@ -65,7 +62,7 @@ class Coingecko(Model):
         else:
             url = f"{base_url}?" + "&".join(f"{k}={v}" for k, v in query_params.items())
 
-        headers = {"accept": "application/json", "x-cg-demo-api-key": self.coingecko_api_key}
+        headers = {"accept": "application/json", "x-cg-demo-api-key": coingecko_api_key}
 
         response = requests.get(url, headers=headers, timeout=10)
         response.raise_for_status()

@@ -28,7 +28,7 @@ class TestCoingeckoModelIntegration(BaseSkillTestCase):
             name="coingecko_integration",
             skill_context=self.skill.skill_context,
         )
-        self.coingecko_model.set_api_key(COINGECKO_API_KEY)
+        self.coingecko_model.context.params.coingecko_api_key = COINGECKO_API_KEY
         self.logger = self.skill.skill_context.logger
 
     def test_coin_price_by_id_integration(self):

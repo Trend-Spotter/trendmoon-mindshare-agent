@@ -180,7 +180,6 @@ class SetupRound(BaseState):
 
         coingecko_api_key = self.context.params.coingecko_api_key
         self.context.logger.info(f"Setting CoinGecko API key: {coingecko_api_key}")
-        self.context.coingecko.set_api_key(coingecko_api_key)
 
     def act(self) -> None:
         """Perform the act."""
