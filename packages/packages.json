@@ -1,9 +1,9 @@
 {
     "dev": {
         "contract/xiuxiuxar/gnosis_safe/0.1.0": "bafybeidg4eqnaoinikb44n3erkxet2tuiurtaqdiis5iqal3ey2odf3ieu",
-        "skill/xiuxiuxar/mindshare_app/0.1.0": "bafybeigo2ckym2tiuivafsatp5jdfprazmbwyqmccmc5dithwlqjhlu5ia",
-        "agent/xiuxiuxar/mindshare_agent/0.1.0": "bafybeigkjf27bwsb2m3aq53oomm4a76gn5i34divbb6fwblmvejfawvur4",
-        "service/xiuxiuxar/mindshare_agent/0.1.0": "bafybeifnvlvsz3am57ebvjuursdh5j7pfnqvuc362owqrmtc2cun2fsj5i"
+        "skill/xiuxiuxar/mindshare_app/0.1.0": "bafybeibrqekf2ujnygtkf6qh34imq4qvsmbamom2chrlotoeu32kq5zqbu",
+        "agent/xiuxiuxar/mindshare_agent/0.1.0": "bafybeicn2t6aax2hmrne5qhgehnyyz467ux4dlb53qvall2sk4zyugkrmu",
+        "service/xiuxiuxar/mindshare_agent/0.1.0": "bafybeig7bpxlmdt2dt63bxztjmkzyznlltgetlyheby3nfz3643a4qromi"
     },
     "third_party": {
         "protocol/valory/contract_api/1.0.0": "bafybeid247uig2ekykdumh7ewhp2cdq7rchaeqjj6e7urx35zfpdl5zrn4",

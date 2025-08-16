@@ -9,11 +9,13 @@ aea_version: '>=1.0.0, <2.0.0'
 fingerprint:
   README.md: bafybeiesl5jlvvu4enydib32bpyfqphlkdulxy3oqid3t32cjxya5qykci
   __init__.py: bafybeifhcjbfwkkjfaq57azgh24ufuo4pvjm4vguozhbg3qsrn4tw5ukge
-  behaviours.py: bafybeiccrp4t3l65uxa4pheaeogfircvwn3nt7hvh4x4s47hegksqm5hum
+  behaviours.py: bafybeihurywcfevwirnmwhxwdnfjdnxk6j3foqdbys6ltscy6jkwssek5u
   dialogues.py: bafybeiexxmjsjczvf2bxad7qbecllm3srjhlqkejigerkbldtdtzzuyuke
   handlers.py: bafybeigttlsxa5rkevzxdtf5w6ox7ywem5ev3br7ur6h3etiqgvs2og7vq
-  models.py: bafybeiczx7sz7djoc4ubgoe7idy2vw6jrpirx6jdw5rtk6phs5vjdjliy4
+  models.py: bafybeib2stglu4kgvk5ttanrcyoumh6nuhgbid4hufqxqy4sesmyvo77ra
   tests/__init__.py: bafybeigb2ji4vkcap3hokcedggjwsrah7te2nxjhkorwf3ibwgyaa2glma
+  tests/test_coingecko_model.py: bafybeicjnqiclfi6r7sbsyjgwlzj3ugmeukii5fp23esdtsanof3lvyn6i
+  tests/test_coingecko_model_integration.py: bafybeid6mzsia3wocixdedmr6tcbb2v34oq2fkjqyz2cab4mysjvqbydfi
   tests/test_metrics.py: bafybeickohfwbhq46m4c5deutqkqkeztygfyu7gpxkgme5rfa5iwujbr7i
   tests/test_metrics_dialogues.py: bafybeicaqx7bykvl3dqkvcpdpft4l5g6huxyhrljwrn2zykxavk4thqdi4
 fingerprint_ignore_patterns: []

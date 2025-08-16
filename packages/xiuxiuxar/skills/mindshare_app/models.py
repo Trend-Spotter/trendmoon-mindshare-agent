@@ -21,6 +21,7 @@
 from typing import TYPE_CHECKING, Any, cast
 from datetime import UTC, datetime
 
+import requests
 from aea.skills.base import Model
 
 
@@ -59,6 +60,102 @@ class Coingecko(Model):
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
+
+    def validate_required_params(self, params: dict[str, str], required_keys: list[str], param_type: str) -> None:
+        """Validate that required parameters are present and not None."""
+        if params is None or params == {}:
+            msg = f"{param_type} is required"
+            raise ValueError(msg)
+
+        for key in required_keys:
+            if key not in params or params[key] is None:
+                msg = f"{key} is required in {param_type}"
+                raise ValueError(msg)
+
+    def make_coingecko_request(self, base_url: str, query_params: dict[str, str]) -> Any:
+        """Make a request to the CoinGecko API."""
+        coingecko_api_key = self.context.params.coingecko_api_key
+        if coingecko_api_key is None or coingecko_api_key == "":
+            msg = "Coingecko API key is not set"
+            raise ValueError(msg)
+
+        if query_params is None or query_params == {}:
+            url = base_url
+        else:
+            url = f"{base_url}?" + "&".join(f"{k}={v}" for k, v in query_params.items())
+
+        headers = {"accept": "application/json", "x-cg-demo-api-key": coingecko_api_key}
+
+        response = requests.get(url, headers=headers, timeout=10)
+        response.raise_for_status()
+
+        return response.json()
+
+    def coin_ohlc_data_by_id(self, path_params: dict[str, str], query_params: dict[str, str]) -> list[list[Any]]:
+        """Fetch OHLC data for a coin from CoinGecko."""
+        try:
+            self.validate_required_params(path_params, ["id"], "path_params")
+            self.validate_required_params(query_params, ["vs_currency", "days"], "query_params")
+
+            base_url = f"https://api.coingecko.com/api/v3/coins/{path_params['id']}/ohlc"
+
+            return self.make_coingecko_request(base_url, query_params)
+        except Exception as e:
+            self.context.logger.exception(f"Error fetching OHLC data: {e!s}")
+            return None
+
+    def coin_historical_chart_data_by_id(
+        self, path_params: dict[str, str], query_params: dict[str, str]
+    ) -> dict[str, Any]:
+        """Fetch historical chart data for a coin from CoinGecko."""
+        try:
+            self.validate_required_params(path_params, ["id"], "path_params")
+            self.validate_required_params(query_params, ["vs_currency", "days"], "query_params")
+
+            base_url = f"https://api.coingecko.com/api/v3/coins/{path_params['id']}/market_chart"
+
+            return self.make_coingecko_request(base_url, query_params)
+        except Exception as e:
+            self.context.logger.exception(f"Error fetching historical chart data: {e!s}")
+            return None
+
+    def coin_price_by_id(self, query_params: dict[str, str]) -> dict[str, Any]:
+        """Fetch price data for a coin from CoinGecko."""
+        try:
+            self.validate_required_params(query_params, ["vs_currencies"], "query_params")
+
+            base_url = "https://api.coingecko.com/api/v3/simple/price"
+
+            return self.make_coingecko_request(base_url, query_params)
+        except Exception as e:
+            self.context.logger.exception(f"Error fetching price data: {e!s}")
+            return None
+
+    def get_ohlcv_data(self, path_params: dict[str, str], query_params: dict[str, str]) -> list[list[Any]]:
+        """Merge OHLCV and volume data by matching closest timestamps."""
+        ohlcv_data = []
+
+        ohlc_data = self.context.coingecko.coin_ohlc_data_by_id(path_params, query_params)
+        volume_data = self.context.coingecko.coin_historical_chart_data_by_id(path_params, query_params)
+
+        if not ohlc_data or not volume_data:
+            self.context.logger.error("Missing data returned from CoinGecko")
+            return None
+
+        total_volumes = volume_data["total_volumes"]
+
+        for ohlc in ohlc_data:
+            ohlc_timestamp = ohlc[0]
+
+            # Find the volume entry with the closest timestamp to the OHLC timestamp
+            closest_volume_entry = min(total_volumes, key=lambda x: abs(x[0] - ohlc_timestamp))
+            volume = closest_volume_entry[1]
+
+            # Create OHLCV entry: [timestamp, open, high, low, close, volume]
+            ohlcv_entry = [ohlc_timestamp] + ohlc[1:] + [volume]
+            ohlcv_data.append(ohlcv_entry)
+
+        return ohlcv_data
 
 
 class Trendmoon(Model):
