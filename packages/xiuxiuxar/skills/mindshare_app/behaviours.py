@@ -33,24 +33,24 @@ from aea.protocols.base import Message
 from aea.skills.behaviours import State, FSMBehaviour
 from aea.configurations.base import PublicId
 from aea.protocols.dialogue.base import Dialogue as BaseDialogue
+
 from packages.valory.protocols.ledger_api import LedgerApiMessage
 from packages.eightballer.connections.dcxt import PUBLIC_ID as DCXT_PUBLIC_ID
 from packages.eightballer.protocols.orders import OrdersMessage
 from packages.valory.protocols.contract_api import ContractApiMessage
 from packages.valory.contracts.erc20.contract import ERC20
+from packages.open_aea.protocols.signing.message import SigningMessage
 from packages.valory.contracts.multisend.contract import MultiSendContract, MultiSendOperation
 from packages.valory.connections.ledger.connection import (
     PUBLIC_ID as LEDGER_CONNECTION_PUBLIC_ID,
 )
-from packages.eightballer.protocols.tickers.message import TickersMessage
-from packages.valory.protocols.ledger_api.custom_types import Terms, TransactionDigest
-from packages.eightballer.protocols.orders.custom_types import Order, OrderSide, OrderType, OrderStatus
-
-from packages.open_aea.protocols.signing.message import SigningMessage
 from packages.eightballer.contracts.erc_20.contract import Erc20
+from packages.eightballer.protocols.tickers.message import TickersMessage
 from packages.xiuxiuxar.skills.mindshare_app.models import Coingecko, Trendmoon
+from packages.valory.protocols.ledger_api.custom_types import Terms, TransactionDigest
 from packages.xiuxiuxar.contracts.gnosis_safe.contract import SafeOperation, GnosisSafeContract
 from packages.xiuxiuxar.skills.mindshare_app.dialogues import ContractApiDialogue
+from packages.eightballer.protocols.orders.custom_types import Order, OrderSide, OrderType, OrderStatus
 
 
 LEDGER_API_ADDRESS = str(LEDGER_CONNECTION_PUBLIC_ID)
@@ -113,9 +113,8 @@ ALLOWED_ASSETS: dict[str, list[dict[str, str]]] = {
 
 
 if TYPE_CHECKING:
-    from packages.eightballer.protocols.tickers.custom_types import Ticker
-
     from packages.xiuxiuxar.skills.mindshare_app.models import Coingecko, Trendmoon
+    from packages.eightballer.protocols.tickers.custom_types import Ticker
 
 
 class MindshareabciappEvents(Enum):
