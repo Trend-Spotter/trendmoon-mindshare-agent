@@ -1363,14 +1363,161 @@ class RiskEvaluationRound(BaseState):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._state = MindshareabciappStates.RISKEVALUATIONROUND
+        self.evaluation_intitalized: bool = False
+        self.trade_signal: dict[str, Any] = {}
+        self.risk_assessment: dict[str, Any] = {}
+        self.approved_trade_proposal: dict[str, Any] = {}
+
+    def setup(self) -> None:
+        """Setup the state."""
+        self._is_done = False
+        self.evaluation_intitalized = False
+        self.trade_signal = {}
+        self.risk_assessment = {}
+        self.approved_trade_proposal = {}
 
     def act(self) -> None:
         """Perform the act."""
-        self.context.logger.info(f"Entering {self._state} state.")
-        self._is_done = True
-        self._event = MindshareabciappEvents.APPROVED
+        try:
+            if not self.evaluation_intitalized:
+                self.context.logger.info(f"Entering {self._state} state.")
+                self._initialize_risk_evaluation()
 
+            if not self._load_trade_signal():
+                self.context.logger.error("Failed to load trade signal from previous round.")
+                self._event = MindshareabciappEvents.ERROR
+                self._is_done = True
+                return
 
+            evaluation_steps = [
+                (self._calculate_volatility_metrics, "Failed to calculate volatility metrics"),
+                (self._apply_risk_vetoes, "Failed to apply risk vetoes"),
+                (self._determine_position_size, "Failed to determine position size"),
+                (self._calculate_risk_levels, "Failed to calculate risk levels"),
+                (self._validate_risk_parameters, "Failed to validate risk parameters"),
+            ]
+
+            for step_func, error_msg in evaluation_steps:
+                if not step_func():
+                    self.context.logger.error(error_msg)
+                    self._event = MindshareabciappEvents.ERROR
+                    self._is_done = True
+                    return
+
+            self._create_approved_trade_proposal()
+            self._store_approved_trade_proposal()
+
+            self.context.logger.info("Risk evaluation passed - trade approved")
+            self._event = MindshareabciappEvents.APPROVED
+            self._is_done = True
+
+        except Exception as e:
+            self.context.logger.exception(f"Risk evaluation failed: {e}")
+            self.context.error_context = {
+                "error_type": "risk_evaluation_error",
+                "error_message": str(e),
+                "originating_round": str(self._state),
+            }
+            self._event = MindshareabciappEvents.ERROR
+            self._is_done = True
+
+    def _initialize_risk_evaluation(self) -> None:
+        """Initialize the risk evaluation."""
+        self.evaluation_intitalized = True
+
+        self.risk_assessment = {
+            "market_cap_tier": None,
+            "volatility_atr": 0.0,
+            "volatility_tier": "unknown",
+            "onchain_risk_score": 0.0,
+            "risk_vetoes": [],
+            "position_size_usdc": 0.0,
+            "stop_loss_distance": 0.0,
+            "take_profit_distance": 0.0,
+            "risk_reward_ratio": 0.0,
+            "max_loss_percentage": 0.0,
+            "evaluation_timestamp": datetime.now(UTC).isoformat(),
+        }
+
+    def _load_trade_signal(self) -> bool:
+        """Load the trade signal from the previous round."""
+        try:
+            if hasattr(self.context, "aggregated_trade_signal") and self.context.aggregated_trade_signal:
+                self.trade_signal = self.context.aggregated_trade_signal
+                self.context.logger.info(f"Loaded aggregated trade signal for {self.trade_signal.get('symbol', 'Unknown')}")
+                return True
+            
+            if not self.context.store_path:
+                self.context.logger.warning("No store path available for loading trade signal.")
+                return False
+
+            signals_file = self.context.store_path / "signals.json"
+            if not signals_file.exists():
+                self.context.logger.warning("No signals file found")
+                return False
+
+            with open(signals_file, encoding="utf-8") as f:
+                signals_data = json.load(f)
+
+            latest_signal = signals_data.get("last_signal")
+
+            if not latest_signal or latest_signal.get("status") != "generated":
+                self.context.logger.warning("No valid generated signal found")
+                return False
+
+            self.trade_signal = latest_signal
+            self.context.logger.info(f"Loaded aggregated trade signal for {self.trade_signal.get('symbol', 'Unknown')}")
+            return True
+
+        except Exception as e:
+            self.context.logger.exception(f"Error loading trade signal: {e}")
+            return False
+
+    def _calculate_volatility_metrics(self) -> bool:
+        """Calculate the volatility metrics using ATR-based approach."""
+        try:
+            symbol = self.trade_signal.get("symbol")
+            if not symbol:
+                return False
+
+            ohlcv_data = self._get_ohlcv_data(symbol)
+            if not ohlcv_data:
+                self.context.logger.warning(f"No OHLCV data found for {symbol}")
+                # Use default ATR estimation
+                current_price = self._get_current_price(symbol)  # TODO: check if this is correct
+                estimated_atr = current_price * 0.03 if current_price else 0  # 3% default ATR
+                self.risk_assessment["volatility_atr"] = estimated_atr
+                self.risk_assessment["volatility_tier"] = "high"  # Conservative assumption
+                return True
+
+            atr = self._calculate_atr(ohlcv_data)
+            self.risk_assessment["volatility_atr"] = atr
+
+            current_price = self._get_current_price(symbol)
+            if current_price and current_price > 0:
+                atr_percentage = (atr / current_price) * 100
+
+                if atr_percentage >= 8.0:
+                    volatility_tier = "very_high"
+                elif atr_percentage >= 5.0:
+                    volatility_tier = "high"
+                elif atr_percentage >= 2.0:
+                    volatility_tier = "medium"
+                else:
+                    volatility_tier = "low"
+
+                self.risk_assessment["volatility_tier"] = volatility_tier
+                self.risk_assessment["volatility_atr"] = atr_percentage
+
+                self.context.logger.info(f"Volatility for {symbol}: {volatility_tier} (ATR: {atr:.6f}, {atr_percentage:.2f}%)")
+            else:
+                self.risk_assessment["volatility_tier"] = "unknown"
+
+            return True
+
+        except Exception as e:
+            self.context.logger.exception(f"Failed to calculate volatility metrics: {e}")
+            return False
 class TradeConstructionRound(BaseState):
     """This class implements the behaviour of the state TradeConstructionRound."""
 
