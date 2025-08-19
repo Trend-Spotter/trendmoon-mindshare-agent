@@ -28,6 +28,8 @@ from datetime import UTC, datetime, timedelta
 from dataclasses import dataclass
 from collections.abc import Generator
 
+import pandas as pd
+import pandas_ta as ta
 from eth_utils import to_bytes
 from aea.protocols.base import Message
 from aea.skills.behaviours import State, FSMBehaviour
@@ -386,6 +388,7 @@ class DataCollectionRound(BaseState):
             "current_prices": {},
             "market_data": {},
             "social_data": {},
+            "technical_data": {},
             "fundamental_data": {},
             "onchain_data": {},
             "collection_timestamp": datetime.now(UTC).isoformat(),
@@ -410,6 +413,10 @@ class DataCollectionRound(BaseState):
 
             if ohlcv_data:
                 self.collected_data["ohlcv"][symbol] = ohlcv_data
+                ma_length = self.context.params.moving_average_length
+                technical_data = self._get_technical_data(ohlcv_data, ma_length)
+                self.collected_data["technical_data"][symbol] = technical_data
+                self.context.logger.debug(f"Collected technical data for {symbol}: {technical_data}")
             if price_data:
                 self.collected_data["current_prices"][symbol] = price_data
 
@@ -555,6 +562,165 @@ class DataCollectionRound(BaseState):
         query_params = {"vs_currency": "usd", "days": 30}
 
         return self.context.coingecko.get_ohlcv_data(path_params, query_params)
+
+    def _get_technical_data(self, ohlcv_data: list[list[Any]], moving_average_length: int = 20) -> list:
+        """Calculate core technical indicators for a coin using pandas-ta with validation."""
+        try:
+            self._validate_ohlcv_data(ohlcv_data)
+            data = self._preprocess_ohlcv_data(ohlcv_data)
+
+            # Calculate different groups of indicators
+            self._calculate_trend_indicators(data, moving_average_length)
+            self._calculate_momentum_indicators(data)
+            self._calculate_volatility_indicators(data)
+            self._calculate_volume_indicators(data)
+
+            # Build and return the result
+            return self._build_technical_result(data)
+
+        except (ValueError, KeyError, ConnectionError, TimeoutError) as e:
+            self.context.logger.warning(f"Technical data error: {e}")
+            return []
+
+    def _validate_ohlcv_data(self, ohlcv_data: list[list[Any]]) -> None:
+        """Validate OHLCV data format."""
+        if not isinstance(ohlcv_data, list) or len(ohlcv_data) == 0:
+            msg = "ohlcv_data must be a non-empty list of lists."
+            raise ValueError(msg)
+
+        for row in ohlcv_data:
+            if not (isinstance(row, list) and len(row) >= 6):
+                msg = "Each row must be a list with at least 6 elements: timestamp, open, high, low, close, volume."
+                raise ValueError(msg)
+
+    def _preprocess_ohlcv_data(self, ohlcv_data: list[list[Any]]) -> pd.DataFrame:
+        """Convert OHLCV data to DataFrame and clean it."""
+        data = pd.DataFrame(ohlcv_data, columns=["timestamp", "open", "high", "low", "close", "volume"])
+        data["date"] = pd.to_datetime(data["timestamp"], unit="ms")
+        data = data.set_index("date")
+
+        for col in ["open", "high", "low", "close", "volume"]:
+            data[col] = pd.to_numeric(data[col], errors="coerce")
+
+        return data.dropna()
+
+    def _calculate_trend_indicators(self, data: pd.DataFrame, moving_average_length: int) -> None:
+        """Calculate trend indicators (SMA, EMA)."""
+        data["SMA"] = ta.sma(data["close"], length=moving_average_length)
+        data["EMA"] = ta.ema(data["close"], length=moving_average_length)
+
+    def _calculate_momentum_indicators(self, data: pd.DataFrame) -> None:
+        """Calculate momentum indicators (RSI, MACD, ADX)."""
+        # RSI (normalized 0-100)
+        data["RSI"] = ta.rsi(data["close"], length=14)
+        data["RSI"] = data["RSI"].clip(0, 100)
+
+        # MACD
+        self._process_macd_indicator(data)
+
+        # ADX
+        self._process_adx_indicator(data)
+
+    def _process_macd_indicator(self, data: pd.DataFrame) -> None:
+        """Process MACD indicator and handle different column naming conventions."""
+        macd = ta.macd(data["close"], fast=12, slow=26, signal=9)
+        if macd is None or macd.empty:
+            return
+
+        macd_cols = macd.columns.tolist()
+        macd_line = macd_histogram = macd_signal_line = None
+
+        # Find the correct column names
+        for col in macd_cols:
+            if "MACD_" in col and "h_" not in col and "s_" not in col:
+                macd_line = col
+            elif "MACDh_" in col:
+                macd_histogram = col
+            elif "MACDs_" in col:
+                macd_signal_line = col
+
+        if macd_line:
+            data["MACD"] = macd[macd_line]
+        if macd_histogram:
+            data["MACDh"] = macd[macd_histogram]
+        if macd_signal_line:
+            data["MACDs"] = macd[macd_signal_line]
+
+    def _process_adx_indicator(self, data: pd.DataFrame) -> None:
+        """Process ADX indicator and handle different column naming conventions."""
+        adx = ta.adx(data["high"], data["low"], data["close"], length=14)
+        if adx is None or adx.empty:
+            return
+
+        # Find the correct ADX column name
+        for col in adx.columns.tolist():
+            if col.startswith("ADX"):
+                data["ADX"] = adx[col]
+                break
+
+    def _calculate_volatility_indicators(self, data: pd.DataFrame) -> None:
+        """Calculate volatility indicators (Bollinger Bands)."""
+        bbands = ta.bbands(data["close"], length=20, std=2)
+        if bbands is None or bbands.empty:
+            return
+
+        bb_cols = bbands.columns.tolist()
+        bb_lower = bb_middle = bb_upper = None
+
+        # Find the correct column names
+        for col in bb_cols:
+            if col.startswith("BBL"):
+                bb_lower = col
+            elif col.startswith("BBM"):
+                bb_middle = col
+            elif col.startswith("BBU"):
+                bb_upper = col
+
+        if bb_lower and bb_middle and bb_upper:
+            data["BBL"] = bbands[bb_lower]
+            data["BBM"] = bbands[bb_middle]
+            data["BBU"] = bbands[bb_upper]
+
+    def _calculate_volume_indicators(self, data: pd.DataFrame) -> None:
+        """Calculate volume indicators (OBV, CMF)."""
+        # On-Balance Volume (OBV)
+        obv = ta.obv(data["close"], data["volume"])
+        if obv is not None and not obv.empty:
+            data["OBV"] = obv
+
+        # Chaikin Money Flow (CMF)
+        cmf = ta.cmf(data["high"], data["low"], data["close"], data["volume"], length=20)
+        if cmf is not None and not cmf.empty:
+            data["CMF"] = cmf
+
+    def _build_technical_result(self, data: pd.DataFrame) -> list:
+        """Build the final result list from calculated indicators."""
+        latest_data = data.iloc[-1]
+        result = []
+
+        # Add basic indicators
+        for indicator in ["SMA", "EMA", "RSI", "ADX"]:
+            if indicator in data.columns:
+                result.append((indicator, latest_data[indicator]))
+
+        # Add MACD (only if all components are available)
+        if all(col in data.columns for col in ["MACD", "MACDh", "MACDs"]):
+            result.append(
+                ("MACD", {"MACD": latest_data["MACD"], "MACDh": latest_data["MACDh"], "MACDs": latest_data["MACDs"]})
+            )
+
+        # Add Bollinger Bands (only if all components are available)
+        if all(col in data.columns for col in ["BBL", "BBM", "BBU"]):
+            result.append(
+                ("BB", {"Lower": latest_data["BBL"], "Middle": latest_data["BBM"], "Upper": latest_data["BBU"]})
+            )
+
+        # Add volume indicators
+        for indicator in ["OBV", "CMF"]:
+            if indicator in data.columns:
+                result.append((indicator, latest_data[indicator]))
+
+        return result
 
 
 class PausedRound(BaseState):

@@ -31,7 +31,7 @@ protocols:
 - valory/ledger_api:1.0.0:bafybeihmqzcbj6t7vxz2aehd5726ofnzsfjs5cwlf42ro4tn6i34cbfrc4
 skills:
 - eightballer/prometheus:0.1.0:bafybeicl5i7e467aowfarke4bbyixo2dggar276njmvyuwbsby5pxshhtu
-- xiuxiuxar/mindshare_app:0.1.0:bafybeibrqekf2ujnygtkf6qh34imq4qvsmbamom2chrlotoeu32kq5zqbu
+- xiuxiuxar/mindshare_app:0.1.0:bafybeiax5hcyt2heo5tsdxwrzux373yqca3ffcjkzm4jqgs7co72eljd3u
 customs: []
 default_ledger: ethereum
 required_ledgers:
@@ -63,8 +63,12 @@ logging_config:
       propagate: false
   version: 1
 dependencies:
-  open-aea-ledger-ethereum: {}
+  pandas:
+    version: ==2.3.1
+  pandas-ta:
+    version: ==0.3.14b0
   open-aea-ledger-cosmos: {}
+  open-aea-ledger-ethereum: {}
   rich: {}
 default_connection: null
 ---
@@ -91,6 +95,7 @@ models:
       safe_contract_addresses: ${str:{"ethereum":"0x0000000000000000000000000000000000000000","base":"0x0000000000000000000000000000000000000000"}}
       store_path: ${str:./persistent_data}
       trading_strategy: ${str:balanced}
+      moving_average_length: ${int:20}
 ---
 public_id: valory/ledger:0.19.0
 type: connection

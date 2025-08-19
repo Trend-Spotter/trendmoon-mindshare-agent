@@ -49,8 +49,8 @@ dateparser = ">=1.1.1"
 derive-client = "==0.2.20"
 open-multicaller = "^0.2.0"
 rich = "^14.1.0"
-
-[tool.poetry.group.dev.dependencies]
+numpy = "<1.25.0"
+pandas-ta = "^0.3.14b0"
 
 [build-system]
 build-backend = "poetry.core.masonry.api"

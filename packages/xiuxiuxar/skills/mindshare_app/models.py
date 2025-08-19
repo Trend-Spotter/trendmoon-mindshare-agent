@@ -345,6 +345,7 @@ class Params(Model):
         self.price_collection_timeout = kwargs.pop("price_collection_timeout", 15)
         self.cowswap_slippage_tolerance = kwargs.pop("cowswap_slippage_tolerance", 0.005)
         self.cowswap_timeout_seconds = kwargs.pop("cowswap_timeout_seconds", 300)
+        self.moving_average_length = kwargs.pop("moving_average_length", 20)
         super().__init__(*args, **kwargs)
 
 
