@@ -364,6 +364,7 @@ class DataCollectionRound(BaseState):
         self.pending_tokens: list[dict[str, str]] = []
         self.completed_tokens: list[dict[str, str]] = []
         self.failed_tokens: list[dict[str, str]] = []
+        self.blacklisted_tokens: list[dict[str, str]] = []
 
     def setup(self) -> None:
         """Perform the setup."""
@@ -380,7 +381,7 @@ class DataCollectionRound(BaseState):
         self.pending_tokens = ALLOWED_ASSETS["base"].copy()
         self.completed_tokens = []
         self.failed_tokens = []
-
+        self.blacklisted_tokens = []
         self.collected_data = {
             "ohlcv": {},
             "current_prices": {},
@@ -409,6 +410,7 @@ class DataCollectionRound(BaseState):
             ohlcv_data, price_data = self._fetch_coingecko_data(token_info)
 
             if ohlcv_data:
+                self._process_ohlcv_data(ohlcv_data, token_info)
                 self.collected_data["ohlcv"][symbol] = ohlcv_data
             if price_data:
                 self.collected_data["current_prices"][symbol] = price_data
@@ -555,6 +557,94 @@ class DataCollectionRound(BaseState):
         query_params = {"vs_currency": "usd", "days": 30}
 
         return self.context.coingecko.get_ohlcv_data(path_params, query_params)
+
+    def _process_ohlcv_data(self, ohlcv_data: list[list[Any]], token_info: dict[str, str]) -> None:
+        """Process OHLCV data. Checks Data History, does a Freshness Check, and a Staleness Check."""
+
+        self.context.logger.info(f"Processing OHLCV data for {token_info['symbol']}")
+
+        symbol = token_info["symbol"]
+
+        # Data history and Freshness Check
+        if not self._check_candle_data(ohlcv_data):
+            error_msg = f"OHLCV data for {symbol} is not valid"
+            raise ValueError(error_msg)
+
+        # Staleness Check
+        if not self._staleness_check(ohlcv_data, token_info):
+            error_msg = f"OHLCV data for {symbol} is stale"
+            raise ValueError(error_msg)
+
+    def _check_candle_data(self, ohlcv_data: list[list[Any]]) -> bool:
+        """Verify there are at least 120 candles in the OHLCV data. Additionally, it verifies that the
+        latest candle is no older than 4 hours.
+        """
+
+        # Data history check
+        if len(ohlcv_data) < 120:
+            self.context.logger.warning(
+                f"OHLCV data has {len(ohlcv_data)} candles, which is less than the minimum required of 120."
+            )
+            return False
+
+        self.context.logger.debug(f"Verified candle length: {len(ohlcv_data)}")
+
+        latest_candle = ohlcv_data[-1]
+        latest_candle_timestamp = latest_candle[0]
+
+        latest_candle_timestamp = datetime.fromtimestamp(latest_candle_timestamp / 1000, UTC)
+        current_time = datetime.now(UTC)
+
+        # Freshness check
+        if current_time - latest_candle_timestamp > timedelta(hours=4):
+            time_diff = current_time - latest_candle_timestamp
+            self.context.logger.warning(
+                f"Latest candle is {time_diff} old, which is more than the maximum allowed of 4 hours."
+            )
+            return False
+
+        self.context.logger.debug(f"Verified latest candle timestamp: {latest_candle_timestamp}")
+        self.context.logger.debug(f"Current time: {current_time}")
+
+        return True
+
+    def _staleness_check(self, ohlcv_data: list[list[Any]], token_info: dict[str, str]) -> bool:
+        """Check if the OHLCV data is stale.
+
+        If there are ≥12 consecutive 4h candles (≈2 days) with no change in close price,
+        the pair is considered stale and will be blacklisted.
+        """
+        max_consecutive_unchanged = 0
+        current_consecutive = 0
+        last_close_price = None
+
+        # Check the entire dataset for consecutive identical close prices
+        for candle in ohlcv_data:
+            close_price = candle[4]  # Close price is at index 4 in OHLCV format
+
+            if last_close_price is not None and close_price == last_close_price:
+                current_consecutive += 1
+                max_consecutive_unchanged = max(max_consecutive_unchanged, current_consecutive)
+            else:
+                current_consecutive = 0
+
+            last_close_price = close_price
+
+        symbol = token_info["symbol"]
+
+        # If we found 12 or more consecutive unchanged candles, mark as stale
+        if max_consecutive_unchanged >= 11:  # 11 because we compare with previous, so 11 comparisons = 12 candles
+            msg = (
+                f"Staleness detected for {symbol}: "
+                f"{max_consecutive_unchanged + 1} consecutive candles "
+                f"with identical close price {last_close_price}"
+            )
+            self.context.logger.warning(msg)
+            self.blacklisted_tokens.append(token_info)
+            self.context.logger.info(f"Blacklisted stale token: {symbol}")
+            return False
+
+        return True
 
 
 class PausedRound(BaseState):

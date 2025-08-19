@@ -9,7 +9,7 @@ aea_version: '>=1.0.0, <2.0.0'
 fingerprint:
   README.md: bafybeiesl5jlvvu4enydib32bpyfqphlkdulxy3oqid3t32cjxya5qykci
   __init__.py: bafybeifhcjbfwkkjfaq57azgh24ufuo4pvjm4vguozhbg3qsrn4tw5ukge
-  behaviours.py: bafybeihurywcfevwirnmwhxwdnfjdnxk6j3foqdbys6ltscy6jkwssek5u
+  behaviours.py: bafybeig3wlv7fhzz34qyjjydbc7wyn3fx2ebrpzasi7rsb4pupoxw5punu
   dialogues.py: bafybeiexxmjsjczvf2bxad7qbecllm3srjhlqkejigerkbldtdtzzuyuke
   handlers.py: bafybeigttlsxa5rkevzxdtf5w6ox7ywem5ev3br7ur6h3etiqgvs2og7vq
   models.py: bafybeib2stglu4kgvk5ttanrcyoumh6nuhgbid4hufqxqy4sesmyvo77ra
@@ -18,6 +18,8 @@ fingerprint:
   tests/test_coingecko_model_integration.py: bafybeid6mzsia3wocixdedmr6tcbb2v34oq2fkjqyz2cab4mysjvqbydfi
   tests/test_metrics.py: bafybeickohfwbhq46m4c5deutqkqkeztygfyu7gpxkgme5rfa5iwujbr7i
   tests/test_metrics_dialogues.py: bafybeicaqx7bykvl3dqkvcpdpft4l5g6huxyhrljwrn2zykxavk4thqdi4
+  tests/test_ohlcv_data_pipeline.py: bafybeih5xiji5hdwykbycpzqo5sy2ksmoe37cjlbktst3kfaxu42xxghuq
+  tests/test_ohlcv_data_pipeline_integration.py: bafybeiffaxp3dupg7pobrtz25zadtd6o6oqqnrxyherxeknolimkaxkqje
 fingerprint_ignore_patterns: []
 connections:
 - eightballer/dcxt:0.1.0:bafybeig5j6wm76brp7klcfnnd3op3i5aa7wkvqzulihy4c4fftrl6pdkda
