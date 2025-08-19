@@ -1444,9 +1444,11 @@ class RiskEvaluationRound(BaseState):
         try:
             if hasattr(self.context, "aggregated_trade_signal") and self.context.aggregated_trade_signal:
                 self.trade_signal = self.context.aggregated_trade_signal
-                self.context.logger.info(f"Loaded aggregated trade signal for {self.trade_signal.get('symbol', 'Unknown')}")
+                self.context.logger.info(
+                    f"Loaded aggregated trade signal for {self.trade_signal.get('symbol', 'Unknown')}"
+                )
                 return True
-            
+
             if not self.context.store_path:
                 self.context.logger.warning("No store path available for loading trade signal.")
                 return False
@@ -1484,7 +1486,7 @@ class RiskEvaluationRound(BaseState):
             if not ohlcv_data:
                 self.context.logger.warning(f"No OHLCV data found for {symbol}")
                 # Use default ATR estimation
-                current_price = self._get_current_price(symbol)  # TODO: check if this is correct
+                current_price = self._get_current_price(symbol)
                 estimated_atr = current_price * 0.03 if current_price else 0  # 3% default ATR
                 self.risk_assessment["volatility_atr"] = estimated_atr
                 self.risk_assessment["volatility_tier"] = "high"  # Conservative assumption
@@ -1509,7 +1511,9 @@ class RiskEvaluationRound(BaseState):
                 self.risk_assessment["volatility_tier"] = volatility_tier
                 self.risk_assessment["volatility_atr"] = atr_percentage
 
-                self.context.logger.info(f"Volatility for {symbol}: {volatility_tier} (ATR: {atr:.6f}, {atr_percentage:.2f}%)")
+                self.context.logger.info(
+                    f"Volatility for {symbol}: {volatility_tier} (ATR: {atr:.6f}, {atr_percentage:.2f}%)"
+                )
             else:
                 self.risk_assessment["volatility_tier"] = "unknown"
 
@@ -1518,6 +1522,347 @@ class RiskEvaluationRound(BaseState):
         except Exception as e:
             self.context.logger.exception(f"Failed to calculate volatility metrics: {e}")
             return False
+
+    def _apply_risk_vetoes(self) -> bool:
+        """Apply risk vetoes to the trade signal."""
+        try:
+            vetoes = []
+
+            volatility_tier = self.risk_assessment.get("volatility_tier")
+            if volatility_tier == "very_high":
+                vetoes.append({
+                    "type": "volatility",
+                    "reason": "Volatility tier is very high - too risky",
+                    "severity": "medium"
+                })
+
+            p_trade = self.trade_signal.get("p_trade", 0.0)
+            min_signal_threshold = 0.6  # Minimum 60% confidence
+            if p_trade < min_signal_threshold:
+                vetoes.append({
+                    "type": "signal_strength",
+                    "reason": f"Trade signal too weak: {p_trade:.3f} < {min_signal_threshold}",
+                    "severity": "high"
+                })
+
+            self.risk_assessment["risk_vetoes"] = vetoes
+
+            high_severity_vetoes = [v for v in vetoes if v["severity"] == "high"]
+            if high_severity_vetoes:
+                self.context.logger.warning(
+                    f"Trade rejected due to {len(high_severity_vetoes)} high-severity risk veto(s)"
+                )
+                for veto in high_severity_vetoes:
+                    self.context.logger.warning(f"  - {veto['type']}: {veto['reason']}")
+                return False
+
+            # Log medium-severity vetoes as warnings but don't reject
+            medium_severity_vetoes = [v for v in vetoes if v["severity"] == "medium"]
+            if medium_severity_vetoes:
+                self.context.logger.warning(f"Trade has {len(medium_severity_vetoes)} medium-severity risk warning(s)")
+                for veto in medium_severity_vetoes:
+                    self.context.logger.warning(f"  - {veto['type']}: {veto['reason']}")
+
+            return True
+
+        except Exception as e:
+            self.context.logger.exception(f"Failed to apply risk vetoes: {e}")
+            return False
+
+    def _determine_position_size(self) -> bool:
+        """Determine the position size based on risk assessment."""
+        try:
+            available_capital = getattr(self.context, "available_trading_capital", None)
+            if available_capital is None:
+                self.context.logger.warning("No available trading capital found, using fallback")
+                available_capital = 1000.0
+
+            strategy = self.context.params.trading_stategy
+            market_cap_tier = self.risk_assessment.get("market_cap_tier")
+            volatility_tier = self.risk_assessment.get("volatility_tier")
+            signal_strength = self.trade_signal.get("p_trade", 0.5)
+
+            base_position_pct = self._get_base_position_percentage(strategy)
+
+            market_cap_multiplier = self._get_market_cap_multiplier(market_cap_tier)
+
+            volatility_multiplier = self._get_volatility_multiplier(volatility_tier)
+
+            signal_multiplier = min(signal_strength * 2.0, 1.5)
+
+            final_position_pct = base_position_pct * market_cap_multiplier * volatility_multiplier * signal_multiplier
+
+            min_position_pct = 0.02
+            max_position_pct = 0.20
+            final_position_pct = max(min_position_pct, min(final_position_pct, max_position_pct))
+
+            position_size_usdc = available_capital * final_position_pct
+
+            min_position_size = self.context.params.min_position_size_usdc
+            max_position_size = self.context.params.max_position_size_usdc
+            position_size_usdc = max(min_position_size, min(position_size_usdc, max_position_size))
+
+            self.risk_assessment["position_size_usdc"] = position_size_usdc
+            self.risk_assessment["position_percentage"] = (position_size_usdc / available_capital) * 100
+
+            self.context.logger.info(
+                f"Position sizing: {position_size_usdc:.2f} USDC "
+                f"({(position_size_usdc / available_capital) * 100:.1f}% of capital)"
+            )
+
+            return True
+
+        except Exception as e:
+            self.context.logger.exception(f"Failed to determine position size: {e}")
+            return False
+
+    def _calculate_risk_levels(self) -> bool:
+        """Calculate the risk levels based on position size and volatility."""
+        try:
+            symbol = self.trade_signal.get("symbol")
+            current_price = self._get_current_price(symbol)
+            if not current_price or current_price <= 0.0:
+                self.context.logger.warning(f"No valid current price found for {symbol}")
+                return False
+
+            atr = self.risk_assessment["volatility_atr"]
+            direction = self.trade_signal.get("direction", "buy")
+
+            stop_loss_multiplier = self.context.params.stop_loss_atr_multiplier
+            stop_loss_distance = atr * stop_loss_multiplier
+
+            # Calculate stop loss price
+            if direction == "buy":
+                stop_loss_price = current_price - stop_loss_distance
+            else:
+                msg = "Sell direction not supported yet"
+                raise NotImplementedError(msg)
+
+            risk_reward_ratio = self.context.params.take_profit_risk_ratio
+            take_profit_distance = stop_loss_distance * risk_reward_ratio
+
+            # Calculate take profit price
+            if direction == "buy":
+                take_profit_price = current_price + take_profit_distance
+            else:
+                msg = "Sell direction not supported yet"
+                raise NotImplementedError(msg)
+
+            # Calculate max loss percentage
+            position_size = self.risk_assessment["position_size_usdc"]
+            loss_amount = stop_loss_distance * (position_size / current_price)
+            max_loss_percentage = (loss_amount / position_size) * 100 if position_size > 0 else 0
+
+            self.risk_assessment.update({
+                "current_price": current_price,
+                "stop_loss_price": stop_loss_price,
+                "take_profit_price": take_profit_price,
+                "stop_loss_distance": stop_loss_distance,
+                "take_profit_distance": take_profit_distance,
+                "risk_reward_ratio": risk_reward_ratio,
+                "max_loss_percentage": max_loss_percentage,
+            })
+
+            self.context.logger.info(
+                f"Risk levels for {symbol}: "
+                f"SL: ${stop_loss_price:.6f} ({-max_loss_percentage:.1f}%), "
+                f"TP: ${take_profit_price:.6f} (1:{risk_reward_ratio:.1f} R/R)"
+            )
+
+            return True
+
+        except Exception as e:
+            self.context.logger.exception(f"Failed to calculate risk levels: {e}")
+            return False
+
+    def _validate_risk_parameters(self) -> bool:
+        """Validate the risk parameters."""
+        try:
+            # Check position size is reasonable
+            position_size = self.risk_assessment["position_size_usdc"]
+            if position_size <= 0:
+                self.context.logger.error("Position size is zero or negative")
+                return False
+
+            # Check max loss percentage is acceptable
+            max_loss_pct = self.risk_assessment["max_loss_percentage"]
+            max_acceptable_loss = 10.0  # 10% maximum loss per trade
+            if max_loss_pct > max_acceptable_loss:
+                self.context.logger.error(
+                    f"Maximum loss percentage too high: {max_loss_pct:.1f}% > {max_acceptable_loss}%"
+                )
+                return False
+
+            # Check stop-loss and take-profit are valid
+            current_price = self.risk_assessment["current_price"]
+            stop_loss = self.risk_assessment["stop_loss_price"]
+            take_profit = self.risk_assessment["take_profit_price"]
+            direction = self.trade_signal.get("direction", "buy")
+
+            if direction == "buy":
+                if stop_loss >= current_price:
+                    self.context.logger.error(f"Invalid stop-loss for buy: {stop_loss} >= {current_price}")
+                    return False
+                if take_profit <= current_price:
+                    self.context.logger.error(f"Invalid take-profit for buy: {take_profit} <= {current_price}")
+                    return False
+
+            self.context.logger.info("Risk parameter validation passed")
+            return True
+
+        except Exception as e:
+            self.context.logger.exception(f"Failed to validate risk parameters: {e}")
+            return False
+
+    def _create_approved_trade_proposal(self) -> None:
+        """Create an approved trade proposal."""
+        self.approved_trade_proposal = {
+            "signal_id": self.trade_signal.get("signal_id"),
+            "symbol": self.trade_signal.get("symbol"),
+            "direction": self.trade_signal.get("direction"),
+            "entry_price": self.risk_assessment["current_price"],
+            "position_size_usdc": self.risk_assessment["position_size_usdc"],
+            "stop_loss_price": self.risk_assessment["stop_loss_price"],
+            "take_profit_price": self.risk_assessment["take_profit_price"],
+            "risk_assessment": self.risk_assessment.copy(),
+            "original_signal": self.trade_signal.copy(),
+            "approval_timestamp": datetime.now(UTC).isoformat(),
+            "status": "approved",
+        }
+
+    def _store_approved_trade(self) -> None:
+        """Store the approved trade proposal for the next round."""
+        try:
+            # Store in context for immediate access by TradeConstructionRound
+            self.context.approved_trade_signal = self.approved_trade_proposal
+
+            # Also persist to storage
+            if self.context.store_path:
+                signals_file = self.context.store_path / "signals.json"
+
+                # Load existing signals
+                signals_data = {"signals": [], "last_signal": None}
+                if signals_file.exists():
+                    with open(signals_file, encoding="utf-8") as f:
+                        signals_data = json.load(f)
+
+                # Update the last signal with approval
+                signals_data["last_signal"] = self.approved_trade_proposal
+                signals_data["last_updated"] = datetime.now(UTC).isoformat()
+
+                # Save updated signals
+                with open(signals_file, "w", encoding="utf-8") as f:
+                    json.dump(signals_data, f, indent=2)
+
+                self.context.logger.info("Stored approved trade proposal")
+
+        except Exception as e:
+            self.context.logger.exception(f"Failed to store approved trade: {e}")
+
+    # Helper methods
+
+    def _get_current_price(self, symbol: str) -> float | None:
+        """Get current price from collected data."""
+        try:
+            if not self.context.store_path:
+                return None
+
+            data_file = self.context.store_path / "collected_data.json"
+            if not data_file.exists():
+                return None
+
+            with open(data_file, encoding="utf-8") as f:
+                collected_data = json.load(f)
+
+            current_prices = collected_data.get("current_prices", {})
+            if symbol in current_prices:
+                price_data = current_prices[symbol]
+                return price_data.get("usd")
+
+            return None
+
+        except Exception as e:
+            self.context.logger.exception(f"Failed to get current price for {symbol}: {e}")
+            return None
+
+    def _get_ohlcv_data(self, symbol: str) -> list[dict] | None:
+        """Get OHLCV data from collected data."""
+        try:
+            if not self.context.store_path:
+                return None
+
+            data_file = self.context.store_path / "collected_data.json"
+            if not data_file.exists():
+                return None
+
+            with open(data_file, encoding="utf-8") as f:
+                collected_data = json.load(f)
+
+            ohlcv_data = collected_data.get("ohlcv", {})
+            return ohlcv_data.get(symbol)
+
+        except Exception as e:
+            self.context.logger.exception(f"Failed to get OHLCV data for {symbol}: {e}")
+            return None
+
+    def _calculate_atr(self, ohlcv_data: list[dict], period: int = 14) -> float:
+        """Calculate Average True Range from OHLCV data."""
+        try:
+            if not ohlcv_data or len(ohlcv_data) < 2:
+                return 0.0
+
+            true_ranges = []
+            for i in range(1, min(len(ohlcv_data), period + 1)):
+                current = ohlcv_data[i]
+                previous = ohlcv_data[i - 1]
+
+                high = current.get("high", 0)
+                low = current.get("low", 0)
+                prev_close = previous.get("close", 0)
+
+                tr1 = high - low
+                tr2 = abs(high - prev_close)
+                tr3 = abs(low - prev_close)
+
+                true_range = max(tr1, tr2, tr3)
+                true_ranges.append(true_range)
+
+            return sum(true_ranges) / len(true_ranges) if true_ranges else 0.0
+
+        except Exception as e:
+            self.context.logger.exception(f"Failed to calculate ATR: {e}")
+            return 0.0
+
+    def _get_base_position_percentage(self, strategy: str) -> float:
+        """Get base position percentage based on strategy."""
+        strategy_percentages = {
+            "aggressive": 0.15,  # 15% of capital
+            "balanced": 0.10,    # 10% of capital
+            "conservative": 0.05  # 5% of capital
+        }
+        return strategy_percentages.get(strategy, 0.10)
+
+    def _get_market_cap_multiplier(self, market_cap_tier: str) -> float:
+        """Get position size multiplier based on market cap tier."""
+        multipliers = {
+            "large": 1.2,    # Slightly larger positions for large caps
+            "mid": 1.0,      # Base size for mid caps
+            "small": 0.8,    # Smaller positions for small caps
+            "micro": 0.6,    # Much smaller positions for micro caps
+        }
+        return multipliers.get(market_cap_tier, 0.8)
+
+    def _get_volatility_multiplier(self, volatility_tier: str) -> float:
+        """Get position size multiplier based on volatility."""
+        multipliers = {
+            "low": 1.2,        # Larger positions for low volatility
+            "medium": 1.0,     # Base size for medium volatility
+            "high": 0.7,       # Smaller positions for high volatility
+            "very_high": 0.5,  # Much smaller positions for very high volatility
+        }
+        return multipliers.get(volatility_tier, 0.8)
+
+
 class TradeConstructionRound(BaseState):
     """This class implements the behaviour of the state TradeConstructionRound."""
 
