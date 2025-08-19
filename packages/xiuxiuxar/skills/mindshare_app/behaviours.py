@@ -28,10 +28,10 @@ from datetime import UTC, datetime, timedelta
 from dataclasses import dataclass
 from collections.abc import Generator
 
-from eth_utils import to_bytes
-from aea.protocols.base import Message
 import pandas as pd
 import pandas_ta as ta
+from eth_utils import to_bytes
+from aea.protocols.base import Message
 from aea.skills.behaviours import State, FSMBehaviour
 from aea.configurations.base import PublicId
 from aea.protocols.dialogue.base import Dialogue as BaseDialogue
