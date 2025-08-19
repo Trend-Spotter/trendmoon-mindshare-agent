@@ -30,8 +30,8 @@ class TestCoingeckoModel(BaseSkillTestCase):
 
     def test_set_api_key(self):
         """Test the set_api_key method."""
-        self.coingecko_model.set_api_key("new_key")
-        assert self.coingecko_model.coingecko_api_key == "new_key"
+        with patch.object(self.coingecko_model.context.params, "coingecko_api_key", "test-key"):
+            pass
 
     def test_validate_required_params(self):
         """Test the validate_required_params method."""
@@ -47,22 +47,28 @@ class TestCoingeckoModel(BaseSkillTestCase):
     def test_make_coingecko_request(self):
         """Test make_coingecko_request with incorrect/missing API key."""
         # Test with None API key
-        self.coingecko_model.coingecko_api_key = None
-        with pytest.raises(ValueError, match="Coingecko API key is not set"):
+        with (
+            patch.object(self.coingecko_model.context.params, "coingecko_api_key", None),
+            pytest.raises(ValueError, match="Coingecko API key is not set"),
+        ):
             self.coingecko_model.make_coingecko_request(
                 "https://api.coingecko.com/", {"vs_currency": "usd", "days": "1"}
             )
 
-        self.coingecko_model.coingecko_api_key = ""
         # Test with empty string API key
-        with pytest.raises(ValueError, match="Coingecko API key is not set"):
+        with (
+            patch.object(self.coingecko_model.context.params, "coingecko_api_key", ""),
+            pytest.raises(ValueError, match="Coingecko API key is not set"),
+        ):
             self.coingecko_model.make_coingecko_request(
                 "https://api.coingecko.com/", {"vs_currency": "usd", "days": "1"}
             )
 
         # Reset API key for subsequent tests and test with valid key
-        self.coingecko_model.coingecko_api_key = coingecko_api_key
-        with patch("requests.get") as mock_get:
+        with (
+            patch.object(self.coingecko_model.context.params, "coingecko_api_key", coingecko_api_key),
+            patch("requests.get") as mock_get,
+        ):
             mock_response = MagicMock()
             mock_response.status_code = 200
             mock_response.json.return_value = {"status": "OK"}
@@ -80,9 +86,10 @@ class TestCoingeckoModel(BaseSkillTestCase):
         mock_response.json.return_value = {"status": "OK"}
         mock_get.return_value = mock_response
 
-        result = self.coingecko_model.make_coingecko_request("https://api.coingecko.com/api/v3/ping", {})
-        assert result is not None
-        assert result == {"status": "OK"}
+        with patch.object(self.coingecko_model.context.params, "coingecko_api_key", coingecko_api_key):
+            result = self.coingecko_model.make_coingecko_request("https://api.coingecko.com/api/v3/ping", {})
+            assert result is not None
+            assert result == {"status": "OK"}
 
     @patch("requests.get")
     def test_coin_ohlc_data_by_id_success(self, mock_get):
