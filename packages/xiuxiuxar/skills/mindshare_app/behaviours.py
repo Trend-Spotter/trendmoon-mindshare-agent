@@ -28,6 +28,8 @@ from datetime import UTC, datetime, timedelta
 from dataclasses import dataclass
 from collections.abc import Generator
 
+import pandas as pd
+import pandas_ta as ta
 from eth_utils import to_bytes
 from aea.protocols.base import Message
 from aea.skills.behaviours import State, FSMBehaviour
@@ -386,6 +388,7 @@ class DataCollectionRound(BaseState):
             "current_prices": {},
             "market_data": {},
             "social_data": {},
+            "technical_data": {},
             "fundamental_data": {},
             "onchain_data": {},
             "collection_timestamp": datetime.now(UTC).isoformat(),
@@ -410,6 +413,10 @@ class DataCollectionRound(BaseState):
 
             if ohlcv_data:
                 self.collected_data["ohlcv"][symbol] = ohlcv_data
+                ma_length = self.context.params.moving_average_length
+                technical_data = self._get_technical_data(ohlcv_data, ma_length)
+                self.collected_data["technical_data"][symbol] = technical_data
+                self.context.logger.debug(f"Collected technical data for {symbol}: {technical_data}")
             if price_data:
                 self.collected_data["current_prices"][symbol] = price_data
 
@@ -555,6 +562,18 @@ class DataCollectionRound(BaseState):
         query_params = {"vs_currency": "usd", "days": 30}
 
         return self.context.coingecko.get_ohlcv_data(path_params, query_params)
+
+    # TODO: @xiuxiuxar: implement validation as part of the data collection round.
+    def _validate_ohlcv_data(self, ohlcv_data: list[list[Any]]) -> None:
+        """Validate OHLCV data format."""
+        if not isinstance(ohlcv_data, list) or len(ohlcv_data) == 0:
+            msg = "ohlcv_data must be a non-empty list of lists."
+            raise ValueError(msg)
+
+        for row in ohlcv_data:
+            if not (isinstance(row, list) and len(row) >= 6):
+                msg = "Each row must be a list with at least 6 elements: timestamp, open, high, low, close, volume."
+                raise ValueError(msg)
 
 
 class PausedRound(BaseState):
@@ -1335,12 +1354,684 @@ class AnalysisRound(BaseState):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._state = MindshareabciappStates.ANALYSISROUND
+        self.analysis_initialized: bool = False
+        self.analysis_results: dict[str, Any] = {}
+        self.pending_tokens: list[dict[str, str]] = []
+        self.completed_analysis: list[dict[str, str]] = []
+        self.failed_analysis: list[dict[str, str]] = []
+        self.collected_data: dict[str, Any] = {}
+
+    def setup(self) -> None:
+        """Setup the state."""
+        self._is_done = False
+        self.analysis_initialized = False
+        self.analysis_results = {}
+        self.pending_tokens = []
+        self.completed_analysis = []
+        self.failed_analysis = []
+        self.collected_data = {}
 
     def act(self) -> None:
         """Perform the act."""
         self.context.logger.info(f"Entering {self._state} state.")
-        self._is_done = True
-        self._event = MindshareabciappEvents.DONE
+
+        try:
+            if not self.analysis_initialized:
+                self._initialize_analysis()
+
+            if self.pending_tokens:
+                token_info = self.pending_tokens.pop(0)
+                self._analyze_single_token(token_info)
+                return
+
+            self._finalize_analysis()
+            self._is_done = True
+            self._event = MindshareabciappEvents.DONE
+
+        except Exception as e:
+            self.context.logger.exception(f"Analysis failed: {e}")
+            self.context.error_context = {
+                "error_type": "analysis_error",
+                "error_message": str(e),
+                "originating_round": str(self._state),
+            }
+            self._event = MindshareabciappEvents.ERROR
+            self._is_done = True
+
+    def _initialize_analysis(self) -> None:
+        """Initialize the analysis."""
+        if self.analysis_initialized:
+            return
+
+        self.context.logger.info("Initializing analysis...")
+
+        if not self._load_collected_data():
+            self.context.logger.error("Failed to load collected data")
+            self._event = MindshareabciappEvents.ERROR
+            self._is_done = True
+            return
+
+        self.pending_tokens = ALLOWED_ASSETS["base"].copy()
+        self.completed_analysis = []
+        self.failed_analysis = []
+ 
+        self.analysis_results = {
+            "timestamp": datetime.now(UTC).isoformat(),
+            "total_tokens": len(self.pending_tokens),
+            "token_analysis": {},
+            "social_scores": {},
+            "technical_scores": {},
+            "combined_scores": {},
+            "analysis_summary": {},
+        }
+
+        self.analysis_initialized = True
+        self.context.logger.info(f"Initialized analysis with {len(self.pending_tokens)} tokens")
+
+    def _load_collected_data(self) -> bool:
+        """Load the collected data."""
+        try:
+            if not self.context.store_path:
+                self.context.logger.warning("No store path available, skipping data loading.")
+                return False
+
+            data_file = self.context.store_path / "collected_data.json"
+            if not data_file.exists():
+                self.context.logger.warning("No collected data file found")
+                return False
+
+            with open(data_file, encoding="utf-8") as f:
+                self.collected_data = json.load(f)
+
+            self.context.logger.info("Successfully loaded collected data")
+            return True
+
+        except Exception as e:
+            self.context.logger.exception(f"Failed to load collected data: {e}")
+            return False
+
+    def _analyze_single_token(self, token_info: dict[str, str]) -> None:
+        """Analyze a single token."""
+        symbol = token_info["symbol"]
+
+        try:
+            self.context.logger.info(f"Analyzing {symbol}...")
+
+            social_scores = self._perform_social_analysis(token_info)
+
+            technical_scores = self._perform_technical_analysis(token_info)
+
+            combined_analysis = self._combine_analysis_results(token_info, social_scores, technical_scores)
+
+            self.analysis_results["token_analysis"][symbol] = combined_analysis
+            self.analysis_results["social_scores"][symbol] = social_scores
+            self.analysis_results["technical_scores"][symbol] = technical_scores
+
+            self.completed_analysis.append(token_info)
+            self.context.logger.info(f"Completed analysis for {symbol}")
+
+        except Exception as e:
+            self.context.logger.warning(f"Failed to analyze {symbol}: {e}")
+            self.failed_analysis.append(token_info)
+            self.analysis_results["token_analysis"][symbol] = {
+                "error": str(e),
+                "p_social": 0.0,
+                "p_technical": 0.0,
+                "p_combined": 0.0,
+            }
+
+    def _perform_social_analysis(self, token_info: dict[str, str]) -> dict[str, Any]:
+        symbol = token_info["symbol"]
+
+        social_scores = {
+            "social_mentions": 0.0,
+            "social_dominance": 0.0,
+            "correlation_1d": 0.0,
+            "correlation_3d": 0.0,
+            "correlation_7d": 0.0,
+            "correlation_strength": 0.0,
+            "social_trend": "neutral",
+            "p_social": 0.5,
+            "social_metrics_available": False,
+        }
+
+        try:
+            social_data = self.collected_data.get("social_data", {}).get(symbol)
+            if not social_data:
+                self.context.logger.warning(f"No social data found for {symbol}")
+                return social_scores
+
+            social_scores["social_metrics_available"] = True
+
+            mentions = social_data.get("social_mentions", 0)
+            dominance = social_data.get("social_dominance", 0)
+
+            social_scores["social_mentions"] = mentions
+            social_scores["social_dominance"] = dominance
+
+            p_social = self._calculate_social_probability_score(mentions, dominance)
+            social_scores["p_social"] = p_social
+
+            if p_social > 0.6:
+                social_scores["social_trend"] = "bullish"
+            elif p_social < 0.4:
+                social_scores["social_trend"] = "bearish"
+            else:
+                social_scores["social_trend"] = "neutral"
+
+            self.context.logger.info(f"Social analysis for {symbol}: p_social={p_social:.3f}")
+
+        except Exception as e:
+            self.context.logger.exception(f"Failed to perform social analysis for {symbol}: {e}")
+
+        return social_scores
+
+    def _perform_technical_analysis(self, token_info: dict[str, str]) -> dict[str, Any]:
+        """Perform technical analysis for a single token."""
+        symbol = token_info["symbol"]
+        technical_scores = {
+            "sma_20": None,
+            "ema_20": None,
+            "rsi": None,
+            "macd": None,
+            "macd_signal": None,
+            "adx": None,
+            "obv": None,
+            "p_technical": 0.5,
+            "technical_traits": {},
+            "price_above_ma20": False,
+            "rsi_in_range": False,
+            "macd_bullish": False,
+            "adx_strong_trend": False,
+            "obv_increasing": False,
+        }
+
+        try:
+            ohlcv_data = self.collected_data.get("ohlcv_data", {}).get(symbol)
+            if not ohlcv_data:
+                self.context.logger.warning(f"No OHLCV data found for {symbol}")
+                return technical_scores
+
+            current_prices = self.collected_data.get("current_price", {}).get(symbol)
+            current_price = current_prices.get("usd", 0)
+
+            technical_indicators = self._get_technical_data(ohlcv_data)
+
+            indicators_dict = {}
+            for indicator_name, value in technical_indicators:
+                indicators_dict[indicator_name] = value
+
+            technical_scores.update({
+                "sma_20": indicators_dict.get("SMA"),
+                "ema_20": indicators_dict.get("EMA"),
+                "rsi": indicators_dict.get("RSI"),
+                "adx": indicators_dict.get("ADX"),
+                "obv": indicators_dict.get("OBV"),
+            })
+
+            # Extract MACD Components
+            macd_data = indicators_dict.get("MACD", {})
+            if isinstance(macd_data, dict):
+                technical_scores["macd"] = macd_data.get("MACD")
+                technical_scores["macd_signal"] = macd_data.get("MACDs")
+
+            p_technical, technical_traits = self._calculate_technical_probability_score(
+                current_price=current_price,
+                indicators_dict=indicators_dict
+            )
+
+            technical_scores["p_technical"] = p_technical
+            technical_scores["technical_traits"] = technical_traits
+
+            technical_scores.update({
+                "price_above_ma20": technical_traits.get("price_above_ma20", {}).get("condition", False),
+                "rsi_in_range": technical_traits.get("rsi_in_range", {}).get("condition", False),
+                "macd_bullish": technical_traits.get("macd_bullish", {}).get("condition", False),
+                "adx_strong_trend": technical_traits.get("adx_strong_trend", {}).get("condition", False),
+                "obv_increasing": technical_traits.get("obv_increasing", {}).get("condition", False),
+            })
+
+            self.context.logger.info(f"Technical analysis for {symbol}: p_technical={p_technical:.3f}")
+
+        except Exception as e:
+            self.context.logger.warning(f"Technical analysis failed for {symbol}: {e}")
+
+        return technical_scores
+
+    def _calculate_social_probability_score(self, mentions: int, dominance: int) -> float:
+        """Calculate the social probability score."""
+        try:
+            mentions_score = min(mentions / 100.0, 1.0) if mentions > 0 else 0.0
+            dominance_score = min(dominance / 10.0, 1.0) if dominance > 0 else 0.0
+
+            social_weight_mentions = 0.4
+            social_weight_dominance = 0.6
+
+            p_social = (mentions_score * social_weight_mentions + 
+                       dominance_score * social_weight_dominance)
+
+            return max(0.0, min(1.0, p_social))  # Clamp to [0, 1]
+
+        except Exception as e:
+            self.context.logger.warning(f"Failed to calculate social score: {e}")
+            return 0.5
+
+    def _calculate_technical_probability_score(
+        self,
+        current_price: float,
+        indicators: dict[str, Any]) -> tuple[float, dict[str, Any]]:
+        """Calculate the technical probability score."""
+
+        sma_20 = indicators.get("SMA", current_price)
+        rsi = indicators.get("RSI", 50.0)
+        adx = indicators.get("ADX", 20.0)
+        obv = indicators.get("OBV", 0)
+
+        macd_data = indicators.get("MACD", {})
+        if isinstance(macd_data, dict):
+            macd_line = macd_data.get("MACD", 0)
+            macd_signal = macd_data.get("MACDs", 0)
+        else:
+            macd = macd_signal = 0
+
+        # Calculate OBV slope (simplified)
+        obv_slope = 1 if obv > 0 else -1 if obv < 0 else 0
+
+        # Define technical analysis traits (based on notebook strategy)
+        traits = {
+            "price_above_ma20": {
+                "condition": current_price > sma_20 if sma_20 else False,
+                "weight": 0.2,
+                "description": "Price is above MA20",
+                "value": current_price - sma_20 if sma_20 else 0
+            },
+            "rsi_in_range": {
+                "condition": 30 < rsi < 70,  # Use reasonable RSI range
+                "weight": 0.2,
+                "description": "RSI is in healthy range",
+                "value": rsi
+            },
+            "macd_bullish_cross": {
+                "condition": macd > macd_signal,
+                "weight": 0.2,
+                "description": "MACD is above its signal line",
+                "value": macd - macd_signal
+            },
+            "adx_strong_trend": {
+                "condition": adx > 25,  # Strong trend threshold
+                "weight": 0.2,
+                "description": "ADX indicates a strong trend",
+                "value": adx
+            },
+            "obv_increasing": {
+                "condition": obv_slope > 0,
+                "weight": 0.2,
+                "description": "OBV is increasing (positive slope)",
+                "value": obv_slope
+            }
+        }
+
+        # Calculate probability score
+        p_technical = sum(
+            trait["weight"] for trait in traits.values() 
+            if trait["condition"]
+        )
+
+        return p_technical, traits
+
+    def _combine_analysis_results(
+        self,
+        token_info: dict[str, str],
+        social_scores: dict[str, Any],
+        technical_scores: dict[str, Any]) -> dict[str, Any]:
+        """Combine the analysis results."""
+        symbol = token_info["symbol"]
+
+        try:
+            # Extract probability scores
+            p_social = social_scores.get("p_social", 0.5)
+            p_technical = technical_scores.get("p_technical", 0.5)
+
+            # Default weights for Balanced strategy (from TDD)
+            # [social, fundamental, onchain, technical] = [0.2, 0.3, 0.25, 0.25]
+            # Since we don't have fundamental/onchain yet, redistribute weights
+            social_weight = 0.4
+            technical_weight = 0.6
+
+            # Calculate combined probability score
+            p_combined = (p_social * social_weight + p_technical * technical_weight)
+
+            # Risk assessment (basic)
+            risk_level = self._assess_risk_level(p_combined, social_scores, technical_scores)
+
+            # Trading signal strength
+            signal_strength = self._calculate_signal_strength(p_combined, social_scores, technical_scores)
+
+            combined_analysis = {
+                "symbol": symbol,
+                "timestamp": datetime.now(UTC).isoformat(),
+                "p_social": round(p_social, 3),
+                "p_technical": round(p_technical, 3),
+                "p_combined": round(p_combined, 3),
+                "risk_level": risk_level,
+                "signal_strength": signal_strength,
+                "trading_recommendation": self._get_trading_recommendation(p_combined),
+                "confidence": self._calculate_confidence(social_scores, technical_scores),
+                "analysis_quality": self._assess_analysis_quality(social_scores, technical_scores),
+                "weights_used": {
+                    "social_weight": social_weight,
+                    "technical_weight": technical_weight,
+                },
+            }
+
+            return combined_analysis
+
+        except Exception as e:
+            self.context.logger.exception(f"Failed to combine analysis for {symbol}: {e}")
+            return {
+                "symbol": symbol,
+                "error": str(e),
+                "p_social": 0.5,
+                "p_technical": 0.5,
+                "p_combined": 0.5,
+            }
+
+    
+    def _assess_risk_level(self, p_combined: float, social_scores: dict[str, Any], technical_scores: dict[str, Any]) -> str:
+        """Assess the risk level based on the analysis score.."""
+        try:
+            if p_combined > 0.7:
+                return "low"
+            elif p_combined > 0.5:
+                return "medium"
+            else:
+                return "high"
+
+        except Exception:
+            # self.context.logger.warning(f"Failed to assess risk level: {e}")
+            return "medium"
+
+    def _calculate_signal_strength(self, p_combined: float, social_scores: dict, technical_scores: dict) -> str:
+        """Calculate trading signal strength."""
+        try:
+            if p_combined > 0.75:
+                return "strong_buy"
+            elif p_combined > 0.6:
+                return "buy"
+            elif p_combined > 0.4:
+                return "neutral"
+            elif p_combined > 0.25:
+                return "sell"
+            else:
+                return "strong_sell"
+        except Exception:
+            return "neutral"
+
+    def _get_trading_recommendation(self, p_combined: float) -> str:
+        """Get trading recommendation based on combined score."""
+        try:
+            if p_combined > 0.6:
+                return "BUY"
+            elif p_combined < 0.4:
+                return "SELL"
+            else:
+                return "HOLD"
+        except Exception:
+            return "HOLD"
+
+    def _calculate_confidence(self, social_scores: dict, technical_scores: dict) -> float:
+        """Calculate confidence in the analysis."""
+        try:
+            # Confidence based on data availability and score consistency
+            social_available = social_scores.get("social_metrics_available", False)
+            technical_quality = 1.0 if technical_scores.get("rsi") is not None else 0.5
+
+            confidence = 0.5  # Base confidence
+            if social_available:
+                confidence += 0.25
+            confidence += technical_quality * 0.25
+
+            return round(confidence, 3)
+        except Exception:
+            return 0.5
+
+    def _assess_analysis_quality(self, social_scores: dict, technical_scores: dict) -> str:
+        """Assess the quality of analysis data."""
+        try:
+            score = 0
+            max_score = 2
+
+            # Check social data quality
+            if social_scores.get("social_metrics_available", False):
+                score += 1
+
+            # Check technical data quality
+            if technical_scores.get("rsi") is not None:
+                score += 1
+
+            quality_pct = score / max_score
+            if quality_pct > 0.8:
+                return "high"
+            elif quality_pct > 0.5:
+                return "medium"
+            else:
+                return "low"
+        except Exception:
+            return "low"
+
+    def _finalize_analysis(self) -> None:
+        """Finalize analysis and prepare results for next round."""
+        try:
+            completed_count = len(self.completed_analysis)
+            failed_count = len(self.failed_analysis)
+            total_count = completed_count + failed_count
+
+            # Create analysis summary
+            self.analysis_results["analysis_summary"] = {
+                "total_tokens_analyzed": total_count,
+                "successful_analysis": completed_count,
+                "failed_analysis": failed_count,
+                "success_rate": completed_count / total_count if total_count > 0 else 0,
+                "completed_at": datetime.now(UTC).isoformat(),
+            }
+
+            # Find tokens with strong signals
+            strong_signals = []
+            for symbol, analysis in self.analysis_results["token_analysis"].items():
+                if isinstance(analysis, dict) and analysis.get("p_combined", 0) > 0.6:
+                    strong_signals.append({
+                        "symbol": symbol,
+                        "p_combined": analysis.get("p_combined"),
+                        "signal_strength": analysis.get("signal_strength"),
+                        "recommendation": analysis.get("trading_recommendation"),
+                    })
+
+            # Sort by combined score
+            strong_signals.sort(key=lambda x: x["p_combined"], reverse=True)
+            self.analysis_results["strong_signals"] = strong_signals
+
+            # Store results for SignalAggregationRound
+            self._store_analysis_results()
+
+            # Set context for next round
+            self.context.analysis_results = self.analysis_results
+
+            self.context.logger.info(
+                f"Analysis completed: {completed_count}/{total_count} successful, "
+                f"{len(strong_signals)} strong signals identified"
+            )
+
+            if strong_signals:
+                self.context.logger.info("Strong signals found:")
+                for signal in strong_signals[:3]:  # Show top 3
+                    self.context.logger.info(
+                        f"  {signal['symbol']}: {signal['p_combined']:.3f} ({signal['signal_strength']})"
+                    )
+
+        except Exception as e:
+            self.context.logger.exception(f"Failed to finalize analysis: {e}")
+
+    def _store_analysis_results(self) -> None:
+        """Store analysis results to persistent storage."""
+        if not self.context.store_path:
+            return
+
+        try:
+            analysis_file = self.context.store_path / "analysis_results.json"
+            with open(analysis_file, "w", encoding="utf-8") as f:
+                json.dump(self.analysis_results, f, indent=2)
+
+            self.context.logger.info(f"Analysis results stored to {analysis_file}")
+
+        except Exception as e:
+            self.context.logger.exception(f"Failed to store analysis results: {e}")
+
+    def _get_technical_data(self, ohlcv_data: list[list[Any]], moving_average_length: int = 20) -> list:
+        """Calculate core technical indicators for a coin using pandas-ta with validation."""
+        try:
+            data = self._preprocess_ohlcv_data(ohlcv_data)
+
+            # Calculate different groups of indicators
+            self._calculate_trend_indicators(data, moving_average_length)
+            self._calculate_momentum_indicators(data)
+            self._calculate_volatility_indicators(data)
+            self._calculate_volume_indicators(data)
+
+            # Build and return the result
+            return self._build_technical_result(data)
+
+        except (ValueError, KeyError, ConnectionError, TimeoutError) as e:
+            self.context.logger.warning(f"Technical data error: {e}")
+            return []
+
+    def _preprocess_ohlcv_data(self, ohlcv_data: list[list[Any]]) -> pd.DataFrame:
+        """Convert OHLCV data to DataFrame and clean it."""
+        data = pd.DataFrame(ohlcv_data, columns=["timestamp", "open", "high", "low", "close", "volume"])
+        data["date"] = pd.to_datetime(data["timestamp"], unit="ms")
+        data = data.set_index("date")
+
+        for col in ["open", "high", "low", "close", "volume"]:
+            data[col] = pd.to_numeric(data[col], errors="coerce")
+
+        return data.dropna()
+
+    def _calculate_trend_indicators(self, data: pd.DataFrame, moving_average_length: int) -> None:
+        """Calculate trend indicators (SMA, EMA)."""
+        data["SMA"] = ta.sma(data["close"], length=moving_average_length)
+        data["EMA"] = ta.ema(data["close"], length=moving_average_length)
+
+    def _calculate_momentum_indicators(self, data: pd.DataFrame) -> None:
+        """Calculate momentum indicators (RSI, MACD, ADX)."""
+        # RSI (normalized 0-100)
+        data["RSI"] = ta.rsi(data["close"], length=14)
+        data["RSI"] = data["RSI"].clip(0, 100)
+
+        # MACD
+        self._process_macd_indicator(data)
+
+        # ADX
+        self._process_adx_indicator(data)
+
+    def _process_macd_indicator(self, data: pd.DataFrame) -> None:
+        """Process MACD indicator and handle different column naming conventions."""
+        macd = ta.macd(data["close"], fast=12, slow=26, signal=9)
+        if macd is None or macd.empty:
+            return
+
+        macd_cols = macd.columns.tolist()
+        macd_line = macd_histogram = macd_signal_line = None
+
+        # Find the correct column names
+        for col in macd_cols:
+            if "MACD_" in col and "h_" not in col and "s_" not in col:
+                macd_line = col
+            elif "MACDh_" in col:
+                macd_histogram = col
+            elif "MACDs_" in col:
+                macd_signal_line = col
+
+        if macd_line:
+            data["MACD"] = macd[macd_line]
+        if macd_histogram:
+            data["MACDh"] = macd[macd_histogram]
+        if macd_signal_line:
+            data["MACDs"] = macd[macd_signal_line]
+
+    def _process_adx_indicator(self, data: pd.DataFrame) -> None:
+        """Process ADX indicator and handle different column naming conventions."""
+        adx = ta.adx(data["high"], data["low"], data["close"], length=14)
+        if adx is None or adx.empty:
+            return
+
+        # Find the correct ADX column name
+        for col in adx.columns.tolist():
+            if col.startswith("ADX"):
+                data["ADX"] = adx[col]
+                break
+
+    def _calculate_volatility_indicators(self, data: pd.DataFrame) -> None:
+        """Calculate volatility indicators (Bollinger Bands)."""
+        bbands = ta.bbands(data["close"], length=20, std=2)
+        if bbands is None or bbands.empty:
+            return
+
+        bb_cols = bbands.columns.tolist()
+        bb_lower = bb_middle = bb_upper = None
+
+        # Find the correct column names
+        for col in bb_cols:
+            if col.startswith("BBL"):
+                bb_lower = col
+            elif col.startswith("BBM"):
+                bb_middle = col
+            elif col.startswith("BBU"):
+                bb_upper = col
+
+        if bb_lower and bb_middle and bb_upper:
+            data["BBL"] = bbands[bb_lower]
+            data["BBM"] = bbands[bb_middle]
+            data["BBU"] = bbands[bb_upper]
+
+    def _calculate_volume_indicators(self, data: pd.DataFrame) -> None:
+        """Calculate volume indicators (OBV, CMF)."""
+        # On-Balance Volume (OBV)
+        obv = ta.obv(data["close"], data["volume"])
+        if obv is not None and not obv.empty:
+            data["OBV"] = obv
+
+        # Chaikin Money Flow (CMF)
+        cmf = ta.cmf(data["high"], data["low"], data["close"], data["volume"], length=20)
+        if cmf is not None and not cmf.empty:
+            data["CMF"] = cmf
+
+    def _build_technical_result(self, data: pd.DataFrame) -> list:
+        """Build the final result list from calculated indicators."""
+        latest_data = data.iloc[-1]
+        result = []
+
+        # Add basic indicators
+        for indicator in ["SMA", "EMA", "RSI", "ADX"]:
+            if indicator in data.columns:
+                result.append((indicator, latest_data[indicator]))
+
+        # Add MACD (only if all components are available)
+        if all(col in data.columns for col in ["MACD", "MACDh", "MACDs"]):
+            result.append(
+                ("MACD", {"MACD": latest_data["MACD"], "MACDh": latest_data["MACDh"], "MACDs": latest_data["MACDs"]})
+            )
+
+        # Add Bollinger Bands (only if all components are available)
+        if all(col in data.columns for col in ["BBL", "BBM", "BBU"]):
+            result.append(
+                ("BB", {"Lower": latest_data["BBL"], "Middle": latest_data["BBM"], "Upper": latest_data["BBU"]})
+            )
+
+        # Add volume indicators
+        for indicator in ["OBV", "CMF"]:
+            if indicator in data.columns:
+                result.append((indicator, latest_data[indicator]))
+
+        return result
 
 
 class SignalAggregationRound(BaseState):

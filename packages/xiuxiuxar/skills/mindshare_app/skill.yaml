@@ -9,15 +9,17 @@ aea_version: '>=1.0.0, <2.0.0'
 fingerprint:
   README.md: bafybeiesl5jlvvu4enydib32bpyfqphlkdulxy3oqid3t32cjxya5qykci
   __init__.py: bafybeifhcjbfwkkjfaq57azgh24ufuo4pvjm4vguozhbg3qsrn4tw5ukge
-  behaviours.py: bafybeihurywcfevwirnmwhxwdnfjdnxk6j3foqdbys6ltscy6jkwssek5u
+  behaviours.py: bafybeiher42ujn44fueb3mesva25djxp4yqg7qest7kcdtte6tttsfxegq
   dialogues.py: bafybeiexxmjsjczvf2bxad7qbecllm3srjhlqkejigerkbldtdtzzuyuke
   handlers.py: bafybeigttlsxa5rkevzxdtf5w6ox7ywem5ev3br7ur6h3etiqgvs2og7vq
-  models.py: bafybeib2stglu4kgvk5ttanrcyoumh6nuhgbid4hufqxqy4sesmyvo77ra
+  models.py: bafybeigrytdwuu4cge3p3aixklzl6nquasy5wlgjl2axpalgu2tiis2wee
   tests/__init__.py: bafybeigb2ji4vkcap3hokcedggjwsrah7te2nxjhkorwf3ibwgyaa2glma
   tests/test_coingecko_model.py: bafybeicjnqiclfi6r7sbsyjgwlzj3ugmeukii5fp23esdtsanof3lvyn6i
   tests/test_coingecko_model_integration.py: bafybeid6mzsia3wocixdedmr6tcbb2v34oq2fkjqyz2cab4mysjvqbydfi
   tests/test_metrics.py: bafybeickohfwbhq46m4c5deutqkqkeztygfyu7gpxkgme5rfa5iwujbr7i
   tests/test_metrics_dialogues.py: bafybeicaqx7bykvl3dqkvcpdpft4l5g6huxyhrljwrn2zykxavk4thqdi4
+  tests/test_technical_indicators.py: bafybeihydbmtlhz6ehvsmhfgdbizbbbu5ghhebbnwq27t56wsp4sbznpdq
+  tests/test_technical_indicators_integration.py: bafybeicxalo2jlfihsvgaygubrvw3xb2qanocaqdkbikrmlyywyqlzpyoe
 fingerprint_ignore_patterns: []
 connections:
 - eightballer/dcxt:0.1.0:bafybeig5j6wm76brp7klcfnnd3op3i5aa7wkvqzulihy4c4fftrl6pdkda
@@ -115,7 +117,12 @@ models:
       store_path: ./persistent_data
       take_profit_risk_ratio: 2.0
       trading_strategy: balanced
+      moving_average_length: 20
     class_name: Params
-dependencies: {}
+dependencies:
+  pandas:
+    version: '>=2.3.1'
+  pandas-ta:
+    version: '>=0.3.14b0'
 is_abstract: false
 customs: []
