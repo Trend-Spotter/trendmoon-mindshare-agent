@@ -20,6 +20,7 @@
 
 import os
 import json
+import operator
 from abc import ABC
 from enum import Enum
 from typing import TYPE_CHECKING, Any, cast
@@ -90,26 +91,81 @@ class PriceRequest:
 ALLOWED_ASSETS: dict[str, list[dict[str, str]]] = {
     "base": [
         # BASE-chain Uniswap tokens
-        {
-            "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
-            "symbol": "USDC",
-            "coingecko_id": "usd-coin",
-        },
+        # {
+        #     "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        #     "symbol": "USDC",
+        #     "coingecko_id": "usd-coin",
+        # },
         {
             "address": "0x2Ae3F1Ec7F1F5012CFEab0185bfc7aa3cf0DEc22",
             "symbol": "cbETH",
             "coingecko_id": "coinbase-wrapped-staked-eth",
         },
-        {
-            "address": "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf",
-            "symbol": "cbBTC",
-            "coingecko_id": "coinbase-wrapped-btc",
-        },
+        # {
+        #     "address": "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf",
+        #     "symbol": "cbBTC",
+        #     "coingecko_id": "coinbase-wrapped-btc",
+        # },
         {
             "address": "0x4200000000000000000000000000000000000006",
             "symbol": "WETH",
             "coingecko_id": "l2-standard-bridged-weth-base",
         },
+        # {
+        #     "address": "0x0b3e328455c4059EEb9e3f84b5543F74E24e7E1b",
+        #     "symbol": "VIRTUAL",
+        #     "coingecko_id": "virtual-protocol",
+        # },
+        # {
+        #     "address": "0x532f27101965dd16442E59d40670FaF5eBB142E4",
+        #     "symbol": "BRETT",
+        #     "coingecko_id": "based-brett",
+        # },
+        # {
+        #     "address": "0x4F9Fd6Be4a90f2620860d680c0d4d5Fb53d1A825",
+        #     "symbol": "AIXBT",
+        #     "coingecko_id": "aixbt",
+        # },
+        # {
+        #     "address": "0x4ed4E862860beD51a9570b96d89aF5E1B0Efefed",
+        #     "symbol": "DEGEN",
+        #     "coingecko_id": "degen-base",
+        # },
+        {
+            "address": "0x54330d28ca3357f294334bdc454a032e7f353416",
+            "symbol": "OLAS",
+            "coingecko_id": "autonolas",
+        },
+        # {
+        #     "address": "0xAC1Bd2486aAf3B5C0fc3Fd868558b082a531B2B4",
+        #     "symbol": "TOSHI",
+        #     "coingecko_id": "toshi",
+        # },
+        # {
+        #     "address": "0x1111111111166b7fe7bd91427724b487980afc69",
+        #     "symbol": "ZORA",
+        #     "coingecko_id": "zora",
+        # },
+        # {
+        #     "address": "0x940181a94A35A4569E4529A3CDfB74e38FD98631",
+        #     "symbol": "AERO",
+        #     "coingecko_id": "aerodrome-finance",
+        # },
+        # {
+        #     "address": "0x768BE13e1680b5ebE0024C42c896E3dB59ec0149",
+        #     "symbol": "SKI",
+        #     "coingecko_id": "ski-mask-dog",
+        # },
+        # {
+        #     "address": "0x9E6A46f294bB67c20F1D1E7AfB0bBEf614403B55",
+        #     "symbol": "MAG7.sse",
+        #     "coingecko_id": "mag7-ssi",
+        # },
+        # {
+        #     "address": "0xB1a03EdA10342529bBF8EB700a06C60441fEf25d",
+        #     "symbol": "MIGGLES",
+        #     "coingecko_id": "mister-miggles",
+        # },
     ]
 }
 
@@ -394,7 +450,9 @@ class DataCollectionRound(BaseState):
             if self.current_token_index >= len(self.pending_tokens):
                 self.context.logger.info("All tokens processed, finalizing collection...")
                 self._finalize_collection()
-                self._event = MindshareabciappEvents.DONE if self._is_data_sufficient() else MindshareabciappEvents.ERROR
+                self._event = (
+                    MindshareabciappEvents.DONE if self._is_data_sufficient() else MindshareabciappEvents.ERROR
+                )
                 self._is_done = True
                 return
 
@@ -415,7 +473,9 @@ class DataCollectionRound(BaseState):
                 "error_type": "data_collection_error",
                 "error_message": str(e),
                 "originating_round": str(self._state),
-                "current_token": self.pending_tokens[self.current_token_index]["symbol"] if self.current_token_index < len(self.pending_tokens) else "unknown"
+                "current_token": self.pending_tokens[self.current_token_index]["symbol"]
+                if self.current_token_index < len(self.pending_tokens)
+                else "unknown",
             }
             self._event = MindshareabciappEvents.ERROR
             self._is_done = True
@@ -601,7 +661,7 @@ class DataCollectionRound(BaseState):
             else:
                 self.context.logger.info(f"Skipping OHLCV update for {symbol} (data is fresh)")
 
-            # Conditionally update social data  
+            # Conditionally update social data
             if symbol in self.tokens_needing_social_update:
                 self.context.logger.info(f"Updating social data for {symbol}")
                 self._update_social_data(token_info)
@@ -634,15 +694,11 @@ class DataCollectionRound(BaseState):
             if existing_ohlcv:
                 merged_data = self._merge_ohlcv_data(existing_ohlcv, fresh_ohlcv_data)
                 self.collected_data["ohlcv"][symbol] = merged_data
-                self.context.logger.info(
-                    f"Merged OHLCV data for {symbol}: {len(merged_data)} total candles"
-                )
+                self.context.logger.info(f"Merged OHLCV data for {symbol}: {len(merged_data)} total candles")
             else:
                 # No existing data, use fresh data
                 self.collected_data["ohlcv"][symbol] = fresh_ohlcv_data
-                self.context.logger.info(
-                    f"Set fresh OHLCV data for {symbol}: {len(fresh_ohlcv_data)} candles"
-                )
+                self.context.logger.info(f"Set fresh OHLCV data for {symbol}: {len(fresh_ohlcv_data)} candles")
 
             # Update tracking timestamp
             self.collected_data["last_ohlcv_update"][symbol] = datetime.now(UTC).isoformat()
@@ -710,8 +766,12 @@ class DataCollectionRound(BaseState):
 
         # Calculate cache hits more accurately - tokens that didn't need updates
         total_tokens = len(ALLOWED_ASSETS["base"])
-        ohlcv_cache_hits = total_tokens - len([t for t in self.pending_tokens if t["symbol"] in self.tokens_needing_ohlcv_update])
-        social_cache_hits = total_tokens - len([t for t in self.pending_tokens if t["symbol"] in self.tokens_needing_social_update])
+        ohlcv_cache_hits = total_tokens - len(
+            [t for t in self.pending_tokens if t["symbol"] in self.tokens_needing_ohlcv_update]
+        )
+        social_cache_hits = total_tokens - len(
+            [t for t in self.pending_tokens if t["symbol"] in self.tokens_needing_social_update]
+        )
         cache_hits = ohlcv_cache_hits + social_cache_hits
 
         total_possible_updates = total_tokens * 2  # OHLCV + Social per token
@@ -725,8 +785,12 @@ class DataCollectionRound(BaseState):
         self.context.logger.info(f"API calls: {api_calls}")
         self.context.logger.info(f"Cache hits: {cache_hits}/{total_possible_updates}")
         self.context.logger.info(f"Efficiency: {efficiency:.1f}%")
-        self.context.logger.info(f"OHLCV updates: {len([t for t in self.pending_tokens if t['symbol'] in self.tokens_needing_ohlcv_update])}")
-        self.context.logger.info(f"Social updates: {len([t for t in self.pending_tokens if t['symbol'] in self.tokens_needing_social_update])}")
+        self.context.logger.info(
+            f"OHLCV updates: {len([t for t in self.pending_tokens if t['symbol'] in self.tokens_needing_ohlcv_update])}"
+        )
+        self.context.logger.info(
+            f"Social updates: {len([t for t in self.pending_tokens if t['symbol'] in self.tokens_needing_social_update])}"
+        )
         self.context.logger.info("=" * 60)
 
     def _store_collected_data(self) -> None:
@@ -815,7 +879,7 @@ class DataCollectionRound(BaseState):
                     "market_cap_rank": social_metrics.get("market_cap_rank"),
                     "data_points_count": len(trend_data),
                     "collection_timestamp": datetime.now(UTC).isoformat(),
-                }
+                },
             }
 
         except Exception as e:
@@ -900,10 +964,13 @@ class HandleErrorRound(BaseState):
 
     RETRYABLE_ERRORS = {
         "ConnectionError": True,
+        "timeout_error": True,
+        "network_error": True,
     }
 
     NON_RETRYABLE_ERRORS = {
         "configuration_error": False,
+        "invalid_price_error": False,
     }
 
     def __init__(self, **kwargs: Any) -> None:
@@ -914,8 +981,23 @@ class HandleErrorRound(BaseState):
     def act(self) -> None:
         """Perform the act."""
         self.context.logger.info(f"Entering {self._state} state.")
+
+        # Check error context to determine if this is a retryable error
+        error_context = getattr(self.context, "error_context", {})
+        error_type = error_context.get("error_type", "unknown_error")
+
+        if error_type in self.NON_RETRYABLE_ERRORS:
+            self.context.logger.info(f"Non-retryable error detected: {error_type}. Moving to paused round for cycling.")
+            self._event = MindshareabciappEvents.RETRIES_EXCEEDED
+        elif error_type in self.RETRYABLE_ERRORS:
+            self.context.logger.info(f"Retryable error detected: {error_type}. Attempting retry.")
+            self._event = MindshareabciappEvents.RETRY
+        else:
+            # Default to non-retryable for unknown errors
+            self.context.logger.warning(f"Unknown error type: {error_type}. Treating as non-retryable.")
+            self._event = MindshareabciappEvents.RETRIES_EXCEEDED
+
         self._is_done = True
-        self._event = MindshareabciappEvents.DONE
 
 
 class PositionMonitoringRound(BaseState):
@@ -1877,13 +1959,15 @@ class AnalysisRound(BaseState):
             for indicator_name, value in technical_indicators:
                 indicators_dict[indicator_name] = value
 
-            technical_scores.update({
-                "sma_20": indicators_dict.get("SMA"),
-                "ema_20": indicators_dict.get("EMA"),
-                "rsi": indicators_dict.get("RSI"),
-                "adx": indicators_dict.get("ADX"),
-                "obv": indicators_dict.get("OBV"),
-            })
+            technical_scores.update(
+                {
+                    "sma_20": indicators_dict.get("SMA"),
+                    "ema_20": indicators_dict.get("EMA"),
+                    "rsi": indicators_dict.get("RSI"),
+                    "adx": indicators_dict.get("ADX"),
+                    "obv": indicators_dict.get("OBV"),
+                }
+            )
 
             # Extract MACD Components
             macd_data = indicators_dict.get("MACD", {})
@@ -1892,20 +1976,21 @@ class AnalysisRound(BaseState):
                 technical_scores["macd_signal"] = macd_data.get("MACDs")
 
             p_technical, technical_traits = self._calculate_technical_probability_score(
-                current_price=current_price,
-                indicators=indicators_dict
+                current_price=current_price, indicators=indicators_dict
             )
 
             technical_scores["p_technical"] = p_technical
             technical_scores["technical_traits"] = technical_traits
 
-            technical_scores.update({
-                "price_above_ma20": technical_traits.get("price_above_ma20", {}).get("condition", False),
-                "rsi_in_range": technical_traits.get("rsi_in_range", {}).get("condition", False),
-                "macd_bullish": technical_traits.get("macd_bullish", {}).get("condition", False),
-                "adx_strong_trend": technical_traits.get("adx_strong_trend", {}).get("condition", False),
-                "obv_increasing": technical_traits.get("obv_increasing", {}).get("condition", False),
-            })
+            technical_scores.update(
+                {
+                    "price_above_ma20": technical_traits.get("price_above_ma20", {}).get("condition", False),
+                    "rsi_in_range": technical_traits.get("rsi_in_range", {}).get("condition", False),
+                    "macd_bullish": technical_traits.get("macd_bullish", {}).get("condition", False),
+                    "adx_strong_trend": technical_traits.get("adx_strong_trend", {}).get("condition", False),
+                    "obv_increasing": technical_traits.get("obv_increasing", {}).get("condition", False),
+                }
+            )
 
             self.context.logger.info(f"Technical analysis for {symbol}: p_technical={p_technical:.3f}")
 
@@ -1923,8 +2008,7 @@ class AnalysisRound(BaseState):
             social_weight_mentions = 0.4
             social_weight_dominance = 0.6
 
-            p_social = (mentions_score * social_weight_mentions + 
-                       dominance_score * social_weight_dominance)
+            p_social = mentions_score * social_weight_mentions + dominance_score * social_weight_dominance
 
             return max(0.0, min(1.0, p_social))  # Clamp to [0, 1]
 
@@ -1933,9 +2017,8 @@ class AnalysisRound(BaseState):
             return 0.5
 
     def _calculate_technical_probability_score(
-        self,
-        current_price: float,
-        indicators: dict[str, Any]) -> tuple[float, dict[str, Any]]:
+        self, current_price: float, indicators: dict[str, Any]
+    ) -> tuple[float, dict[str, Any]]:
         """Calculate the technical probability score."""
 
         sma_20 = indicators.get("SMA", current_price)
@@ -1959,47 +2042,42 @@ class AnalysisRound(BaseState):
                 "condition": current_price > sma_20 if sma_20 else False,
                 "weight": 0.2,
                 "description": "Price is above MA20",
-                "value": current_price - sma_20 if sma_20 else 0
+                "value": current_price - sma_20 if sma_20 else 0,
             },
             "rsi_in_range": {
                 "condition": 39 < rsi < 66,
                 "weight": 0.2,
                 "description": "RSI is in healthy range",
-                "value": rsi
+                "value": rsi,
             },
             "macd_bullish_cross": {
                 "condition": macd > macd_signal,
                 "weight": 0.2,
                 "description": "MACD is above its signal line",
-                "value": macd - macd_signal
+                "value": macd - macd_signal,
             },
             "adx_strong_trend": {
                 "condition": adx > 41,
                 "weight": 0.2,
                 "description": "ADX indicates a strong trend",
-                "value": adx
+                "value": adx,
             },
             "obv_increasing": {
                 "condition": obv_slope > 0,
                 "weight": 0.2,
                 "description": "OBV is increasing (positive slope)",
-                "value": obv_slope
-            }
+                "value": obv_slope,
+            },
         }
 
         # Calculate probability score
-        p_technical = sum(
-            trait["weight"] for trait in traits.values() 
-            if trait["condition"]
-        )
+        p_technical = sum(trait["weight"] for trait in traits.values() if trait["condition"])
 
         return p_technical, traits
 
     def _combine_analysis_results(
-        self,
-        token_info: dict[str, str],
-        social_scores: dict[str, Any],
-        technical_scores: dict[str, Any]) -> dict[str, Any]:
+        self, token_info: dict[str, str], social_scores: dict[str, Any], technical_scores: dict[str, Any]
+    ) -> dict[str, Any]:
         """Combine the analysis results."""
         symbol = token_info["symbol"]
 
@@ -2015,7 +2093,7 @@ class AnalysisRound(BaseState):
             technical_weight = 0.6
 
             # Calculate combined probability score
-            p_combined = (p_social * social_weight + p_technical * technical_weight)
+            p_combined = p_social * social_weight + p_technical * technical_weight
 
             # Risk assessment (basic)
             # risk_level = self._assess_risk_level(p_combined, social_scores, technical_scores)
@@ -2050,7 +2128,9 @@ class AnalysisRound(BaseState):
                 "p_combined": 0.5,
             }
 
-    def _assess_risk_level(self, p_combined: float, social_scores: dict[str, Any], technical_scores: dict[str, Any]) -> str:
+    def _assess_risk_level(
+        self, p_combined: float, social_scores: dict[str, Any], technical_scores: dict[str, Any]
+    ) -> str:
         """Assess the risk level based on the analysis score.."""
         try:
             if p_combined > 0.7:
@@ -2147,12 +2227,14 @@ class AnalysisRound(BaseState):
             strong_signals = []
             for symbol, analysis in self.analysis_results["token_analysis"].items():
                 if isinstance(analysis, dict) and analysis.get("p_combined", 0) > 0.6:
-                    strong_signals.append({
-                        "symbol": symbol,
-                        "p_combined": analysis.get("p_combined"),
-                        "signal_strength": analysis.get("signal_strength"),
-                        "recommendation": analysis.get("trading_recommendation"),
-                    })
+                    strong_signals.append(
+                        {
+                            "symbol": symbol,
+                            "p_combined": analysis.get("p_combined"),
+                            "signal_strength": analysis.get("signal_strength"),
+                            "recommendation": analysis.get("trading_recommendation"),
+                        }
+                    )
 
             # Sort by combined score
             strong_signals.sort(key=lambda x: x["p_combined"], reverse=True)
@@ -2209,12 +2291,12 @@ class AnalysisRound(BaseState):
             "technical_scores": self.analysis_results.get("technical_scores", {}),
             "combined_scores": self.analysis_results.get("combined_scores", {}),
             "analysis_summary": self.analysis_results.get("analysis_summary", {}),
-            "strong_signals": self.analysis_results.get("strong_signals", [])
+            "strong_signals": self.analysis_results.get("strong_signals", []),
         }
 
     def _make_json_serializable(self, obj: Any) -> Any:
         """Convert numpy/pandas types to JSON-serializable Python types."""
-        if hasattr(obj, 'item'):  # numpy scalar
+        if hasattr(obj, "item"):  # numpy scalar
             return obj.item()
         elif isinstance(obj, dict):
             return {key: self._make_json_serializable(value) for key, value in obj.items()}
@@ -2222,7 +2304,7 @@ class AnalysisRound(BaseState):
             return [self._make_json_serializable(item) for item in obj]
         elif isinstance(obj, tuple):
             return tuple(self._make_json_serializable(item) for item in obj)
-        elif hasattr(obj, 'isoformat'):  # datetime objects
+        elif hasattr(obj, "isoformat"):  # datetime objects
             return obj.isoformat()
         else:
             return obj
@@ -2230,7 +2312,7 @@ class AnalysisRound(BaseState):
     def _has_detailed_technical_data(self) -> bool:
         """Check if there is detailed technical data available."""
         return any(
-            isinstance(data, dict) and "technical_indicators" in data 
+            isinstance(data, dict) and "technical_indicators" in data
             for data in self.analysis_results.get("token_analysis", {}).values()
         )
 
@@ -2394,7 +2476,7 @@ class AnalysisRound(BaseState):
             macd_data = {}
             for col in ["MACD", "MACDh", "MACDs"]:
                 value = latest_data[col]
-                if hasattr(value, 'item'):
+                if hasattr(value, "item"):
                     value = value.item()
                 macd_data[col] = value
             result.append(("MACD", macd_data))
@@ -2404,7 +2486,7 @@ class AnalysisRound(BaseState):
             bb_data = {}
             for col, bb_key in [("BBL", "Lower"), ("BBM", "Middle"), ("BBU", "Upper")]:
                 value = latest_data[col]
-                if hasattr(value, 'item'):
+                if hasattr(value, "item"):
                     value = value.item()
                 bb_data[bb_key] = value
             result.append(("BB", bb_data))
@@ -2413,7 +2495,7 @@ class AnalysisRound(BaseState):
         for indicator in ["OBV", "CMF"]:
             if indicator in data.columns:
                 value = latest_data[indicator]
-                if hasattr(value, 'item'):
+                if hasattr(value, "item"):
                     value = value.item()
                 result.append((indicator, value))
 
@@ -2426,12 +2508,357 @@ class SignalAggregationRound(BaseState):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._state = MindshareabciappStates.SIGNALAGGREGATIONROUND
+        self.aggregation_initialized: bool = False
+        self.analysis_results: dict[str, Any] = {}
+        self.collected_data: dict[str, Any] = {}
+        self.candidate_signals: list[dict[str, Any]] = []
+        self.aggregated_signal: dict[str, Any] | None = None
+
+    def setup(self) -> None:
+        """Setup the state."""
+        self._is_done = False
+        self.aggregation_initialized = False
+        self.analysis_results = {}
+        self.collected_data = {}
+        self.candidate_signals = []
+        self.aggregated_signal = None
 
     def act(self) -> None:
         """Perform the act."""
         self.context.logger.info(f"Entering {self._state} state.")
-        self._is_done = True
-        self._event = MindshareabciappEvents.SIGNAL_GENERATED
+
+        try:
+            if not self.aggregation_initialized:
+                self._initialize_aggregation()
+
+            if not self._load_analysis_results():
+                self.context.logger.error("Failed to load analysis results from previous round.")
+                self._event = MindshareabciappEvents.ERROR
+                self._is_done = True
+                return
+
+            self._generate_candidate_signals()
+
+            if self.candidate_signals:
+                self._select_best_signal()
+
+                if self.aggregated_signal:
+                    self._store_aggregated_signal()
+                    self.context.logger.info(
+                        f"Trade signal generated for {self.aggregated_signal['symbol']}"
+                        f"with strenght {self.aggregated_signal['signal_strength']}"
+                    )
+                    self._event = MindshareabciappEvents.SIGNAL_GENERATED
+                else:
+                    self.context.logger.info("No signals met minimum criteria.")
+                    self._event = MindshareabciappEvents.NO_SIGNAL
+
+            else:
+                self.context.logger.info("No candidate signals generated.")
+                self._event = MindshareabciappEvents.NO_SIGNAL
+
+            self._is_done = True
+
+        except Exception as e:
+            self.context.logger.exception(f"Signal aggregation failed: {e}")
+            self.context.error_context = {
+                "error_type": "signal_aggregation_error",
+                "error_message": str(e),
+                "originating_round": str(self._state),
+            }
+            self._event = MindshareabciappEvents.ERROR
+            self._is_done = True
+
+    def _initialize_aggregation(self) -> None:
+        """Initialize signal aggregation."""
+        self.context.logger.info("Initializing signal aggregation...")
+
+        # Load strategy parameters
+        self.strategy_params = {
+            "min_signal_strength": 0.6,  # Minimum aggregated score to generate signal
+            "rsi_lower_limit": 39,
+            "rsi_upper_limit": 66,
+            "adx_threshold": 41,
+            "min_conditions_met": 3,  # Minimum number of conditions to be met
+            "weights": {
+                "price_above_ma": 0.2,
+                "rsi_in_range": 0.2,
+                "macd_bullish": 0.2,
+                "adx_strong": 0.2,
+                "obv_increasing": 0.1,
+                "social_bullish": 0.1,
+            },
+        }
+
+        self.aggregation_initialized = True
+
+    def _load_analysis_results(self) -> bool:
+        """Load analysis results from previous round."""
+        try:
+            # First try to load from context
+            if hasattr(self.context, "analysis_results") and self.context.analysis_results:
+                self.analysis_results = self.context.analysis_results
+                self.context.logger.info("Loaded analysis results from context")
+
+                if self.context.store_path:
+                    data_file = self.context.store_path / "collected_data.json"
+                    if data_file.exists():
+                        with open(data_file, encoding="utf-8") as f:
+                            self.collected_data = json.load(f)
+                        self.context.logger.debug("Loaded collected data from storage")
+                    else:
+                        self.context.logger.warning("No collected data file found")
+
+                return True
+
+            # Otherwise load from storage
+            if not self.context.store_path:
+                self.context.logger.warning("No store path available")
+                return False
+
+            analysis_file = self.context.store_path / "analysis_results.json"
+            if not analysis_file.exists():
+                self.context.logger.warning("No analysis results file found")
+                return False
+
+            with open(analysis_file, encoding="utf-8") as f:
+                self.analysis_results = json.load(f)
+
+            # Also load collected data for access to prices and indicators
+            data_file = self.context.store_path / "collected_data.json"
+            if data_file.exists():
+                with open(data_file, encoding="utf-8") as f:
+                    self.collected_data = json.load(f)
+
+            self.context.logger.info("Successfully loaded analysis results from storage")
+            return True
+
+        except Exception as e:
+            self.context.logger.exception(f"Failed to load analysis results: {e}")
+            return False
+
+    def _generate_candidate_signals(self) -> None:
+        """Generate trade signals for each analyzed token."""
+        token_analysis = self.analysis_results.get("token_analysis", {})
+
+        for symbol, analysis in token_analysis.items():
+            if isinstance(analysis, dict) and "error" not in analysis:
+                signal = self._evaluate_token_signal(symbol, analysis)
+                if signal:
+                    self.candidate_signals.append(signal)
+                    self.context.logger.info(
+                        f"Generated candidate signal for {symbol}: "
+                        f"direction={signal['direction']}, p_trade={signal['p_trade']:.3f}"
+                    )
+
+    def _evaluate_token_signal(self, symbol: str, analysis: dict[str, Any]) -> dict[str, Any] | None:
+        """Evaluate if a token meets trading conditions and generate signal."""
+        try:
+            # Get technical and social scores from analysis
+            technical_scores = self.analysis_results.get("technical_scores", {}).get(symbol, {})
+            social_scores = self.analysis_results.get("social_scores", {}).get(symbol, {})
+
+            # Get current price and indicators
+            current_prices = self.collected_data.get("current_prices", {}).get(symbol, {})
+            current_price = current_prices.get("usd", 0) if current_prices else 0
+
+            if current_price <= 0:
+                self.context.logger.warning(f"No valid price for {symbol}")
+                return None
+
+            # Extract indicators
+            sma_20 = technical_scores.get("sma_20")
+            rsi = technical_scores.get("rsi")
+            macd = technical_scores.get("macd")
+            macd_signal = technical_scores.get("macd_signal")
+            adx = technical_scores.get("adx")
+            obv = technical_scores.get("obv")
+
+            # Check buy conditions
+            conditions_met = {}
+
+            # 1. Price above 20MA
+            if sma_20 and sma_20 > 0:
+                conditions_met["price_above_ma"] = current_price > sma_20
+            else:
+                conditions_met["price_above_ma"] = False
+
+            # 2. RSI in range (39 < RSI < 66)
+            if rsi is not None:
+                conditions_met["rsi_in_range"] = (
+                    self.strategy_params["rsi_lower_limit"] < rsi < self.strategy_params["rsi_upper_limit"]
+                )
+            else:
+                conditions_met["rsi_in_range"] = False
+
+            # 3. MACD bullish cross (MACD > MACD Signal)
+            if macd is not None and macd_signal is not None:
+                conditions_met["macd_bullish"] = macd > macd_signal
+            else:
+                conditions_met["macd_bullish"] = False
+
+            # 4. ADX strong trend (ADX > 41)
+            if adx is not None:
+                conditions_met["adx_strong"] = adx > self.strategy_params["adx_threshold"]
+            else:
+                conditions_met["adx_strong"] = False
+
+            # 5. OBV increasing (bonus condition)
+            if obv is not None:
+                conditions_met["obv_increasing"] = obv > 0
+            else:
+                conditions_met["obv_increasing"] = False
+
+            # 6. Social sentiment bullish (bonus condition)
+            p_social = social_scores.get("p_social", 0.5)
+            conditions_met["social_bullish"] = p_social > 0.6
+
+            # Count conditions met
+            num_conditions_met = sum(conditions_met.values())
+
+            # Calculate weighted signal strength
+            signal_strength = 0.0
+            weights = self.strategy_params["weights"]
+
+            for condition, met in conditions_met.items():
+                if condition in weights and met:
+                    signal_strength += weights[condition]
+
+            # Log conditions for debugging
+            self.context.logger.debug(
+                f"Signal evaluation for {symbol}: "
+                f"conditions_met={num_conditions_met}, "
+                f"signal_strength={signal_strength:.3f}, "
+                f"details={conditions_met}"
+            )
+
+            # Check if minimum conditions are met
+            if num_conditions_met < self.strategy_params["min_conditions_met"]:
+                self.context.logger.debug(
+                    f"Insufficient conditions for {symbol}: {num_conditions_met} < {self.strategy_params['min_conditions_met']}"
+                )
+                return None
+
+            # Check if signal strength meets threshold
+            if signal_strength < self.strategy_params["min_signal_strength"]:
+                self.context.logger.debug(
+                    f"Weak signal for {symbol}: {signal_strength:.3f} < {self.strategy_params['min_signal_strength']}"
+                )
+                return None
+
+            # Create trade signal
+            signal = {
+                "signal_id": f"sig_{symbol}_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}",
+                "symbol": symbol,
+                "direction": "buy",  # Currently only supporting buy signals
+                "p_trade": signal_strength,
+                "signal_strength": self._classify_signal_strength(signal_strength),
+                "conditions_met": conditions_met,
+                "num_conditions_met": num_conditions_met,
+                "analysis_scores": {
+                    "p_social": analysis.get("p_social", 0),
+                    "p_technical": analysis.get("p_technical", 0),
+                    "p_combined": analysis.get("p_combined", 0),
+                },
+                "indicators": {
+                    "current_price": current_price,
+                    "sma_20": sma_20,
+                    "rsi": rsi,
+                    "macd": macd,
+                    "macd_signal": macd_signal,
+                    "adx": adx,
+                    "obv": obv,
+                },
+                "timestamp": datetime.now(UTC).isoformat(),
+                "status": "generated",
+            }
+
+            return signal
+
+        except Exception as e:
+            self.context.logger.exception(f"Failed to evaluate signal for {symbol}: {e}")
+            return None
+
+    def _classify_signal_strength(self, score: float) -> str:
+        """Classify signal strength based on score."""
+        if score >= 0.85:
+            return "very_strong"
+        elif score >= 0.75:
+            return "strong"
+        elif score >= 0.65:
+            return "moderate"
+        elif score >= 0.55:
+            return "weak"
+        else:
+            return "very_weak"
+
+    def _select_best_signal(self) -> None:
+        """Select the best signal from candidates."""
+        if not self.candidate_signals:
+            return
+
+        # Sort by p_trade (signal strength) descending
+        sorted_signals = sorted(
+            self.candidate_signals, key=lambda x: (x["p_trade"], x["num_conditions_met"]), reverse=True
+        )
+
+        # Select the top signal
+        best_signal = sorted_signals[0]
+
+        # Additional validation
+        if best_signal["p_trade"] >= self.strategy_params["min_signal_strength"]:
+            self.aggregated_signal = best_signal
+
+            self.context.logger.info(
+                f"Selected best signal: {best_signal['symbol']} "
+                f"with p_trade={best_signal['p_trade']:.3f}, "
+                f"conditions_met={best_signal['num_conditions_met']}"
+            )
+
+            # Log runner-ups if any
+            if len(sorted_signals) > 1:
+                self.context.logger.info("Runner-up signals:")
+                for signal in sorted_signals[1:3]:  # Show top 3
+                    self.context.logger.info(f"  {signal['symbol']}: p_trade={signal['p_trade']:.3f}")
+        else:
+            self.context.logger.info(
+                f"Best signal {best_signal['symbol']} below threshold: "
+                f"{best_signal['p_trade']:.3f} < {self.strategy_params['min_signal_strength']}"
+            )
+
+    def _store_aggregated_signal(self) -> None:
+        """Store the aggregated signal for the next round."""
+        try:
+            # Store in context for immediate access
+            self.context.aggregated_trade_signal = self.aggregated_signal
+
+            # Also persist to storage
+            if self.context.store_path:
+                signals_file = self.context.store_path / "signals.json"
+
+                # Load existing signals
+                signals_data = {"signals": [], "last_signal": None}
+                if signals_file.exists():
+                    with open(signals_file, encoding="utf-8") as f:
+                        signals_data = json.load(f)
+
+                # Add new signal
+                signals_data["signals"].append(self.aggregated_signal)
+                signals_data["last_signal"] = self.aggregated_signal
+                signals_data["last_updated"] = datetime.now(UTC).isoformat()
+
+                # Keep only last 100 signals
+                if len(signals_data["signals"]) > 100:
+                    signals_data["signals"] = signals_data["signals"][-100:]
+
+                # Save updated signals
+                with open(signals_file, "w", encoding="utf-8") as f:
+                    json.dump(signals_data, f, indent=2)
+
+                self.context.logger.info(f"Stored aggregated signal for {self.aggregated_signal['symbol']}")
+
+        except Exception as e:
+            self.context.logger.exception(f"Failed to store aggregated signal: {e}")
 
 
 class RiskEvaluationRound(BaseState):
@@ -2586,9 +3013,7 @@ class RiskEvaluationRound(BaseState):
                 entry_value = pos.get("entry_value_usdc", 0)
                 pnl = pos.get("unrealized_pnl", 0)
                 side = pos.get("side", "unknown")
-                self.context.logger.info(
-                    f"  Existing position {i+1}: {side} ${entry_value:.2f} (P&L: ${pnl:.2f})"
-                )
+                self.context.logger.info(f"  Existing position {i+1}: {side} ${entry_value:.2f} (P&L: ${pnl:.2f})")
 
             return False
 
@@ -2708,20 +3133,20 @@ class RiskEvaluationRound(BaseState):
 
             volatility_tier = self.risk_assessment.get("volatility_tier")
             if volatility_tier == "very_high":
-                vetoes.append({
-                    "type": "volatility",
-                    "reason": "Volatility tier is very high - too risky",
-                    "severity": "medium"
-                })
+                vetoes.append(
+                    {"type": "volatility", "reason": "Volatility tier is very high - too risky", "severity": "medium"}
+                )
 
             p_trade = self.trade_signal.get("p_trade", 0.0)
             min_signal_threshold = 0.6  # Minimum 60% confidence
             if p_trade < min_signal_threshold:
-                vetoes.append({
-                    "type": "signal_strength",
-                    "reason": f"Trade signal too weak: {p_trade:.3f} < {min_signal_threshold}",
-                    "severity": "high"
-                })
+                vetoes.append(
+                    {
+                        "type": "signal_strength",
+                        "reason": f"Trade signal too weak: {p_trade:.3f} < {min_signal_threshold}",
+                        "severity": "high",
+                    }
+                )
 
             self.risk_assessment["risk_vetoes"] = vetoes
 
@@ -2809,13 +3234,15 @@ class RiskEvaluationRound(BaseState):
             risk_amount = current_price - stop_loss_price
             take_profit_price = current_price + (risk_amount * 2)
 
-            self.risk_assessment.update({
-                "current_price": current_price,
-                "stop_loss_price": stop_loss_price,
-                "take_profit_price": take_profit_price,
-                "tailing_stop_loss_pct": tailing_stop_loss_pct,
-                "trailing_activation_level": trailing_activation,
-            })
+            self.risk_assessment.update(
+                {
+                    "current_price": current_price,
+                    "stop_loss_price": stop_loss_price,
+                    "take_profit_price": take_profit_price,
+                    "tailing_stop_loss_pct": tailing_stop_loss_pct,
+                    "trailing_activation_level": trailing_activation,
+                }
+            )
 
             self.context.logger.info(
                 f"Risk levels for {symbol}: "
@@ -2991,17 +3418,17 @@ class RiskEvaluationRound(BaseState):
         """Get base position percentage based on strategy."""
         strategy_percentages = {
             "aggressive": 0.15,  # 15% of capital
-            "balanced": 0.10,    # 10% of capital
-            "conservative": 0.05  # 5% of capital
+            "balanced": 0.10,  # 10% of capital
+            "conservative": 0.05,  # 5% of capital
         }
         return strategy_percentages.get(strategy, 0.10)
 
     def _get_volatility_multiplier(self, volatility_tier: str) -> float:
         """Get position size multiplier based on volatility."""
         multipliers = {
-            "low": 1.2,        # Larger positions for low volatility
-            "medium": 1.0,     # Base size for medium volatility
-            "high": 0.7,       # Smaller positions for high volatility
+            "low": 1.2,  # Larger positions for low volatility
+            "medium": 1.0,  # Base size for medium volatility
+            "high": 0.7,  # Smaller positions for high volatility
             "very_high": 0.5,  # Much smaller positions for very high volatility
         }
         return multipliers.get(volatility_tier, 0.8)
@@ -3025,6 +3452,7 @@ class TradeConstructionRound(BaseState):
         self.pending_price_requests: list[str] = []
         self.price_collection_started: bool = False
         self.started_at: datetime | None = None
+        self.open_positions: list[dict[str, Any]] = []
 
     def setup(self) -> None:
         """Setup the state."""
@@ -3037,6 +3465,7 @@ class TradeConstructionRound(BaseState):
         self.pending_price_requests = []
         self.price_collection_started = False
         self.started_at = None
+        self.open_positions = []
         for k in self.supported_protocols:
             self.supported_protocols[k] = []
 
@@ -3061,6 +3490,29 @@ class TradeConstructionRound(BaseState):
             self._is_done = True
 
         return None
+
+    def _load_open_positions(self) -> list[dict[str, Any]]:
+        """Load the open positions from the previous round."""
+        if not self.context.store_path:
+            return []
+
+        positions_file = self.context.store_path / "positions.json"
+        if not positions_file.exists():
+            return []
+
+        try:
+            with open(positions_file, encoding="utf-8") as f:
+                data = json.load(f)
+                return [pos for pos in data.get("positions", []) if pos.get("status") == "open"]
+        except (FileNotFoundError, PermissionError, OSError) as e:
+            self.context.logger.warning(f"Failed to load positions file: {e}")
+            return []
+        except (json.JSONDecodeError, KeyError, ValueError) as e:
+            self.context.logger.warning(f"Failed to parse positions data: {e}")
+            return []
+        except Exception as e:
+            self.context.logger.exception(f"Unexpected error loading positions: {e}")
+            return []
 
     def _process_trade_construction(self) -> bool:
         """Process the trade construction workflow step by step."""
@@ -3115,6 +3567,8 @@ class TradeConstructionRound(BaseState):
             return
 
         self.context.logger.info("Initializing trade construction.")
+
+        self.open_positions = self._load_open_positions()
 
         self.risk_parameters = {
             "strategy": self.context.params.trading_strategy,
@@ -3178,6 +3632,7 @@ class TradeConstructionRound(BaseState):
 
             price_request = self._submit_ticker_request(token_info)
             if price_request:
+                self.context.logger.info(f"Submitted ticker request for {symbol}: {price_request}")
                 self.pending_price_requests.append(price_request)
                 self.price_collection_started = True
                 self.started_at = datetime.now(UTC)
@@ -3201,24 +3656,28 @@ class TradeConstructionRound(BaseState):
             trading_pair = f"{symbol}/USDC"
             params = []
 
-            def encode_dict(d: dict) -> bytes:
-                """Encode a dictionary to a hex string."""
-                return json.dumps(d).encode(DEFAULT_ENCODING)
+            # def encode_dict(d: dict) -> bytes:
+            #     """Encode a dictionary to a hex string."""
+            #     return json.dumps(d).encode(DEFAULT_ENCODING)
 
+            min_position = self.context.params.min_position_size_usdc
+            max_position = self.context.params.max_position_size_usdc
+            estimated_position_size = (min_position + max_position) / 2
             # Use a placeholder amount for ticker requests since we need price to calculate position size
-            ticker_amount = 1.0  # Use 1 USDC as standard amount for price discovery
+            ticker_amount = max(estimated_position_size, 100.0)  # Use 1 USDC as standard amount for price discovery
 
-            params.append({"symbol": trading_pair, "params": encode_dict({"amount": ticker_amount})})
-            self.context.logger.debug(f"Ticker request params: symbol={trading_pair}, amount={ticker_amount}")
+            # params.append({"symbol": trading_pair, "params": encode_dict({"amount": ticker_amount})})
+            # self.context.logger.info(f"Ticker request params: symbol={trading_pair}, amount={ticker_amount}, params={params}")
 
-            for param in params:
-                ticker_dialogue = self.submit_msg(
-                    TickersMessage.Performative.GET_TICKER,
-                    connection_id=str(DCXT_PUBLIC_ID),
-                    exchange_id="balancer",
-                    ledger_id="base",
-                    **param,
-                )
+            # for param in params:
+            ticker_dialogue = self.submit_msg(
+                TickersMessage.Performative.GET_TICKER,
+                connection_id=str(DCXT_PUBLIC_ID),
+                exchange_id="balancer",
+                ledger_id="base",
+                symbol=trading_pair,
+                params=json.dumps({"amount": ticker_amount}).encode(DEFAULT_ENCODING),
+            )
 
             ticker_dialogue.validation_func = self._validate_ticker_msg
             ticker_dialogue.exchange_id = "balancer"
@@ -3258,6 +3717,7 @@ class TradeConstructionRound(BaseState):
 
             if ticker_msg.performative == TickersMessage.Performative.TICKER and ticker_msg.ticker is not None:
                 self.context.logger.info(f"Received valid ticker: {ticker_msg.ticker.symbol}")
+                self.context.logger.info(f"Ticker: {ticker_msg.ticker.dict()}")
                 return True
 
             return False
@@ -3339,6 +3799,93 @@ class TradeConstructionRound(BaseState):
             self.context.logger.exception(f"Error processing price responses: {e}")
             return False
 
+    def _validate_price_sanity(self, symbol: str, ticker_price: float) -> bool:
+        """Validate ticker price against CoinGecko reference price with sanity checks."""
+        try:
+            # Load the latest price data from collected_data.json
+            if not self.context.store_path:
+                self.context.logger.warning("No store path available for price validation")
+                return True  # Skip validation if we can't access data
+
+            data_file = self.context.store_path / "collected_data.json"
+            if not data_file.exists():
+                self.context.logger.warning(f"Data file does not exist for price validation: {data_file}")
+                return True  # Skip validation if data file doesn't exist
+
+            with open(data_file, encoding="utf-8") as f:
+                collected_data = json.load(f)
+
+            # Get current prices from collected data
+            current_prices = collected_data.get("current_prices", {})
+            if symbol not in current_prices:
+                self.context.logger.warning(f"No CoinGecko price data found for {symbol}")
+                return True  # Skip validation if no reference data
+
+            coingecko_price_data = current_prices[symbol]
+            coingecko_usd_price = coingecko_price_data.get("usd")
+
+            if not coingecko_usd_price:
+                self.context.logger.warning(f"No USD price found in CoinGecko data for {symbol}")
+                return True  # Skip validation if no USD price
+
+            # Convert ticker price (OLAS/USDC) to USD equivalent
+            # Assuming USDC is pegged to USD (1 USDC ≈ 1 USD)
+            ticker_price_usd = ticker_price
+
+            # Calculate price deviation percentage
+            price_deviation = abs(ticker_price_usd - coingecko_usd_price) / coingecko_usd_price
+
+            # Define sanity check thresholds
+            MAX_DEVIATION = 0.50  # 50% deviation threshold
+            WARNING_DEVIATION = 0.20  # 20% deviation for warnings
+
+            # Log price comparison for debugging
+            self.context.logger.info(
+                f"Price validation for {symbol}: "
+                f"Ticker (USDC): ${ticker_price:.6f}, "
+                f"CoinGecko (USD): ${coingecko_usd_price:.6f}, "
+                f"Deviation: {price_deviation:.2%}"
+            )
+
+            # Check for extreme deviations (error condition)
+            if price_deviation > MAX_DEVIATION:
+                error_msg = (
+                    f"Price sanity check failed for {symbol}: "
+                    f"Ticker price ${ticker_price:.6f} deviates {price_deviation:.2%} "
+                    f"from CoinGecko reference ${coingecko_usd_price:.6f}"
+                )
+
+                self.context.logger.error(error_msg)
+
+                self.context.error_context = {
+                    "error_type": "price_sanity_check_failed",
+                    "error_message": error_msg,
+                    "error_data": {
+                        "symbol": symbol,
+                        "ticker_price_usdc": ticker_price,
+                        "coingecko_price_usd": coingecko_usd_price,
+                        "price_deviation": price_deviation,
+                        "max_allowed_deviation": MAX_DEVIATION,
+                        "validation_timestamp": datetime.now(UTC).isoformat(),
+                    },
+                }
+
+                return False
+
+            # Log warning for significant deviations
+            if price_deviation > WARNING_DEVIATION:
+                self.context.logger.warning(
+                    f"Significant price deviation detected for {symbol}: "
+                    f"{price_deviation:.2%} deviation from CoinGecko reference"
+                )
+
+            return True
+
+        except Exception as e:
+            self.context.logger.exception(f"Error during price sanity check for {symbol}: {e}")
+            # Don't fail the trade on validation errors, just log them
+            return True
+
     def _construct_trade_parameters(self) -> bool:
         """Construct complete trade parameters using DCXT pricing."""
         try:
@@ -3355,13 +3902,32 @@ class TradeConstructionRound(BaseState):
             current_price = self.market_data.get("current_price", 0)
             if current_price <= 0:
                 self.context.logger.error("Invalid current price from DCXT")
+
+                self.context.error_context = {
+                    "error_type": "invalid_price_error",
+                    "error_message": "Invalid current price from DCXT",
+                    "error_data": {
+                        "current_price": current_price,
+                        "market_data": self.market_data,
+                    },
+                }
+
+                return False
+
+            # Add price sanity check against CoinGecko data
+            if not self._validate_price_sanity(symbol, current_price):
                 return False
 
             slippage_tolerance = self._calculate_slippage_tolerance()
             stop_loss_price = self._calculate_stop_loss_price(current_price, trade_direction)
             take_profit_price = self._calculate_take_profit_price(current_price, trade_direction, stop_loss_price)
 
-            token_quantity = position_size_usdc / current_price
+            if trade_direction == "buy":
+                execution_price = self.market_data.get("ask_price", current_price)
+            else:
+                execution_price = self.market_data.get("bid_price", current_price)
+
+            token_quantity = position_size_usdc / execution_price
 
             self.constructed_trade = {
                 "trade_id": f"trade_{symbol}_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}",
@@ -3418,31 +3984,50 @@ class TradeConstructionRound(BaseState):
             # Check if we have portfolio metrics from previous validation
             available_capital = getattr(self.context, "available_trading_capital", None)
             if available_capital is None:
-                # Fallback to a smaller default amount for safety
-                available_capital = 100.0  # Much smaller default to avoid insufficient balance
-                self.context.logger.warning(f"No available trading capital found, using fallback: ${available_capital}")
-            else:
-                self.context.logger.info(
-                    f"Using available trading capital from portfolio validation: ${available_capital:.2f}"
-                )
+                self.context.logger.error("No available trading capital found.")
+                return 0.0
+            self.context.logger.info(
+                f"Using available trading capital from portfolio validation: ${available_capital:.2f}"
+            )
 
-            base_position_pct = 0.10  # 10% base allocation
+            # Get portfolio metrics to calculate total portfolio value
+            portfolio_metrics = getattr(self.context, "portfolio_metrics", {})
+            total_exposure = portfolio_metrics.get("total_exposure", 0.0)
 
-            # Adjust based on signal strength (0.5 = neutral, 1.0 = very bullish, 0.0 = very bearish)
-            strength_multiplier = signal_strength if signal_strength > 0.5 else (1 - signal_strength)
-            position_pct = base_position_pct * (0.5 + strength_multiplier)  # Range: 5% - 15%
+            # Total Portfolio Value = Available Cash + Existing Positions
+            total_portfolio_value = available_capital + total_exposure
 
-            # Calculate position size
-            position_size = available_capital * position_pct
+            # Each position should be 1/7 of total portfolio value
+            target_position_size = total_portfolio_value * (1.0 / 7.0)
 
-            # Apply min/max constraints
+            # But we can only use available capital (minus buffer)
+            min_capital_buffer = portfolio_metrics.get("min_capital_buffer", 500.0)
+            usable_capital = available_capital - min_capital_buffer
+
+            # Position size is the minimum of target and usable capital
+            position_size = min(target_position_size, usable_capital)
+
+            # Apply minimum position size constraint
             min_size = self.risk_parameters["min_position_size"]
-            max_size = min(self.risk_parameters["max_position_size"], available_capital * 0.20)  # Max 20% of capital
+            position_size = max(min_size, position_size)
 
-            position_size = max(min_size, min(position_size, max_size))
+            max_positions = 7
+            current_positions = len(self.open_positions)
+            if current_positions >= max_positions:
+                self.context.logger.info(f"Max positions reached: {current_positions}/{max_positions}")
+                return 0.0
 
-            self.context.logger.info(f"Calculated position size: ${position_size:.2f} (signal: {signal_strength:.2f})")
+            self.context.logger.info(
+                f"Position sizing: Total portfolio: ${total_portfolio_value:.2f}, "
+                f"Target per position: ${target_position_size:.2f}, "
+                f"Actual position size: ${position_size:.2f}"
+            )
+
             return position_size
+
+        except Exception as e:
+            self.context.logger.exception(f"Failed to calculate position size: {e}")
+            return self.risk_parameters["min_position_size"]
 
         except Exception as e:
             self.context.logger.exception(f"Failed to calculate position size: {e}")
