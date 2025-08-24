@@ -581,13 +581,33 @@ class PausedRound(BaseState):
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
+        self._is_done = False
+        self.started = False
         self._state = MindshareabciappStates.PAUSEDROUND
 
+    sleep_until: datetime | None = None
+
     def act(self) -> None:
-        """Perform the act."""
-        self.context.logger.info(f"Entering {self._state} state.")
+        """Perform the action of the state."""
+
+        if not self.started:
+            self._is_done = False
+            self.started = True
+            cool_down = timedelta(seconds=self.context.params.reset_pause_duration)
+            self.started_at = datetime.now(tz=UTC)
+            self.sleep_until = self.started_at + cool_down
+            self.context.logger.info(f"Cool down for {cool_down}s")
+            return
+
+        now = datetime.now(tz=UTC)
+        if now < self.sleep_until:
+            remaining = (self.sleep_until - now).total_seconds()
+            self.context.logger.debug(f"Cooling down remaining: {remaining}s")
+            return
+        self.context.logger.info(f"Cool down finished. at {now}")
         self._is_done = True
-        self._event = MindshareabciappEvents.DONE
+        self._event = MindshareabciappEvents.RESUME
+        self.started = False
 
 
 class CheckStakingKPIRound(BaseState):
@@ -4426,7 +4446,7 @@ class MindshareabciappFsmBehaviour(FSMBehaviour):
         self.register_transition(
             source=MindshareabciappStates.EXECUTIONROUND.value,
             event=MindshareabciappEvents.EXECUTED,
-            destination=MindshareabciappStates.CHECKSTAKINGKPIROUND.value,
+            destination=MindshareabciappStates.PAUSEDROUND.value,
         )
         self.register_transition(
             source=MindshareabciappStates.EXECUTIONROUND.value,
@@ -4446,7 +4466,7 @@ class MindshareabciappFsmBehaviour(FSMBehaviour):
         self.register_transition(
             source=MindshareabciappStates.HANDLEERRORROUND.value,
             event=MindshareabciappEvents.RETRY,
-            destination=MindshareabciappStates.CHECKSTAKINGKPIROUND.value,
+            destination=MindshareabciappStates.PAUSEDROUND.value,
         )
         self.register_transition(
             source=MindshareabciappStates.PAUSEDROUND.value,
@@ -4501,7 +4521,7 @@ class MindshareabciappFsmBehaviour(FSMBehaviour):
         self.register_transition(
             source=MindshareabciappStates.RISKEVALUATIONROUND.value,
             event=MindshareabciappEvents.REJECTED,
-            destination=MindshareabciappStates.CHECKSTAKINGKPIROUND.value,
+            destination=MindshareabciappStates.PAUSEDROUND.value,
         )
         self.register_transition(
             source=MindshareabciappStates.SETUPROUND.value,
@@ -4521,7 +4541,7 @@ class MindshareabciappFsmBehaviour(FSMBehaviour):
         self.register_transition(
             source=MindshareabciappStates.SIGNALAGGREGATIONROUND.value,
             event=MindshareabciappEvents.NO_SIGNAL,
-            destination=MindshareabciappStates.CHECKSTAKINGKPIROUND.value,
+            destination=MindshareabciappStates.PAUSEDROUND.value,
         )
         self.register_transition(
             source=MindshareabciappStates.SIGNALAGGREGATIONROUND.value,
