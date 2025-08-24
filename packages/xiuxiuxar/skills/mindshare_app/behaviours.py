@@ -1093,6 +1093,8 @@ class PositionMonitoringRound(BaseState):
         unrealized_pnl = (current_price - entry_price) * position_size
         pnl_percentage = ((current_price - entry_price) / entry_price) * 100
 
+        rsi = self._get_current_rsi(symbol)
+
         # Update position with current data
         updated_position = {
             **position,
@@ -1103,6 +1105,28 @@ class PositionMonitoringRound(BaseState):
             "exit_signal": False,
             "exit_reason": None,
         }
+
+        # Exit if RSI > 79
+        if rsi and rsi > 79:
+            updated_position.update(
+                {
+                    "exit_signal": True,
+                    "exit_reason": "rsi_overbought",
+                    "exit_price": current_price,
+                    "exit_type": "rsi_exit",
+                }
+            )
+            return updated_position
+
+        # Check tailing stop loss activation
+        entry_price = position["entry_price"]
+        if current_price >= entry_price * 1.25 and not position.get("tailing_stop_active"):
+            trailing_stop = current_price * 0.97
+            updated_position["stop_loss_price"] = max(
+                trailing_stop,
+                position.get("stop_loss_price", 0),
+            )
+            updated_position["tailing_stop_active"] = True
 
         # Check stop-loss conditions
         if stop_loss and self._check_stop_loss(current_price, stop_loss):
@@ -1675,9 +1699,10 @@ class AnalysisRound(BaseState):
                 self._analyze_single_token(token_info)
                 return
 
-            self._finalize_analysis()
-            self._is_done = True
-            self._event = MindshareabciappEvents.DONE
+            if not self.pending_tokens:
+                self._finalize_analysis()
+                self._is_done = True
+                self._event = MindshareabciappEvents.DONE
 
         except Exception as e:
             self.context.logger.exception(f"Analysis failed: {e}")
@@ -1705,7 +1730,7 @@ class AnalysisRound(BaseState):
         self.pending_tokens = ALLOWED_ASSETS["base"].copy()
         self.completed_analysis = []
         self.failed_analysis = []
- 
+
         self.analysis_results = {
             "timestamp": datetime.now(UTC).isoformat(),
             "total_tokens": len(self.pending_tokens),
@@ -1838,13 +1863,13 @@ class AnalysisRound(BaseState):
         }
 
         try:
-            ohlcv_data = self.collected_data.get("ohlcv_data", {}).get(symbol)
+            ohlcv_data = self.collected_data.get("ohlcv", {}).get(symbol)
             if not ohlcv_data:
                 self.context.logger.warning(f"No OHLCV data found for {symbol}")
                 return technical_scores
 
-            current_prices = self.collected_data.get("current_price", {}).get(symbol)
-            current_price = current_prices.get("usd", 0)
+            current_prices = self.collected_data.get("current_prices", {}).get(symbol)
+            current_price = current_prices.get("usd", 0) if current_prices else 0
 
             technical_indicators = self._get_technical_data(ohlcv_data)
 
@@ -1868,7 +1893,7 @@ class AnalysisRound(BaseState):
 
             p_technical, technical_traits = self._calculate_technical_probability_score(
                 current_price=current_price,
-                indicators_dict=indicators_dict
+                indicators=indicators_dict
             )
 
             technical_scores["p_technical"] = p_technical
@@ -1920,7 +1945,7 @@ class AnalysisRound(BaseState):
 
         macd_data = indicators.get("MACD", {})
         if isinstance(macd_data, dict):
-            macd_line = macd_data.get("MACD", 0)
+            macd = macd_data.get("MACD", 0)
             macd_signal = macd_data.get("MACDs", 0)
         else:
             macd = macd_signal = 0
@@ -1937,7 +1962,7 @@ class AnalysisRound(BaseState):
                 "value": current_price - sma_20 if sma_20 else 0
             },
             "rsi_in_range": {
-                "condition": 30 < rsi < 70,  # Use reasonable RSI range
+                "condition": 39 < rsi < 66,
                 "weight": 0.2,
                 "description": "RSI is in healthy range",
                 "value": rsi
@@ -1949,7 +1974,7 @@ class AnalysisRound(BaseState):
                 "value": macd - macd_signal
             },
             "adx_strong_trend": {
-                "condition": adx > 25,  # Strong trend threshold
+                "condition": adx > 41,
                 "weight": 0.2,
                 "description": "ADX indicates a strong trend",
                 "value": adx
@@ -1993,29 +2018,27 @@ class AnalysisRound(BaseState):
             p_combined = (p_social * social_weight + p_technical * technical_weight)
 
             # Risk assessment (basic)
-            risk_level = self._assess_risk_level(p_combined, social_scores, technical_scores)
+            # risk_level = self._assess_risk_level(p_combined, social_scores, technical_scores)
 
             # Trading signal strength
-            signal_strength = self._calculate_signal_strength(p_combined, social_scores, technical_scores)
+            # signal_strength = self._calculate_signal_strength(p_combined, social_scores, technical_scores)
 
-            combined_analysis = {
+            return {
                 "symbol": symbol,
                 "timestamp": datetime.now(UTC).isoformat(),
                 "p_social": round(p_social, 3),
                 "p_technical": round(p_technical, 3),
                 "p_combined": round(p_combined, 3),
-                "risk_level": risk_level,
-                "signal_strength": signal_strength,
-                "trading_recommendation": self._get_trading_recommendation(p_combined),
-                "confidence": self._calculate_confidence(social_scores, technical_scores),
+                # "risk_level": risk_level,
+                # "signal_strength": signal_strength,
+                # "trading_recommendation": self._get_trading_recommendation(p_combined),
+                # "confidence": self._calculate_confidence(social_scores, technical_scores),
                 "analysis_quality": self._assess_analysis_quality(social_scores, technical_scores),
                 "weights_used": {
                     "social_weight": social_weight,
                     "technical_weight": technical_weight,
                 },
             }
-
-            return combined_analysis
 
         except Exception as e:
             self.context.logger.exception(f"Failed to combine analysis for {symbol}: {e}")
@@ -2027,48 +2050,43 @@ class AnalysisRound(BaseState):
                 "p_combined": 0.5,
             }
 
-    
     def _assess_risk_level(self, p_combined: float, social_scores: dict[str, Any], technical_scores: dict[str, Any]) -> str:
         """Assess the risk level based on the analysis score.."""
         try:
             if p_combined > 0.7:
                 return "low"
-            elif p_combined > 0.5:
+            if p_combined > 0.5:
                 return "medium"
-            else:
-                return "high"
+            return "high"
 
         except Exception:
-            # self.context.logger.warning(f"Failed to assess risk level: {e}")
             return "medium"
 
-    def _calculate_signal_strength(self, p_combined: float, social_scores: dict, technical_scores: dict) -> str:
-        """Calculate trading signal strength."""
-        try:
-            if p_combined > 0.75:
-                return "strong_buy"
-            elif p_combined > 0.6:
-                return "buy"
-            elif p_combined > 0.4:
-                return "neutral"
-            elif p_combined > 0.25:
-                return "sell"
-            else:
-                return "strong_sell"
-        except Exception:
-            return "neutral"
+    # def _calculate_signal_strength(self, p_combined: float, social_scores: dict, technical_scores: dict) -> str:
+    #     """Calculate trading signal strength."""
+    #     try:
+    #         if p_combined > 0.75:
+    #             return "strong_buy"
+    #         if p_combined > 0.6:
+    #             return "buy"
+    #         if p_combined > 0.4:
+    #             return "neutral"
+    #         if p_combined > 0.25:
+    #             return "sell"
+    #         return "strong_sell"
+    #     except Exception:
+    #         return "neutral"
 
-    def _get_trading_recommendation(self, p_combined: float) -> str:
-        """Get trading recommendation based on combined score."""
-        try:
-            if p_combined > 0.6:
-                return "BUY"
-            elif p_combined < 0.4:
-                return "SELL"
-            else:
-                return "HOLD"
-        except Exception:
-            return "HOLD"
+    # def _get_trading_recommendation(self, p_combined: float) -> str:
+    #     """Get trading recommendation based on combined score."""
+    #     try:
+    #         if p_combined > 0.6:
+    #             return "BUY"
+    #         if p_combined < 0.4:
+    #             return "SELL"
+    #         return "HOLD"
+    #     except Exception:
+    #         return "HOLD"
 
     def _calculate_confidence(self, social_scores: dict, technical_scores: dict) -> float:
         """Calculate confidence in the analysis."""
@@ -2093,7 +2111,7 @@ class AnalysisRound(BaseState):
             max_score = 2
 
             # Check social data quality
-            if social_scores.get("social_metrics_available", False):
+            if social_scores.get("social_metrics_available"):
                 score += 1
 
             # Check technical data quality
@@ -2103,10 +2121,9 @@ class AnalysisRound(BaseState):
             quality_pct = score / max_score
             if quality_pct > 0.8:
                 return "high"
-            elif quality_pct > 0.5:
+            if quality_pct > 0.5:
                 return "medium"
-            else:
-                return "low"
+            return "low"
         except Exception:
             return "low"
 
@@ -2168,14 +2185,78 @@ class AnalysisRound(BaseState):
             return
 
         try:
-            analysis_file = self.context.store_path / "analysis_results.json"
-            with open(analysis_file, "w", encoding="utf-8") as f:
-                json.dump(self.analysis_results, f, indent=2)
+            summary_file = self.context.store_path / "analysis_results.json"
+            summary_results = self._extract_summary_results()
+            with open(summary_file, "w", encoding="utf-8") as f:
+                json.dump(summary_results, f, indent=2)
 
-            self.context.logger.info(f"Analysis results stored to {analysis_file}")
+            if self._has_detailed_technical_data():
+                technical_file = self.context.store_path / "technical_data.parquet"
+                self._store_technical_data_parquet(technical_file)
+
+            self.context.logger.info(f"Analysis results stored to {summary_file}")
 
         except Exception as e:
             self.context.logger.exception(f"Failed to store analysis results: {e}")
+
+    def _extract_summary_results(self) -> dict[str, Any]:
+        """Extract JSON-serializable summary results."""
+        return {
+            "timestamp": self.analysis_results.get("timestamp"),
+            "total_tokens": self.analysis_results.get("total_tokens"),
+            "token_analysis": self._make_json_serializable(self.analysis_results.get("token_analysis", {})),
+            "social_scores": self.analysis_results.get("social_scores", {}),
+            "technical_scores": self.analysis_results.get("technical_scores", {}),
+            "combined_scores": self.analysis_results.get("combined_scores", {}),
+            "analysis_summary": self.analysis_results.get("analysis_summary", {}),
+            "strong_signals": self.analysis_results.get("strong_signals", [])
+        }
+
+    def _make_json_serializable(self, obj: Any) -> Any:
+        """Convert numpy/pandas types to JSON-serializable Python types."""
+        if hasattr(obj, 'item'):  # numpy scalar
+            return obj.item()
+        elif isinstance(obj, dict):
+            return {key: self._make_json_serializable(value) for key, value in obj.items()}
+        elif isinstance(obj, list):
+            return [self._make_json_serializable(item) for item in obj]
+        elif isinstance(obj, tuple):
+            return tuple(self._make_json_serializable(item) for item in obj)
+        elif hasattr(obj, 'isoformat'):  # datetime objects
+            return obj.isoformat()
+        else:
+            return obj
+
+    def _has_detailed_technical_data(self) -> bool:
+        """Check if there is detailed technical data available."""
+        return any(
+            isinstance(data, dict) and "technical_indicators" in data 
+            for data in self.analysis_results.get("token_analysis", {}).values()
+        )
+
+    def _store_technical_data_parquet(self, filepath: Path) -> None:
+        """Store technical data to Parquet file."""
+        try:
+            technical_data = []
+
+            for symbol, analysis in self.analysis_results.get("token_analysis", {}).items():
+                if "technical_indicators" in analysis:
+                    # Convert technical indicators to DataFrame
+                    indicators = analysis["technical_indicators"]
+                    if isinstance(indicators, list):
+                        # Convert list of tuples to DataFrame
+                        df = pd.DataFrame(indicators, columns=["indicator", "value"])
+                        df["symbol"] = symbol
+                        df["timestamp"] = analysis.get("timestamp")
+                        technical_data.append(df)
+
+            if technical_data:
+                combined_df = pd.concat(technical_data, ignore_index=True)
+                combined_df.to_parquet(filepath, index=False)
+                self.context.logger.info(f"Technical data stored to {filepath}")
+
+        except Exception as e:
+            self.context.logger.warning(f"Failed to store technical data: {e}")
 
     def _get_technical_data(self, ohlcv_data: list[list[Any]], moving_average_length: int = 20) -> list:
         """Calculate core technical indicators for a coin using pandas-ta with validation."""
@@ -2303,24 +2384,38 @@ class AnalysisRound(BaseState):
         # Add basic indicators
         for indicator in ["SMA", "EMA", "RSI", "ADX"]:
             if indicator in data.columns:
-                result.append((indicator, latest_data[indicator]))
+                value = latest_data[indicator]
+                if hasattr(value, "item"):
+                    value = value.item()
+                result.append((indicator, value))
 
         # Add MACD (only if all components are available)
         if all(col in data.columns for col in ["MACD", "MACDh", "MACDs"]):
-            result.append(
-                ("MACD", {"MACD": latest_data["MACD"], "MACDh": latest_data["MACDh"], "MACDs": latest_data["MACDs"]})
-            )
+            macd_data = {}
+            for col in ["MACD", "MACDh", "MACDs"]:
+                value = latest_data[col]
+                if hasattr(value, 'item'):
+                    value = value.item()
+                macd_data[col] = value
+            result.append(("MACD", macd_data))
 
         # Add Bollinger Bands (only if all components are available)
         if all(col in data.columns for col in ["BBL", "BBM", "BBU"]):
-            result.append(
-                ("BB", {"Lower": latest_data["BBL"], "Middle": latest_data["BBM"], "Upper": latest_data["BBU"]})
-            )
+            bb_data = {}
+            for col, bb_key in [("BBL", "Lower"), ("BBM", "Middle"), ("BBU", "Upper")]:
+                value = latest_data[col]
+                if hasattr(value, 'item'):
+                    value = value.item()
+                bb_data[bb_key] = value
+            result.append(("BB", bb_data))
 
         # Add volume indicators
         for indicator in ["OBV", "CMF"]:
             if indicator in data.columns:
-                result.append((indicator, latest_data[indicator]))
+                value = latest_data[indicator]
+                if hasattr(value, 'item'):
+                    value = value.item()
+                result.append((indicator, value))
 
         return result
 
