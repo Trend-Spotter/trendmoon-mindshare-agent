@@ -97,7 +97,7 @@ class HttpHandler(Handler):
             "seconds_since_last_transition": fsm_status["seconds_since_last_transition"],
             "is_tm_healthy": True,
             "period": fsm_status["period_count"],
-            "reset_pause_duration": health_service.reset_pause_duration,
+            "reset_pause_duration": self.context.params.reset_pause_duration,
             "rounds": fsm_status["rounds"],
             "is_transitioning_fast": fsm_status["is_transitioning_fast"],
             "agent_health": health_service.get_agent_health(),

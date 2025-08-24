@@ -85,13 +85,14 @@ models:
   params:
     args:
       coingecko_api_key: ${str:test_key}
+      trendmoon_api_key: ${str:test_key}
       data_sufficiency_threshold: ${float:0.5}
       max_exposure_per_position: ${float:20.0}
       max_positions: ${int:5}
       max_total_exposure: ${float:80.0}
       min_capital_buffer: ${float:500.0}
       min_position_size_usd: ${float:100.0}
-      reset_pause_duration: ${int:10}
+      reset_pause_duration: ${int:300}
       safe_contract_addresses: ${str:{"ethereum":"0x0000000000000000000000000000000000000000","base":"0x0000000000000000000000000000000000000000"}}
       store_path: ${str:./persistent_data}
       trading_strategy: ${str:balanced}

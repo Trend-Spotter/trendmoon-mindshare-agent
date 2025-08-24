@@ -328,6 +328,7 @@ class Params(Model):
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         self.coingecko_api_key = kwargs.pop("coingecko_api_key", "")
+        self.trendmoon_api_key = kwargs.pop("trendmoon_api_key", "")
         self.data_sufficiency_threshold = kwargs.pop("data_sufficiency_threshold", 0.5)
         self.safe_contract_addresses = kwargs.pop("safe_contract_addresses", {})
         self.store_path = kwargs.pop("store_path", "./persistent_data")

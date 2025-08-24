@@ -58,7 +58,7 @@ from packages.eightballer.protocols.orders.custom_types import Order, OrderSide,
 LEDGER_API_ADDRESS = str(LEDGER_CONNECTION_PUBLIC_ID)
 DEFAULT_ENCODING = "utf-8"
 ETHER_VALUE = 0
-PRICE_COLLECTION_TIMEOUT_SECONDS = 15
+PRICE_COLLECTION_TIMEOUT_SECONDS = 60
 ORDER_PLACEMENT_TIMEOUT_SECONDS = 30
 SAFE_TX_GAS = 300_000  # Non-zero value to prevent Safe revert during gas estimation
 MAX_UINT256 = 2**256 - 1
