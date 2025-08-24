@@ -2058,6 +2058,7 @@ class RiskEvaluationRound(BaseState):
         self.trade_signal: dict[str, Any] = {}
         self.risk_assessment: dict[str, Any] = {}
         self.approved_trade_proposal: dict[str, Any] = {}
+        self.open_positions: list[dict[str, Any]] = []
 
     def setup(self) -> None:
         """Setup the state."""
@@ -2066,6 +2067,7 @@ class RiskEvaluationRound(BaseState):
         self.trade_signal = {}
         self.risk_assessment = {}
         self.approved_trade_proposal = {}
+        self.open_positions = []
 
     def act(self) -> None:
         """Perform the act."""
@@ -2080,10 +2082,17 @@ class RiskEvaluationRound(BaseState):
                 self._is_done = True
                 return
 
+            if not self._load_open_positions():
+                self.context.logger.error("Failed to load open positions for duplication check.")
+                self._event = MindshareabciappEvents.ERROR
+                self._is_done = True
+                return
+
             evaluation_steps = [
+                (self._check_trading_pair_duplication, "Failed trading pair duplication check"),
                 (self._calculate_volatility_metrics, "Failed to calculate volatility metrics"),
                 (self._apply_risk_vetoes, "Failed to apply risk vetoes"),
-                (self._determine_position_size, "Failed to determine position size"),
+                # (self._determine_position_size, "Failed to determine position size"),
                 (self._calculate_risk_levels, "Failed to calculate risk levels"),
                 (self._validate_risk_parameters, "Failed to validate risk parameters"),
             ]
@@ -2091,7 +2100,7 @@ class RiskEvaluationRound(BaseState):
             for step_func, error_msg in evaluation_steps:
                 if not step_func():
                     self.context.logger.error(error_msg)
-                    self._event = MindshareabciappEvents.ERROR
+                    self._event = MindshareabciappEvents.REJECTED
                     self._is_done = True
                     return
 
@@ -2117,7 +2126,6 @@ class RiskEvaluationRound(BaseState):
         self.evaluation_intitalized = True
 
         self.risk_assessment = {
-            "market_cap_tier": None,
             "volatility_atr": 0.0,
             "volatility_tier": "unknown",
             "onchain_risk_score": 0.0,
@@ -2129,6 +2137,99 @@ class RiskEvaluationRound(BaseState):
             "max_loss_percentage": 0.0,
             "evaluation_timestamp": datetime.now(UTC).isoformat(),
         }
+
+    def _load_open_positions(self) -> bool:
+        """Load open positions from persistent storage for duplication check."""
+        try:
+            if not self.context.store_path:
+                self.context.logger.warning("No store path available")
+                return False
+
+            positions_file = self.context.store_path / "positions.json"
+            if positions_file.exists():
+                with open(positions_file, encoding="utf-8") as f:
+                    positions_data = json.load(f)
+
+                self.open_positions = [
+                    pos for pos in positions_data.get("positions", []) if pos.get("status") == "open"
+                ]
+                self.context.logger.info(f"Loaded {len(self.open_positions)} open positions for duplication check")
+            else:
+                self.context.logger.info("No positions file found - assuming empty portfolio")
+                self.open_positions = []
+
+            return True
+
+        except Exception as e:
+            self.context.logger.exception(f"Failed to load open positions: {e}")
+            return False
+
+    def _check_trading_pair_duplication(self) -> bool:
+        """Check if there are already open positions in the same trading pair."""
+        if not self.trade_signal or not self.trade_signal.get("symbol"):
+            self.context.logger.error("No trade signal symbol available for duplication check")
+            return False
+
+        target_symbol = self.trade_signal.get("symbol", "").upper()
+
+        # Check if we already have a position in this trading pair
+        existing_positions = []
+        for pos in self.open_positions:
+            pos_symbol = pos.get("symbol", "").upper()
+
+            # Handle both direct symbol matching and trading pair notation
+            if pos_symbol == target_symbol:
+                existing_positions.append(pos)
+            elif "/" in pos_symbol:
+                # Handle trading pair notation like "OLAS/USDC"
+                base_symbol = pos_symbol.split("/")[0]
+                if base_symbol == target_symbol:
+                    existing_positions.append(pos)
+            elif "/" not in pos_symbol and pos_symbol:
+                # Assume USDC quote for single symbols
+                if pos_symbol == target_symbol:
+                    existing_positions.append(pos)
+
+        if existing_positions:
+            self.context.logger.warning(
+                f"Trading pair duplication check: FAILED - Already have open position(s) in {target_symbol}: {len(existing_positions)} position(s)"
+            )
+
+            # Log details of existing positions
+            for i, pos in enumerate(existing_positions):
+                entry_value = pos.get("entry_value_usdc", 0)
+                pnl = pos.get("unrealized_pnl", 0)
+                side = pos.get("side", "unknown")
+                self.context.logger.info(
+                    f"  Existing position {i+1}: {side} ${entry_value:.2f} (P&L: ${pnl:.2f})"
+                )
+
+            return False
+
+        self.context.logger.info(f"Trading pair duplication check: PASSED - no existing {target_symbol} positions")
+        return True
+
+    def _get_trading_pair_from_position(self, position: dict) -> str:
+        """Extract standardized trading pair identifier from position."""
+        symbol = position.get("symbol", "").upper()
+
+        if "/" in symbol:
+            return symbol  # Already in pair format like "OLAS/USDC"
+        if symbol:
+            return f"{symbol}/USDC"  # Assume USDC quote
+        return "UNKNOWN/USDC"
+
+    def _check_conflicting_positions(self, target_symbol: str) -> list[dict]:
+        """Get list of positions that would conflict with the target trading pair."""
+        conflicting_positions = []
+        target_pair = f"{target_symbol.upper()}/USDC"
+
+        for pos in self.open_positions:
+            pos_pair = self._get_trading_pair_from_position(pos)
+            if pos_pair == target_pair:
+                conflicting_positions.append(pos)
+
+        return conflicting_positions
 
     def _load_trade_signal(self) -> bool:
         """Load the trade signal from the previous round."""
@@ -2269,19 +2370,16 @@ class RiskEvaluationRound(BaseState):
                 available_capital = 1000.0
 
             strategy = self.context.params.trading_stategy
-            market_cap_tier = self.risk_assessment.get("market_cap_tier")
             volatility_tier = self.risk_assessment.get("volatility_tier")
             signal_strength = self.trade_signal.get("p_trade", 0.5)
 
             base_position_pct = self._get_base_position_percentage(strategy)
 
-            market_cap_multiplier = self._get_market_cap_multiplier(market_cap_tier)
-
             volatility_multiplier = self._get_volatility_multiplier(volatility_tier)
 
             signal_multiplier = min(signal_strength * 2.0, 1.5)
 
-            final_position_pct = base_position_pct * market_cap_multiplier * volatility_multiplier * signal_multiplier
+            final_position_pct = base_position_pct * volatility_multiplier * signal_multiplier
 
             min_position_pct = 0.02
             max_position_pct = 0.20
@@ -2316,48 +2414,27 @@ class RiskEvaluationRound(BaseState):
                 self.context.logger.warning(f"No valid current price found for {symbol}")
                 return False
 
-            atr = self.risk_assessment["volatility_atr"]
-            direction = self.trade_signal.get("direction", "buy")
+            stop_loss_pct = 0.84
+            tailing_stop_loss_pct = 0.97
+            trailing_activation = 1.25
 
-            stop_loss_multiplier = self.context.params.stop_loss_atr_multiplier
-            stop_loss_distance = atr * stop_loss_multiplier
+            stop_loss_price = current_price * stop_loss_pct
 
-            # Calculate stop loss price
-            if direction == "buy":
-                stop_loss_price = current_price - stop_loss_distance
-            else:
-                msg = "Sell direction not supported yet"
-                raise NotImplementedError(msg)
-
-            risk_reward_ratio = self.context.params.take_profit_risk_ratio
-            take_profit_distance = stop_loss_distance * risk_reward_ratio
-
-            # Calculate take profit price
-            if direction == "buy":
-                take_profit_price = current_price + take_profit_distance
-            else:
-                msg = "Sell direction not supported yet"
-                raise NotImplementedError(msg)
-
-            # Calculate max loss percentage
-            position_size = self.risk_assessment["position_size_usdc"]
-            loss_amount = stop_loss_distance * (position_size / current_price)
-            max_loss_percentage = (loss_amount / position_size) * 100 if position_size > 0 else 0
+            risk_amount = current_price - stop_loss_price
+            take_profit_price = current_price + (risk_amount * 2)
 
             self.risk_assessment.update({
                 "current_price": current_price,
                 "stop_loss_price": stop_loss_price,
                 "take_profit_price": take_profit_price,
-                "stop_loss_distance": stop_loss_distance,
-                "take_profit_distance": take_profit_distance,
-                "risk_reward_ratio": risk_reward_ratio,
-                "max_loss_percentage": max_loss_percentage,
+                "tailing_stop_loss_pct": tailing_stop_loss_pct,
+                "trailing_activation_level": trailing_activation,
             })
 
             self.context.logger.info(
                 f"Risk levels for {symbol}: "
-                f"SL: ${stop_loss_price:.6f} ({-max_loss_percentage:.1f}%), "
-                f"TP: ${take_profit_price:.6f} (1:{risk_reward_ratio:.1f} R/R)"
+                f"SL: ${stop_loss_price:.6f} ({-stop_loss_pct:.1f}%), "
+                f"TP: ${take_profit_price:.6f} (1:{risk_amount:.1f} R/R)"
             )
 
             return True
@@ -2369,11 +2446,11 @@ class RiskEvaluationRound(BaseState):
     def _validate_risk_parameters(self) -> bool:
         """Validate the risk parameters."""
         try:
-            # Check position size is reasonable
-            position_size = self.risk_assessment["position_size_usdc"]
-            if position_size <= 0:
-                self.context.logger.error("Position size is zero or negative")
-                return False
+            # # Check position size is reasonable
+            # position_size = self.risk_assessment["position_size_usdc"]
+            # if position_size <= 0:
+            #     self.context.logger.error("Position size is zero or negative")
+            #     return False
 
             # Check max loss percentage is acceptable
             max_loss_pct = self.risk_assessment["max_loss_percentage"]
@@ -2412,7 +2489,7 @@ class RiskEvaluationRound(BaseState):
             "symbol": self.trade_signal.get("symbol"),
             "direction": self.trade_signal.get("direction"),
             "entry_price": self.risk_assessment["current_price"],
-            "position_size_usdc": self.risk_assessment["position_size_usdc"],
+            # "position_size_usdc": self.risk_assessment["position_size_usdc"],
             "stop_loss_price": self.risk_assessment["stop_loss_price"],
             "take_profit_price": self.risk_assessment["take_profit_price"],
             "risk_assessment": self.risk_assessment.copy(),
@@ -2421,7 +2498,7 @@ class RiskEvaluationRound(BaseState):
             "status": "approved",
         }
 
-    def _store_approved_trade(self) -> None:
+    def _store_approved_trade_proposal(self) -> None:
         """Store the approved trade proposal for the next round."""
         try:
             # Store in context for immediate access by TradeConstructionRound
@@ -2507,9 +2584,9 @@ class RiskEvaluationRound(BaseState):
                 current = ohlcv_data[i]
                 previous = ohlcv_data[i - 1]
 
-                high = current.get("high", 0)
-                low = current.get("low", 0)
-                prev_close = previous.get("close", 0)
+                high = current[2]
+                low = current[3]
+                prev_close = previous[4]
 
                 tr1 = high - low
                 tr2 = abs(high - prev_close)
@@ -2532,16 +2609,6 @@ class RiskEvaluationRound(BaseState):
             "conservative": 0.05  # 5% of capital
         }
         return strategy_percentages.get(strategy, 0.10)
-
-    def _get_market_cap_multiplier(self, market_cap_tier: str) -> float:
-        """Get position size multiplier based on market cap tier."""
-        multipliers = {
-            "large": 1.2,    # Slightly larger positions for large caps
-            "mid": 1.0,      # Base size for mid caps
-            "small": 0.8,    # Smaller positions for small caps
-            "micro": 0.6,    # Much smaller positions for micro caps
-        }
-        return multipliers.get(market_cap_tier, 0.8)
 
     def _get_volatility_multiplier(self, volatility_tier: str) -> float:
         """Get position size multiplier based on volatility."""
