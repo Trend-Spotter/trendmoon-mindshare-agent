@@ -4593,6 +4593,10 @@ class MindshareabciappFsmBehaviour(FSMBehaviour):
 
             self.context.logger.info(f"FSM transitioned from {previous_state} to {self.current}")
 
+            current_state = self.get_state(self.current)
+            if current_state is not None:
+                current_state.setup()
+
     @property
     def last_transition_timestamp(self) -> datetime | None:
         """Get the timestamp of the last transition."""
