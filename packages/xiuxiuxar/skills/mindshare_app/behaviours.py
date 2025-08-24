@@ -366,11 +366,59 @@ class DataCollectionRound(BaseState):
         self.pending_tokens: list[dict[str, str]] = []
         self.completed_tokens: list[dict[str, str]] = []
         self.failed_tokens: list[dict[str, str]] = []
+        self.current_token_index: int = 0
+        self.tokens_needing_ohlcv_update: set[str] = set()
+        self.tokens_needing_social_update: set[str] = set()
 
     def setup(self) -> None:
         """Perform the setup."""
         super().setup()
         self._is_done = False
+        self.collection_initialized = False
+        self.pending_tokens = []
+        self.completed_tokens = []
+        self.failed_tokens = []
+        self.current_token_index = 0
+        self.collected_data = {}
+        self.started_at = None
+        self.tokens_needing_ohlcv_update = set()
+        self.tokens_needing_social_update = set()
+
+    def act(self) -> None:
+        """Perform the act."""
+        try:
+            self.context.logger.info(f"Entering {self._state} state.")
+            if not self.collection_initialized:
+                self._initialize_collection()
+
+            if self.current_token_index >= len(self.pending_tokens):
+                self.context.logger.info("All tokens processed, finalizing collection...")
+                self._finalize_collection()
+                self._event = MindshareabciappEvents.DONE if self._is_data_sufficient() else MindshareabciappEvents.ERROR
+                self._is_done = True
+                return
+
+            token_info = self.pending_tokens[self.current_token_index]
+            self._collect_token_data(token_info)
+            self.current_token_index += 1
+
+            progress = f"{self.current_token_index}/{len(self.pending_tokens)}"
+            ohlcv_updates = len(self.tokens_needing_ohlcv_update)
+            social_updates = len(self.tokens_needing_social_update)
+            self.context.logger.info(
+                f"Progress: {progress} | OHLCV updates: {ohlcv_updates} | Social updates: {social_updates}"
+            )
+
+        except Exception as e:
+            self.context.logger.exception(f"Data collection failed: {e}")
+            self.context.error_context = {
+                "error_type": "data_collection_error",
+                "error_message": str(e),
+                "originating_round": str(self._state),
+                "current_token": self.pending_tokens[self.current_token_index]["symbol"] if self.current_token_index < len(self.pending_tokens) else "unknown"
+            }
+            self._event = MindshareabciappEvents.ERROR
+            self._is_done = True
 
     def _initialize_collection(self) -> None:
         """Initialize data collection on first run."""
@@ -378,11 +426,28 @@ class DataCollectionRound(BaseState):
             return
 
         self.context.logger.info("Initializing data collection...")
-
         self.pending_tokens = ALLOWED_ASSETS["base"].copy()
         self.completed_tokens = []
         self.failed_tokens = []
+        self.current_token_index = 0
 
+        self.context.logger.info(
+            f"Processing {len(self.pending_tokens)} tokens: {[t['symbol'] for t in self.pending_tokens]}"
+        )
+
+        existing_data = self._load_and_analyze_existing_data()
+
+        if existing_data:
+            self.collected_data = existing_data
+        else:
+            self.context.logger.info("No existing data found, initializing fresh collection")
+            self._initialize_fresh_data_structure()
+
+        self.started_at = datetime.now(UTC)
+        self.collection_initialized = True
+
+    def _initialize_fresh_data_structure(self) -> None:
+        """Initialize a fresh data structure."""
         self.collected_data = {
             "ohlcv": {},
             "current_prices": {},
@@ -392,66 +457,277 @@ class DataCollectionRound(BaseState):
             "fundamental_data": {},
             "onchain_data": {},
             "collection_timestamp": datetime.now(UTC).isoformat(),
+            "last_ohlcv_update": {},
+            "last_social_update": {},
             "errors": [],
             "cache_hits": 0,
             "api_calls": 0,
         }
 
-        self.started_at = datetime.now(UTC)
-        self.collection_initialized = True
-        self.context.logger.info(f"Initialized batch collection for {len(self.pending_tokens)} tokens")
+        for token in self.pending_tokens:
+            symbol = token["symbol"]
+            self.tokens_needing_ohlcv_update.add(symbol)
+            self.tokens_needing_social_update.add(symbol)
+
+    def _load_and_analyze_existing_data(self) -> dict | None:
+        """Load existing data and analyze what needs updating."""
+        try:
+            if not self.context.store_path:
+                self.context.logger.warning("No store path available")
+                return None
+
+            data_file = self.context.store_path / "collected_data.json"
+            if not data_file.exists():
+                self.context.logger.info(f"Data file does not exist: {data_file}")
+                return None
+
+            with open(data_file, encoding="utf-8") as f:
+                existing_data = json.load(f)
+
+            # Ensure tracking fields exist
+            if "last_ohlcv_update" not in existing_data:
+                existing_data["last_ohlcv_update"] = {}
+            if "last_social_update" not in existing_data:
+                existing_data["last_social_update"] = {}
+
+            current_time = datetime.now(UTC)
+
+            for token in self.pending_tokens:
+                symbol = token["symbol"]
+
+                ohlcv_needs_update = self._needs_ohlcv_update(existing_data, symbol, current_time)
+                if ohlcv_needs_update:
+                    self.tokens_needing_ohlcv_update.add(symbol)
+
+                # Check social data freshness
+                social_needs_update = self._needs_social_update(existing_data, symbol, current_time)
+                if social_needs_update:
+                    self.tokens_needing_social_update.add(symbol)
+
+            return existing_data
+
+        except Exception as e:
+            self.context.logger.exception(f"Failed to load existing data: {e}")
+            return None
+
+    def _needs_ohlcv_update(self, existing_data: dict, symbol: str, current_time: datetime) -> bool:
+        """Check if OHLCV data needs updating."""
+        # Check if we have OHLCV data for this symbol
+        if symbol not in existing_data.get("ohlcv", {}):
+            self.context.logger.debug(f"{symbol}: No OHLCV data exists")
+            return True
+
+        ohlcv_data = existing_data["ohlcv"][symbol]
+        if not ohlcv_data:
+            self.context.logger.debug(f"{symbol}: OHLCV data is empty")
+            return True
+
+        try:
+            # OHLCV data format: [[timestamp, open, high, low, close, volume], ...]
+            latest_candle_timestamp = max(candle[0] for candle in ohlcv_data)
+            latest_candle_time = datetime.fromtimestamp(latest_candle_timestamp / 1000, UTC)
+
+            # CoinGecko provides 4-hour candles, check if we're missing recent candles
+            time_since_latest = current_time - latest_candle_time
+            expected_max_age = timedelta(hours=4, minutes=30)
+
+            needs_update = time_since_latest > expected_max_age
+
+            self.context.logger.debug(
+                f"{symbol}: Latest candle {latest_candle_time.isoformat()}, "
+                f"age: {time_since_latest}, threshold: {expected_max_age}, "
+                f"needs_update: {needs_update}"
+            )
+
+            return needs_update
+
+        except (ValueError, TypeError, IndexError) as e:
+            self.context.logger.warning(f"Error analyzing OHLCV data for {symbol}: {e}")
+            return True
+
+    def _needs_social_update(self, existing_data: dict, symbol: str, current_time: datetime) -> bool:
+        """Determine if social data needs updating for a specific token."""
+        # First check if we have social data at all
+        if symbol not in existing_data.get("social_data", {}):
+            self.context.logger.debug(f"{symbol}: No social data exists")
+            return True
+
+        last_update_str = existing_data.get("last_social_update", {}).get(symbol)
+
+        if not last_update_str:
+            return True
+
+        try:
+            last_update = datetime.fromisoformat(last_update_str)
+            if last_update.tzinfo is None:
+                last_update = last_update.replace(tzinfo=UTC)
+
+            time_since_update = current_time - last_update
+            update_threshold = timedelta(hours=1)
+
+            needs_update = time_since_update > update_threshold
+
+            self.context.logger.debug(
+                f"{symbol}: Last social update {last_update.isoformat()}, "
+                f"age: {time_since_update}, threshold: {update_threshold}, "
+                f"needs_update: {needs_update}"
+            )
+
+            return needs_update
+
+        except (ValueError, TypeError) as e:
+            self.context.logger.warning(f"Error parsing social update time for {symbol}: {e}")
+            return True
 
     def _collect_token_data(self, token_info: dict[str, str]) -> None:
         """Collect data for a single token."""
         symbol = token_info["symbol"]
         address = token_info["address"]
 
-        self.context.logger.debug(f"Collecting data for {symbol} ({address})")
+        self.context.logger.info(f"Processing {symbol} ({address})")
 
         try:
-            ohlcv_data, price_data = self._fetch_coingecko_data(token_info)
-
-            if ohlcv_data:
-                self.collected_data["ohlcv"][symbol] = ohlcv_data
-                ma_length = self.context.params.moving_average_length
-                technical_data = self._get_technical_data(ohlcv_data, ma_length)
-                self.collected_data["technical_data"][symbol] = technical_data
-                self.context.logger.debug(f"Collected technical data for {symbol}: {technical_data}")
+            # Always fetch current price data (lightweight)
+            price_data = self._fetch_current_price_data(token_info)
             if price_data:
                 self.collected_data["current_prices"][symbol] = price_data
+                self.context.logger.debug(f"Updated price data for {symbol}")
+
+            # Conditionally update OHLCV data
+            if symbol in self.tokens_needing_ohlcv_update:
+                self.context.logger.info(f"Updating OHLCV data for {symbol}")
+                self._update_ohlcv_data(token_info)
+                self.tokens_needing_ohlcv_update.discard(symbol)
+            else:
+                self.context.logger.info(f"Skipping OHLCV update for {symbol} (data is fresh)")
+
+            # Conditionally update social data  
+            if symbol in self.tokens_needing_social_update:
+                self.context.logger.info(f"Updating social data for {symbol}")
+                self._update_social_data(token_info)
+                self.tokens_needing_social_update.discard(symbol)
+            else:
+                self.context.logger.info(f"Skipping social update for {symbol} (data is fresh)")
 
             self.completed_tokens.append(token_info)
-            self.context.logger.debug(f"Successfully collected data for {symbol}")
+            self.context.logger.info(f"Successfully processed {symbol}")
 
         except (ValueError, KeyError, ConnectionError, TimeoutError) as e:
             self.context.logger.warning(f"Failed to collect data for {symbol}: {e}")
             self.failed_tokens.append(token_info)
             self.collected_data["errors"].append(f"Error processing {symbol} ({address}): {e}")
 
-    def act(self) -> None:
-        """Perform the act."""
-        self.context.logger.info(f"Entering {self._state} state.")
+    def _update_ohlcv_data(self, token_info: dict[str, str]) -> None:
+        """Update OHLCV data for a token."""
+        symbol = token_info["symbol"]
 
         try:
-            self._initialize_collection()
+            self.collected_data["api_calls"] += 1
+            fresh_ohlcv_data = self._get_historical_ohlcv_data(token_info["coingecko_id"])
 
-            while self.pending_tokens:
-                token_info = self.pending_tokens.pop(0)
-                self._collect_token_data(token_info)
+            if not fresh_ohlcv_data:
+                msg = "No OHLCV data returned from CoinGecko"
+                raise ValueError(msg)
 
-            self._finalize_collection()
-            self._event = MindshareabciappEvents.DONE if self._is_data_sufficient() else MindshareabciappEvents.ERROR
-            self._is_done = True
+            existing_ohlcv = self.collected_data["ohlcv"].get(symbol, [])
+
+            if existing_ohlcv:
+                merged_data = self._merge_ohlcv_data(existing_ohlcv, fresh_ohlcv_data)
+                self.collected_data["ohlcv"][symbol] = merged_data
+                self.context.logger.info(
+                    f"Merged OHLCV data for {symbol}: {len(merged_data)} total candles"
+                )
+            else:
+                # No existing data, use fresh data
+                self.collected_data["ohlcv"][symbol] = fresh_ohlcv_data
+                self.context.logger.info(
+                    f"Set fresh OHLCV data for {symbol}: {len(fresh_ohlcv_data)} candles"
+                )
+
+            # Update tracking timestamp
+            self.collected_data["last_ohlcv_update"][symbol] = datetime.now(UTC).isoformat()
 
         except Exception as e:
-            self.context.logger.exception(f"Data collection failed: {e}")
-            self.context.error_context = {
-                "error_type": "data_collection_error",
-                "error_message": str(e),
-                "originating_round": str(self._state),
-            }
-            self._event = MindshareabciappEvents.ERROR
-            self._is_done = True
+            self.context.logger.exception(f"Failed to update OHLCV data for {symbol}: {e}")
+            raise
+
+    def _merge_ohlcv_data(self, existing_data: list, fresh_data: list) -> list:
+        """Merge existing and fresh OHLCV data, avoiding duplicates."""
+        if not existing_data:
+            return fresh_data
+
+        if not fresh_data:
+            return existing_data
+
+        existing_timestamps = {candle[0] for candle in existing_data}
+
+        new_candles = [candle for candle in fresh_data if candle[0] not in existing_timestamps]
+
+        merged_data = existing_data + new_candles
+        merged_data.sort(key=operator.itemgetter(0))
+
+        self.context.logger.info(
+            f"OHLCV merge: {len(existing_data)} existing + {len(new_candles)} new = {len(merged_data)} total candles"
+        )
+
+        return merged_data
+
+    def _update_social_data(self, token_info: dict[str, str]) -> None:
+        """Update social data for a token."""
+        symbol = token_info["symbol"]
+
+        try:
+            self.collected_data["api_calls"] += 1
+            social_data = self._fetch_trendmoon_social_data(token_info)
+
+            if social_data:
+                self.collected_data["social_data"][symbol] = social_data
+                self.collected_data["last_social_update"][symbol] = datetime.now(UTC).isoformat()
+                self.context.logger.info(f"Updated social data for {symbol}")
+            else:
+                self.context.logger.warning(f"No social data available for {symbol}")
+
+        except Exception as e:
+            self.context.logger.exception(f"Failed to update social data for {symbol}: {e}")
+            raise
+
+    def _fetch_current_price_data(self, token_info: dict[str, str]) -> dict | None:
+        """Fetch current price data for a token."""
+        try:
+            self.collected_data["api_calls"] += 1
+            return self._get_current_price_data(token_info["coingecko_id"])
+        except Exception as e:
+            self.context.logger.warning(f"Failed to fetch price data for {token_info['symbol']}: {e}")
+            return None
+
+    def _log_collection_summary(self) -> None:
+        """Log enhanced collection summary."""
+        completed = len(self.completed_tokens)
+        failed = len(self.failed_tokens)
+        total = completed + failed
+        collection_time = self.collected_data.get("collection_time", 0)
+        api_calls = self.collected_data.get("api_calls", 0)
+
+        # Calculate cache hits more accurately - tokens that didn't need updates
+        total_tokens = len(ALLOWED_ASSETS["base"])
+        ohlcv_cache_hits = total_tokens - len([t for t in self.pending_tokens if t["symbol"] in self.tokens_needing_ohlcv_update])
+        social_cache_hits = total_tokens - len([t for t in self.pending_tokens if t["symbol"] in self.tokens_needing_social_update])
+        cache_hits = ohlcv_cache_hits + social_cache_hits
+
+        total_possible_updates = total_tokens * 2  # OHLCV + Social per token
+        efficiency = (cache_hits / total_possible_updates * 100) if total_possible_updates > 0 else 0
+
+        self.context.logger.info("=" * 60)
+        self.context.logger.info("COLLECTION SUMMARY")
+        self.context.logger.info("=" * 60)
+        self.context.logger.info(f"Tokens: {completed}/{total} successful, {failed} failed")
+        self.context.logger.info(f"Time: {collection_time:.1f}s")
+        self.context.logger.info(f"API calls: {api_calls}")
+        self.context.logger.info(f"Cache hits: {cache_hits}/{total_possible_updates}")
+        self.context.logger.info(f"Efficiency: {efficiency:.1f}%")
+        self.context.logger.info(f"OHLCV updates: {len([t for t in self.pending_tokens if t['symbol'] in self.tokens_needing_ohlcv_update])}")
+        self.context.logger.info(f"Social updates: {len([t for t in self.pending_tokens if t['symbol'] in self.tokens_needing_social_update])}")
+        self.context.logger.info("=" * 60)
 
     def _store_collected_data(self) -> None:
         """Store collected data to persistent storage."""
@@ -460,31 +736,39 @@ class DataCollectionRound(BaseState):
             return
 
         try:
+            self.context.store_path.mkdir(parents=True, exist_ok=True)
+
             data_file = self.context.store_path / "collected_data.json"
             with open(data_file, "w", encoding="utf-8") as f:
                 json.dump(self.collected_data, f, indent=2)
             self.context.logger.info(f"Collected data stored to {data_file}")
+
+            file_size = data_file.stat().st_size / 1024
+            self.context.logger.info(f"  File size: {file_size:.1f} KB")
+
         except Exception as e:
             self.context.logger.exception(f"Failed to store collected data: {e}")
-
-    def _log_collection_summary(self) -> None:
-        """Log collection summary."""
-        completed = len(self.completed_tokens)
-        failed = len(self.failed_tokens)
-        total = completed + failed
-        collection_time = self.collected_data.get("collection_time", 0)
-        api_calls = self.collected_data.get("api_calls", 0)
-
-        self.context.logger.info(
-            f"Batch collection summary: {completed}/{total} successful, "
-            f"{failed} failed, {collection_time:.1f}s, {api_calls} API calls"
-        )
 
     def _is_data_sufficient(self) -> bool:
         """Check if collected data is sufficient for analysis."""
         min_required = max(1, len(ALLOWED_ASSETS["base"]) * self.context.params.data_sufficiency_threshold)
-        successful_count = len(self.completed_tokens)
-        return successful_count >= min_required
+
+        tokens_with_both_data = 0
+        for token in self.completed_tokens:
+            symbol = token["symbol"]
+            has_technical = symbol in self.collected_data["ohlcv"] and symbol in self.collected_data["current_prices"]
+            has_social = symbol in self.collected_data["social_data"]
+
+            if has_technical and has_social:
+                tokens_with_both_data += 1
+
+        is_sufficient = tokens_with_both_data >= min_required
+        self.context.logger.info(
+            f"Data sufficiency: {tokens_with_both_data}/{min_required} tokens have both data types. "
+            f"Sufficient: {is_sufficient}"
+        )
+
+        return is_sufficient
 
     def _finalize_collection(self) -> None:
         """Finalize data collection and store results."""
@@ -495,51 +779,51 @@ class DataCollectionRound(BaseState):
         self._store_collected_data()
         self._log_collection_summary()
 
-    def _fetch_coingecko_data(self, token_info: dict[str, str]) -> tuple[dict | None, dict | None]:
-        """Fetch OHLCV and price data from CoinGecko API.
-
-        Args:
-        ----
-            token_info: Dict containing symbol, address, and coingecko_id
-
-        Returns:
-        -------
-            Tuple of (ohlcv_data, price_data) or (None, None) on error
-
-        Expected data structure:
-        - price_data: Current market data with price, volume, market cap, 24h change
-        - ohlcv_data: Historical OHLCV data for the last 30 days
-
-        """
+    def _fetch_trendmoon_social_data(self, token_info: dict[str, str]) -> dict | None:
+        """Fetch social data from TrendMoon API."""
         symbol = token_info["symbol"]
-        coingecko_id = token_info["coingecko_id"]
 
         try:
-            # Fetch current price and market data for the token
-            self.collected_data["api_calls"] += 1
-            price_data = self._get_current_price_data(coingecko_id)
+            social_metrics = self.context.trendmoon.get_coin_trends(
+                symbol=symbol,
+                date_interval=30,
+                time_interval="1h",
+            )
 
-            self.context.logger.debug(f"Collected price data for {symbol}: {price_data}")
+            if not social_metrics:
+                self.context.logger.warning(f"No social metrics found for {symbol}")
+                return None
 
-            # Fetch historical OHLCV data for the token
-            self.collected_data["api_calls"] += 1
-            ohlcv_data = self._get_historical_ohlcv_data(coingecko_id)
+            trend_data = social_metrics.get("trend_market_data")
 
-            self.context.logger.debug(f"Collected OHLCV data for {symbol}: {ohlcv_data}")
+            return {
+                "trend_data": [
+                    {
+                        "timestamp": data_point.get("date"),
+                        "social_mentions": data_point.get("social_mentions"),
+                        "social_dominance": data_point.get("social_dominance"),
+                        "lc_sentiment": data_point.get("lc_sentiment"),
+                        "lc_social_dominance": data_point.get("lc_social_dominance"),
+                    }
+                    for data_point in trend_data
+                ],
+                "metadata": {
+                    "coin_id": social_metrics.get("coin_id"),
+                    "name": social_metrics.get("name"),
+                    "symbol": social_metrics.get("symbol"),
+                    "contract_address": social_metrics.get("contract_address"),
+                    "market_cap_rank": social_metrics.get("market_cap_rank"),
+                    "data_points_count": len(trend_data),
+                    "collection_timestamp": datetime.now(UTC).isoformat(),
+                }
+            }
 
-            if not ohlcv_data or not price_data:
-                error_msg = "No data returned from CoinGecko API"
-                raise ValueError(error_msg)
-
-            return ohlcv_data, price_data
-
-        except (ValueError, KeyError, ConnectionError, TimeoutError) as e:
-            self.context.logger.warning(f"CoinGecko API error for {symbol}: {e}")
-            return None, None
+        except Exception as e:
+            self.context.logger.warning(f"TrendMoon API error for {symbol}: {e}")
+            return None
 
     def _get_current_price_data(self, coingecko_id: str) -> dict | None:
         """Get current price and market data for a token."""
-
         query_params = {
             "ids": coingecko_id,
             "vs_currencies": "usd",
@@ -557,23 +841,10 @@ class DataCollectionRound(BaseState):
 
     def _get_historical_ohlcv_data(self, coingecko_id: str) -> list[list[Any]] | None:
         """Get historical OHLCV data for a token."""
-
         path_params = {"id": coingecko_id}
         query_params = {"vs_currency": "usd", "days": 30}
 
         return self.context.coingecko.get_ohlcv_data(path_params, query_params)
-
-    # TODO: @xiuxiuxar: implement validation as part of the data collection round.
-    def _validate_ohlcv_data(self, ohlcv_data: list[list[Any]]) -> None:
-        """Validate OHLCV data format."""
-        if not isinstance(ohlcv_data, list) or len(ohlcv_data) == 0:
-            msg = "ohlcv_data must be a non-empty list of lists."
-            raise ValueError(msg)
-
-        for row in ohlcv_data:
-            if not (isinstance(row, list) and len(row) >= 6):
-                msg = "Each row must be a list with at least 6 elements: timestamp, open, high, low, close, volume."
-                raise ValueError(msg)
 
 
 class PausedRound(BaseState):

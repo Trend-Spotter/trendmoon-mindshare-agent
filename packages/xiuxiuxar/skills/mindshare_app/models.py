@@ -23,6 +23,8 @@ from datetime import UTC, datetime
 
 import requests
 from aea.skills.base import Model
+from requests.adapters import HTTPAdapter
+from requests.packages.urllib3.util.retry import Retry
 
 
 if TYPE_CHECKING:
@@ -163,6 +165,86 @@ class Trendmoon(Model):
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
+        self._session = self._create_retry_session()
+
+    def _create_retry_session(self) -> requests.Session:
+        """Create a requests session with retry strategy."""
+        session = requests.Session()
+
+        # Configure retry strategy
+        retry_strategy = Retry(
+            total=3,  # Maximum number of retries
+            backoff_factor=1,  # Exponential backoff: 1, 2, 4 seconds
+            status_forcelist=[429, 500, 502, 503, 504],  # Retry on these status codes
+            allowed_methods=["GET", "POST"],  # Allow retries on GET and POST
+            respect_retry_after_header=True,  # Respect Retry-After header
+        )
+
+        # Configure adapter with retry strategy
+        adapter = HTTPAdapter(max_retries=retry_strategy)
+        session.mount("http://", adapter)
+        session.mount("https://", adapter)
+
+        return session
+
+    def make_trendmoon_request(self, base_url: str, query_params: dict[str, str]) -> Any:
+        """Make a request to the Trendmoon API."""
+        trendmoon_api_key = self.context.params.trendmoon_api_key
+        if trendmoon_api_key is None or trendmoon_api_key == "":
+            msg = "Trendmoon API key is not set"
+            raise ValueError(msg)
+
+        if query_params is None or query_params == {}:
+            url = base_url
+        else:
+            url = f"{base_url}?" + "&".join(f"{k}={v}" for k, v in query_params.items())
+
+        headers = {"accept": "application/json", "Api-key": trendmoon_api_key}
+
+        try:
+            response = self._session.get(
+                url,
+                headers=headers,
+                timeout=(5, 30),  # (connect_timeout, read_timeout)
+            )
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.Timeout as e:
+            self.context.logger.exception(f"Request timed out after retries: {e}")
+            raise
+        except requests.exceptions.RequestException as e:
+            self.context.logger.exception(f"Request failed after retries: {e}")
+            raise
+
+    def get_coin_trends(
+        self,
+        symbol: str | None = None,
+        coin_ids: list[str] | None = None,
+        contract_addresses: list[str] | None = None,
+        date_interval: int | None = None,
+        time_interval: str | None = "1h",
+    ) -> dict[str, Any]:
+        """Get coin trends from Trendmoon."""
+        try:
+            base_url = "https://api.qa.trendmoon.ai/social/trend"
+            query_params = {
+                "date_interval": date_interval,
+                "time_interval": time_interval,
+            }
+
+            if coin_ids is not None and len(coin_ids) > 0:
+                query_params["coin_ids"] = coin_ids
+
+            if symbol is not None and len(symbol) > 0:
+                query_params["symbol"] = symbol
+
+            if contract_addresses is not None and len(contract_addresses) > 0:
+                query_params["contract_addresses"] = contract_addresses
+
+            return self.make_trendmoon_request(base_url, query_params)
+        except Exception as e:
+            self.context.logger.exception(f"Error getting coin trends: {e}")
+            return None
 
 
 class HealthCheckService(Model):
