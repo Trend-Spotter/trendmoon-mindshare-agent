@@ -31,7 +31,7 @@ protocols:
 - valory/ledger_api:1.0.0:bafybeihmqzcbj6t7vxz2aehd5726ofnzsfjs5cwlf42ro4tn6i34cbfrc4
 skills:
 - eightballer/prometheus:0.1.0:bafybeicl5i7e467aowfarke4bbyixo2dggar276njmvyuwbsby5pxshhtu
-- xiuxiuxar/mindshare_app:0.1.0:bafybeiax5hcyt2heo5tsdxwrzux373yqca3ffcjkzm4jqgs7co72eljd3u
+- xiuxiuxar/mindshare_app:0.1.0:bafybeigeu7nobucidwt37olvmwleerckvvd6oi3qdufdmq6or7nmnyzlla
 customs: []
 default_ledger: ethereum
 required_ledgers:
@@ -95,7 +95,15 @@ models:
       safe_contract_addresses: ${str:{"ethereum":"0x0000000000000000000000000000000000000000","base":"0x0000000000000000000000000000000000000000"}}
       store_path: ${str:./persistent_data}
       trading_strategy: ${str:balanced}
-      moving_average_length: ${int:20}
+      ma_period: ${int:20}
+      rsi_length: ${int:14}
+      rsi_lower_limit: ${int:39}
+      rsi_upper_limit: ${int:66}
+      macd_fast: ${int:12}
+      macd_slow: ${int:26}
+      macd_signal: ${int:9}
+      adx_length: ${int:14}
+      adx_threshold: ${int:41}
 ---
 public_id: valory/ledger:0.19.0
 type: connection

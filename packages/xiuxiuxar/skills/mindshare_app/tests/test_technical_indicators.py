@@ -15,7 +15,7 @@ class TestTechnicalIndicators(BaseSkillTestCase):  # noqa: PLR0904
 
     path_to_skill = Path(__file__).parent.parent
 
-    def setup(self):
+    def setup_method(self):
         """Setup the test class."""
         super().setup()
 
@@ -35,6 +35,10 @@ class TestTechnicalIndicators(BaseSkillTestCase):  # noqa: PLR0904
         ] * 10  # Repeat to have enough data for indicators
 
         self.ma_length = 20
+
+    def teardown_method(self):
+        """Teardown the test class."""
+        super().teardown()
 
     def test_validate_ohlcv_data_valid(self):
         """Test _validate_ohlcv_data with valid data."""
@@ -104,7 +108,7 @@ class TestTechnicalIndicators(BaseSkillTestCase):  # noqa: PLR0904
             mock_sma.return_value = pd.Series([100.0] * len(data), index=data.index)
             mock_ema.return_value = pd.Series([101.0] * len(data), index=data.index)
 
-            self.data_collection_round._calculate_trend_indicators(data, self.ma_length)  # noqa: SLF001
+            self.data_collection_round._calculate_trend_indicators(data)  # noqa: SLF001
 
             mock_sma.assert_called_once()
             mock_ema.assert_called_once()
@@ -275,17 +279,17 @@ class TestTechnicalIndicators(BaseSkillTestCase):  # noqa: PLR0904
         result = self.data_collection_round._build_technical_result(data)  # noqa: SLF001
 
         assert len(result) == 8  # All indicators should be present
+        assert isinstance(result, dict)  # Should be a dictionary
 
         # Check individual indicators
-        indicator_names = [item[0] for item in result]
-        assert "SMA" in indicator_names
-        assert "EMA" in indicator_names
-        assert "RSI" in indicator_names
-        assert "MACD" in indicator_names
-        assert "ADX" in indicator_names
-        assert "BB" in indicator_names
-        assert "OBV" in indicator_names
-        assert "CMF" in indicator_names
+        assert "SMA" in result
+        assert "EMA" in result
+        assert "RSI" in result
+        assert "MACD" in result
+        assert "ADX" in result
+        assert "BB" in result
+        assert "OBV" in result
+        assert "CMF" in result
 
     def test_build_technical_result_partial_indicators(self):
         """Test _build_technical_result with only some indicators present."""
@@ -299,11 +303,11 @@ class TestTechnicalIndicators(BaseSkillTestCase):  # noqa: PLR0904
         result = self.data_collection_round._build_technical_result(data)  # noqa: SLF001
 
         assert len(result) == 3
-        indicator_names = [item[0] for item in result]
-        assert "SMA" in indicator_names
-        assert "RSI" in indicator_names
-        assert "OBV" in indicator_names
-        assert "MACD" not in indicator_names  # Should not be present
+        assert isinstance(result, dict)  # Should be a dictionary
+        assert "SMA" in result
+        assert "RSI" in result
+        assert "OBV" in result
+        assert "MACD" not in result  # Should not be present
 
     def test_build_technical_result_macd_incomplete(self):
         """Test _build_technical_result with incomplete MACD data."""
@@ -316,8 +320,8 @@ class TestTechnicalIndicators(BaseSkillTestCase):  # noqa: PLR0904
 
         result = self.data_collection_round._build_technical_result(data)  # noqa: SLF001
 
-        indicator_names = [item[0] for item in result]
-        assert "MACD" not in indicator_names  # Should not be present due to incomplete data
+        assert isinstance(result, dict)  # Should be a dictionary
+        assert "MACD" not in result  # Should not be present due to incomplete data
 
     def test_build_technical_result_bb_incomplete(self):
         """Test _build_technical_result with incomplete Bollinger Bands data."""
@@ -330,8 +334,8 @@ class TestTechnicalIndicators(BaseSkillTestCase):  # noqa: PLR0904
 
         result = self.data_collection_round._build_technical_result(data)  # noqa: SLF001
 
-        indicator_names = [item[0] for item in result]
-        assert "BB" not in indicator_names  # Should not be present due to incomplete data
+        assert isinstance(result, dict)  # Should be a dictionary
+        assert "BB" not in result  # Should not be present due to incomplete data
 
     @patch("packages.xiuxiuxar.skills.mindshare_app.behaviours.ta.sma")
     @patch("packages.xiuxiuxar.skills.mindshare_app.behaviours.ta.ema")
@@ -375,32 +379,31 @@ class TestTechnicalIndicators(BaseSkillTestCase):  # noqa: PLR0904
         mock_obv.return_value = pd.Series([10000.0] * data_length)
         mock_cmf.return_value = pd.Series([0.15] * data_length)
 
-        result = self.data_collection_round._get_technical_data(self.valid_ohlcv_data, self.ma_length)  # noqa: SLF001
+        result = self.data_collection_round._get_technical_data(self.valid_ohlcv_data)  # noqa: SLF001
 
-        assert isinstance(result, list)
+        assert isinstance(result, dict)
         assert len(result) > 0
 
         # Check that we have expected indicators
-        indicator_names = [item[0] for item in result]
-        assert "SMA" in indicator_names
-        assert "EMA" in indicator_names
-        assert "RSI" in indicator_names
+        assert "SMA" in result
+        assert "EMA" in result
+        assert "RSI" in result
 
     def test_get_technical_data_invalid_input(self):
         """Test _get_technical_data with invalid input."""
-        result = self.data_collection_round._get_technical_data([], self.ma_length)  # noqa: SLF001
-        assert result == []
+        result = self.data_collection_round._get_technical_data([])  # noqa: SLF001
+        assert result == {}
 
     def test_get_technical_data_exception_handling(self):
         """Test _get_technical_data exception handling."""
         with patch.object(self.data_collection_round, "_validate_ohlcv_data", side_effect=ValueError("Test error")):
-            result = self.data_collection_round._get_technical_data(self.valid_ohlcv_data, self.ma_length)  # noqa: SLF001
-            assert result == []
+            result = self.data_collection_round._get_technical_data(self.valid_ohlcv_data)  # noqa: SLF001
+            assert result == {}
 
     def test_get_technical_data_pandas_exception(self):
         """Test _get_technical_data with pandas processing exception."""
         # Create data that will cause pandas issues
         invalid_data = [["invalid", "data", "format", "test", "error", "handling"]]
 
-        result = self.data_collection_round._get_technical_data(invalid_data, self.ma_length)  # noqa: SLF001
-        assert result == []
+        result = self.data_collection_round._get_technical_data(invalid_data)  # noqa: SLF001
+        assert result == {}

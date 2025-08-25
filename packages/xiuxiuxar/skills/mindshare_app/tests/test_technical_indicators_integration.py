@@ -11,17 +11,16 @@ from packages.xiuxiuxar.skills.mindshare_app.behaviours import DataCollectionRou
 
 
 load_dotenv()
-MOVING_AVERAGE_LENGTH = int(os.environ.get("SKILL_MINDSHARE_APP_MOVING_AVERAGE_LENGTH"))
+MA_PERIOD = int(os.environ.get("SKILL_MINDSHARE_APP_MA_PERIOD"))
 
 
-@pytest.mark.integration
-@pytest.mark.skipif(not MOVING_AVERAGE_LENGTH, reason="Moving average length not found in environment variables")
+@pytest.mark.skipif(not MA_PERIOD, reason="Moving average length not found in environment variables")
 class TestTechnicalIndicatorsIntegration(BaseSkillTestCase):
     """Test technical indicators calculation with real data processing."""
 
     path_to_skill = Path(__file__).parent.parent
 
-    def setup(self):
+    def setup_method(self):
         """Setup the test class."""
         super().setup()
 
@@ -217,26 +216,26 @@ class TestTechnicalIndicatorsIntegration(BaseSkillTestCase):
 
         self.ma_length = 20
 
+    def teardown_method(self):
+        """Teardown the test class."""
+        super().teardown()
+
     def test_get_technical_data_integration(self):
         """Test _get_technical_data with real OHLCV data and technical indicator calculations."""
-        result = self.data_collection_round._get_technical_data(self.valid_ohlcv_data, self.ma_length)  # noqa: SLF001
+        result = self.data_collection_round._get_technical_data(self.valid_ohlcv_data)  # noqa: SLF001
 
-        # Assert the result is a list of tuples (indicator_name, value)
-        assert isinstance(result, list)
+        # Assert the result is a dictionary
+        assert isinstance(result, dict)
         assert len(result) > 0
 
         # Check that we get expected technical indicators
-        indicator_names = [item[0] for item in result]
         expected_indicators = ["SMA", "EMA", "RSI", "MACD", "ADX", "BB", "OBV", "CMF"]
 
         for indicator in expected_indicators:
-            assert indicator in indicator_names, f"Expected indicator {indicator} not found in result"
+            assert indicator in result, f"Expected indicator {indicator} not found in result"
 
-        # Verify each result item is a tuple with proper format
-        for item in result:
-            assert isinstance(item, tuple)
-            assert len(item) == 2
-            indicator_name, indicator_value = item
-            assert isinstance(indicator_name, str)
-            # Value can be a number or dict (for complex indicators like MACD, BB)
-            assert isinstance(indicator_value, int | float | dict)
+        # Verify each result value has proper format
+        for indicator, value in result.items():
+            assert isinstance(indicator, str)
+            # Value can be a number or dict (for MACD, BB)
+            assert isinstance(value, int | float | dict)

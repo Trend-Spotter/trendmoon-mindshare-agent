@@ -9,17 +9,19 @@ aea_version: '>=1.0.0, <2.0.0'
 fingerprint:
   README.md: bafybeiesl5jlvvu4enydib32bpyfqphlkdulxy3oqid3t32cjxya5qykci
   __init__.py: bafybeifhcjbfwkkjfaq57azgh24ufuo4pvjm4vguozhbg3qsrn4tw5ukge
-  behaviours.py: bafybeiher42ujn44fueb3mesva25djxp4yqg7qest7kcdtte6tttsfxegq
+  behaviours.py: bafybeifi2z5s75iliefwunljdbghrapsvymmu4d7tf46xbcdbqz6d6wj3a
   dialogues.py: bafybeiexxmjsjczvf2bxad7qbecllm3srjhlqkejigerkbldtdtzzuyuke
   handlers.py: bafybeigttlsxa5rkevzxdtf5w6ox7ywem5ev3br7ur6h3etiqgvs2og7vq
-  models.py: bafybeigrytdwuu4cge3p3aixklzl6nquasy5wlgjl2axpalgu2tiis2wee
+  models.py: bafybeiguwuohbskt2vnsuzzilknbiddjlge77cvdwmyemcjnpb3dtueud4
   tests/__init__.py: bafybeigb2ji4vkcap3hokcedggjwsrah7te2nxjhkorwf3ibwgyaa2glma
   tests/test_coingecko_model.py: bafybeicjnqiclfi6r7sbsyjgwlzj3ugmeukii5fp23esdtsanof3lvyn6i
   tests/test_coingecko_model_integration.py: bafybeid6mzsia3wocixdedmr6tcbb2v34oq2fkjqyz2cab4mysjvqbydfi
   tests/test_metrics.py: bafybeickohfwbhq46m4c5deutqkqkeztygfyu7gpxkgme5rfa5iwujbr7i
   tests/test_metrics_dialogues.py: bafybeicaqx7bykvl3dqkvcpdpft4l5g6huxyhrljwrn2zykxavk4thqdi4
-  tests/test_technical_indicators.py: bafybeihydbmtlhz6ehvsmhfgdbizbbbu5ghhebbnwq27t56wsp4sbznpdq
-  tests/test_technical_indicators_integration.py: bafybeicxalo2jlfihsvgaygubrvw3xb2qanocaqdkbikrmlyywyqlzpyoe
+  tests/test_pta_calculation_logic.py: bafybeifn3otoz3mwta2ksegodetrndc2cwmdbozt4nurazey2rly2yzapy
+  tests/test_pta_calculation_logic_integration.py: bafybeic3ofx5parfxpsevtzxsndqkvetjl6ybplld7tzw7i53xcdjijnge
+  tests/test_technical_indicators.py: bafybeiead4enyy2qrootzxmmms4w33wvhjgeo24smjoq6po7faej65icsy
+  tests/test_technical_indicators_integration.py: bafybeicvotw3bq4xn5jzqgbzsckka3nzvgotoqasd5bice3clzsptkslxq
 fingerprint_ignore_patterns: []
 connections:
 - eightballer/dcxt:0.1.0:bafybeig5j6wm76brp7klcfnnd3op3i5aa7wkvqzulihy4c4fftrl6pdkda
@@ -117,7 +119,15 @@ models:
       store_path: ./persistent_data
       take_profit_risk_ratio: 2.0
       trading_strategy: balanced
-      moving_average_length: 20
+      ma_period: 20
+      rsi_length: 14
+      rsi_lower_limit: 39
+      rsi_upper_limit: 66
+      macd_fast: 12
+      macd_slow: 26
+      macd_signal: 9
+      adx_length: 14
+      adx_threshold: 41
     class_name: Params
 dependencies:
   pandas:

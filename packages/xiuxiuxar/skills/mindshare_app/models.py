@@ -345,7 +345,15 @@ class Params(Model):
         self.price_collection_timeout = kwargs.pop("price_collection_timeout", 15)
         self.cowswap_slippage_tolerance = kwargs.pop("cowswap_slippage_tolerance", 0.005)
         self.cowswap_timeout_seconds = kwargs.pop("cowswap_timeout_seconds", 300)
-        self.moving_average_length = kwargs.pop("moving_average_length", 20)
+        self.ma_period = kwargs.pop("ma_period", 20)
+        self.rsi_length = kwargs.pop("rsi_length", 14)
+        self.rsi_lower_limit = kwargs.pop("rsi_lower_limit", 39)
+        self.rsi_upper_limit = kwargs.pop("rsi_upper_limit", 66)
+        self.macd_fast = kwargs.pop("macd_fast", 12)
+        self.macd_slow = kwargs.pop("macd_slow", 26)
+        self.macd_signal = kwargs.pop("macd_signal", 9)
+        self.adx_length = kwargs.pop("adx_length", 14)
+        self.adx_threshold = kwargs.pop("adx_threshold", 41)
         super().__init__(*args, **kwargs)
 
 

@@ -9,7 +9,7 @@ fingerprint:
   tests/__init__.py: bafybeiausykbndof27hjfgwqg6nnmk7zw7lyytwzekih3gszwdypbtxjka
   tests/test_service.py: bafybeicplirjoql5q3l5zjl5xrgamnoxuj3year7u2vrtfnzzllzeyutuy
 fingerprint_ignore_patterns: []
-agent: xiuxiuxar/mindshare_agent:0.1.0:bafybeihhlk7eoxtkhtfvifsfx4jqbep6rtq73rf6gbypx6soavs66vldaq
+agent: xiuxiuxar/mindshare_agent:0.1.0:bafybeieb3425epv7j3mhadiilj5bqe5p6jnxgflgheh4ygqgxr7gi7t4u4
 number_of_agents: 1
 deployment:
   agent:
@@ -32,4 +32,12 @@ models:
       safe_contract_addresses: ${str:{"ethereum":"0x0000000000000000000000000000000000000000","base":"0x0000000000000000000000000000000000000000"}}
       coingecko_api_key: ${str:test_key}
       reset_pause_duration: ${int:10}
-      moving_average_length: ${SKILL_MINDSHARE_APP_MOVING_AVERAGE_LENGTH:int:20}
+      ma_period: ${SKILL_MINDSHARE_APP_MA_PERIOD:int:20}
+      rsi_length: ${SKILL_MINDSHARE_APP_RSI_LENGTH:int:14}
+      rsi_lower_limit: ${SKILL_MINDSHARE_APP_RSI_LOWER_LIMIT:int:39}
+      rsi_upper_limit: ${SKILL_MINDSHARE_APP_RSI_UPPER_LIMIT:int:66}
+      macd_fast: ${SKILL_MINDSHARE_APP_MACD_FAST:int:12}
+      macd_slow: ${SKILL_MINDSHARE_APP_MACD_SLOW:int:26}
+      macd_signal: ${SKILL_MINDSHARE_APP_MACD_SIGNAL:int:9}
+      adx_length: ${SKILL_MINDSHARE_APP_ADX_LENGTH:int:14}
+      adx_threshold: ${SKILL_MINDSHARE_APP_ADX_THRESHOLD:int:41}

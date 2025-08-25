@@ -366,6 +366,7 @@ class DataCollectionRound(BaseState):
         self.pending_tokens: list[dict[str, str]] = []
         self.completed_tokens: list[dict[str, str]] = []
         self.failed_tokens: list[dict[str, str]] = []
+        self.entry_long: bool = False
 
     def setup(self) -> None:
         """Perform the setup."""
@@ -413,8 +414,7 @@ class DataCollectionRound(BaseState):
 
             if ohlcv_data:
                 self.collected_data["ohlcv"][symbol] = ohlcv_data
-                ma_length = self.context.params.moving_average_length
-                technical_data = self._get_technical_data(ohlcv_data, ma_length)
+                technical_data = self._get_technical_data(ohlcv_data)
                 self.collected_data["technical_data"][symbol] = technical_data
                 self.context.logger.debug(f"Collected technical data for {symbol}: {technical_data}")
             if price_data:
@@ -563,24 +563,30 @@ class DataCollectionRound(BaseState):
 
         return self.context.coingecko.get_ohlcv_data(path_params, query_params)
 
-    def _get_technical_data(self, ohlcv_data: list[list[Any]], moving_average_length: int = 20) -> list:
+    def _get_technical_data(self, ohlcv_data: list[list[Any]]) -> dict:
         """Calculate core technical indicators for a coin using pandas-ta with validation."""
         try:
             self._validate_ohlcv_data(ohlcv_data)
             data = self._preprocess_ohlcv_data(ohlcv_data)
 
             # Calculate different groups of indicators
-            self._calculate_trend_indicators(data, moving_average_length)
+            self._calculate_trend_indicators(data)
             self._calculate_momentum_indicators(data)
             self._calculate_volatility_indicators(data)
             self._calculate_volume_indicators(data)
 
             # Build and return the result
-            return self._build_technical_result(data)
+            technical_data = self._build_technical_result(data)
+
+            current_price = data.iloc[-1]["close"]
+
+            self.entry_long = self._calculate_ta_score(technical_data, current_price)
+
+            return technical_data
 
         except (ValueError, KeyError, ConnectionError, TimeoutError) as e:
             self.context.logger.warning(f"Technical data error: {e}")
-            return []
+            return {}
 
     def _validate_ohlcv_data(self, ohlcv_data: list[list[Any]]) -> None:
         """Validate OHLCV data format."""
@@ -604,16 +610,17 @@ class DataCollectionRound(BaseState):
 
         return data.dropna()
 
-    def _calculate_trend_indicators(self, data: pd.DataFrame, moving_average_length: int) -> None:
+    def _calculate_trend_indicators(self, data: pd.DataFrame) -> None:
         """Calculate trend indicators (SMA, EMA)."""
-        data["SMA"] = ta.sma(data["close"], length=moving_average_length)
-        data["EMA"] = ta.ema(data["close"], length=moving_average_length)
+        ma_period = self.context.params.ma_period
+        data["SMA"] = ta.sma(data["close"], length=ma_period)
+        data["EMA"] = ta.ema(data["close"], length=ma_period)
 
     def _calculate_momentum_indicators(self, data: pd.DataFrame) -> None:
         """Calculate momentum indicators (RSI, MACD, ADX)."""
         # RSI (normalized 0-100)
-        data["RSI"] = ta.rsi(data["close"], length=14)
-        data["RSI"] = data["RSI"].clip(0, 100)
+        rsi_length = self.context.params.rsi_length
+        data["RSI"] = ta.rsi(data["close"], length=rsi_length)
 
         # MACD
         self._process_macd_indicator(data)
@@ -623,7 +630,10 @@ class DataCollectionRound(BaseState):
 
     def _process_macd_indicator(self, data: pd.DataFrame) -> None:
         """Process MACD indicator and handle different column naming conventions."""
-        macd = ta.macd(data["close"], fast=12, slow=26, signal=9)
+        macd_fast = self.context.params.macd_fast
+        macd_slow = self.context.params.macd_slow
+        macd_signal = self.context.params.macd_signal
+        macd = ta.macd(data["close"], fast=macd_fast, slow=macd_slow, signal=macd_signal)
         if macd is None or macd.empty:
             return
 
@@ -648,7 +658,8 @@ class DataCollectionRound(BaseState):
 
     def _process_adx_indicator(self, data: pd.DataFrame) -> None:
         """Process ADX indicator and handle different column naming conventions."""
-        adx = ta.adx(data["high"], data["low"], data["close"], length=14)
+        adx_length = self.context.params.adx_length
+        adx = ta.adx(data["high"], data["low"], data["close"], length=adx_length)
         if adx is None or adx.empty:
             return
 
@@ -693,34 +704,123 @@ class DataCollectionRound(BaseState):
         if cmf is not None and not cmf.empty:
             data["CMF"] = cmf
 
-    def _build_technical_result(self, data: pd.DataFrame) -> list:
-        """Build the final result list from calculated indicators."""
+    def _build_technical_result(self, data: pd.DataFrame) -> dict:
+        """Build the final result dictionary from calculated indicators."""
         latest_data = data.iloc[-1]
-        result = []
+        result = {}
 
         # Add basic indicators
         for indicator in ["SMA", "EMA", "RSI", "ADX"]:
             if indicator in data.columns:
-                result.append((indicator, latest_data[indicator]))
+                result[indicator] = latest_data[indicator]
 
         # Add MACD (only if all components are available)
         if all(col in data.columns for col in ["MACD", "MACDh", "MACDs"]):
-            result.append(
-                ("MACD", {"MACD": latest_data["MACD"], "MACDh": latest_data["MACDh"], "MACDs": latest_data["MACDs"]})
-            )
+            result["MACD"] = {"MACD": latest_data["MACD"], "MACDh": latest_data["MACDh"], "MACDs": latest_data["MACDs"]}
 
         # Add Bollinger Bands (only if all components are available)
         if all(col in data.columns for col in ["BBL", "BBM", "BBU"]):
-            result.append(
-                ("BB", {"Lower": latest_data["BBL"], "Middle": latest_data["BBM"], "Upper": latest_data["BBU"]})
-            )
+            result["BB"] = {"Lower": latest_data["BBL"], "Middle": latest_data["BBM"], "Upper": latest_data["BBU"]}
 
         # Add volume indicators
         for indicator in ["OBV", "CMF"]:
             if indicator in data.columns:
-                result.append((indicator, latest_data[indicator]))
+                result[indicator] = latest_data[indicator]
 
         return result
+
+    def _calculate_ta_score(self, data: dict, current_price: float) -> float:
+        """Calculate the TA score for a coin.
+
+        Set entry_long = 1 if all are true on the current bar:
+        - close > MA(ma_period)
+        - rsi_lower_limit < RSI(rsi_length) < rsi_upper_limit
+        - MACD(macd_fast, macd_slow) > MACD_signal(macd_signal)
+        - ADX(adx_length) > adx_threshold
+        Else, entry_long = 0.
+        """
+        conditions_met = []
+
+        # Check all technical analysis conditions
+        conditions_met.extend(self._check_moving_average_conditions(data, current_price))
+        conditions_met.extend(
+            (
+                self._check_rsi_condition(data),
+                self._check_macd_condition(data),
+                self._check_adx_condition(data),
+            )
+        )
+
+        # Return 1 if all conditions are met, 0 otherwise
+        entry_long = 1.0 if all(conditions_met) else 0.0
+        self.context.logger.info(f"TA Score conditions: {conditions_met} -> entry_long = {entry_long}")
+        return entry_long
+
+    def _check_moving_average_conditions(self, data: dict, current_price: float) -> list[bool]:
+        """Check moving average conditions for both SMA and EMA."""
+        conditions = []
+
+        # Check SMA condition
+        sma_value = data.get("SMA")
+        if sma_value is not None:
+            close_above_sma = current_price > sma_value
+            conditions.append(close_above_sma)
+            self.context.logger.debug(f"Close ({current_price}) > SMA ({sma_value}): {close_above_sma}")
+        else:
+            conditions.append(False)
+            self.context.logger.warning("No SMA indicator found")
+
+        # Check EMA condition
+        ema_value = data.get("EMA")
+        if ema_value is not None:
+            close_above_ema = current_price > ema_value
+            conditions.append(close_above_ema)
+            self.context.logger.debug(f"Close ({current_price}) > EMA ({ema_value}): {close_above_ema}")
+        else:
+            conditions.append(False)
+            self.context.logger.warning("No EMA indicator found")
+
+        return conditions
+
+    def _check_rsi_condition(self, data: dict) -> bool:
+        """Check RSI condition: rsi_lower_limit < RSI < rsi_upper_limit."""
+        rsi_value = data.get("RSI")
+        if rsi_value is not None:
+            rsi_in_range = self.context.params.rsi_lower_limit < rsi_value < self.context.params.rsi_upper_limit
+            self.context.logger.debug(
+                f"RSI ({rsi_value}) in range ({self.context.params.rsi_lower_limit}, "
+                f"{self.context.params.rsi_upper_limit}): {rsi_in_range}"
+            )
+            return rsi_in_range
+        self.context.logger.warning("No RSI indicator found")
+        return False
+
+    def _check_macd_condition(self, data: dict) -> bool:
+        """Check MACD condition: MACD line > MACD signal."""
+        macd_data = data.get("MACD")
+        if macd_data is not None and isinstance(macd_data, dict):
+            macd_line = macd_data.get("MACD")
+            macd_signal = macd_data.get("MACDs")  # Signal line
+            if macd_line is not None and macd_signal is not None:
+                macd_above_signal = macd_line > macd_signal
+                self.context.logger.debug(f"MACD ({macd_line}) > Signal ({macd_signal}): {macd_above_signal}")
+                return macd_above_signal
+            self.context.logger.warning("MACD line or signal missing")
+            return False
+        self.context.logger.warning("No MACD indicator found")
+        return False
+
+    def _check_adx_condition(self, data: dict) -> bool:
+        """Check ADX condition: ADX > adx_threshold."""
+        adx_value = data.get("ADX")
+        if adx_value is not None:
+            adx_above_threshold = adx_value > self.context.params.adx_threshold
+            self.context.logger.debug(
+                f"ADX ({adx_value}) > threshold ({self.context.params.adx_threshold}): {adx_above_threshold}"
+            )
+            return adx_above_threshold
+        self.context.logger.warning("No ADX indicator found")
+        return False
 
 
 class PausedRound(BaseState):
