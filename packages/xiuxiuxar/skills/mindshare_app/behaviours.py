@@ -20,6 +20,7 @@
 
 import os
 import json
+import time
 import operator
 from abc import ABC
 from enum import Enum
@@ -27,7 +28,7 @@ from typing import TYPE_CHECKING, Any, cast
 from pathlib import Path
 from datetime import UTC, datetime, timedelta
 from dataclasses import dataclass
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 
 import pandas as pd
 import pandas_ta as ta
@@ -42,6 +43,7 @@ from packages.eightballer.connections.dcxt import PUBLIC_ID as DCXT_PUBLIC_ID
 from packages.eightballer.protocols.orders import OrdersMessage
 from packages.valory.protocols.contract_api import ContractApiMessage
 from packages.valory.contracts.erc20.contract import ERC20
+from packages.eightballer.protocols.http.message import HttpMessage
 from packages.open_aea.protocols.signing.message import SigningMessage
 from packages.valory.contracts.multisend.contract import MultiSendContract, MultiSendOperation
 from packages.valory.connections.ledger.connection import (
@@ -111,61 +113,61 @@ ALLOWED_ASSETS: dict[str, list[dict[str, str]]] = {
             "symbol": "WETH",
             "coingecko_id": "l2-standard-bridged-weth-base",
         },
-        # {
-        #     "address": "0x0b3e328455c4059EEb9e3f84b5543F74E24e7E1b",
-        #     "symbol": "VIRTUAL",
-        #     "coingecko_id": "virtual-protocol",
-        # },
-        # {
-        #     "address": "0x532f27101965dd16442E59d40670FaF5eBB142E4",
-        #     "symbol": "BRETT",
-        #     "coingecko_id": "based-brett",
-        # },
-        # {
-        #     "address": "0x4F9Fd6Be4a90f2620860d680c0d4d5Fb53d1A825",
-        #     "symbol": "AIXBT",
-        #     "coingecko_id": "aixbt",
-        # },
-        # {
-        #     "address": "0x4ed4E862860beD51a9570b96d89aF5E1B0Efefed",
-        #     "symbol": "DEGEN",
-        #     "coingecko_id": "degen-base",
-        # },
+        {
+            "address": "0x0b3e328455c4059EEb9e3f84b5543F74E24e7E1b",
+            "symbol": "VIRTUAL",
+            "coingecko_id": "virtual-protocol",
+        },
+        {
+            "address": "0x532f27101965dd16442E59d40670FaF5eBB142E4",
+            "symbol": "BRETT",
+            "coingecko_id": "based-brett",
+        },
+        {
+            "address": "0x4F9Fd6Be4a90f2620860d680c0d4d5Fb53d1A825",
+            "symbol": "AIXBT",
+            "coingecko_id": "aixbt",
+        },
+        {
+            "address": "0x4ed4E862860beD51a9570b96d89aF5E1B0Efefed",
+            "symbol": "DEGEN",
+            "coingecko_id": "degen-base",
+        },
         {
             "address": "0x54330d28ca3357f294334bdc454a032e7f353416",
             "symbol": "OLAS",
             "coingecko_id": "autonolas",
         },
-        # {
-        #     "address": "0xAC1Bd2486aAf3B5C0fc3Fd868558b082a531B2B4",
-        #     "symbol": "TOSHI",
-        #     "coingecko_id": "toshi",
-        # },
-        # {
-        #     "address": "0x1111111111166b7fe7bd91427724b487980afc69",
-        #     "symbol": "ZORA",
-        #     "coingecko_id": "zora",
-        # },
-        # {
-        #     "address": "0x940181a94A35A4569E4529A3CDfB74e38FD98631",
-        #     "symbol": "AERO",
-        #     "coingecko_id": "aerodrome-finance",
-        # },
-        # {
-        #     "address": "0x768BE13e1680b5ebE0024C42c896E3dB59ec0149",
-        #     "symbol": "SKI",
-        #     "coingecko_id": "ski-mask-dog",
-        # },
-        # {
-        #     "address": "0x9E6A46f294bB67c20F1D1E7AfB0bBEf614403B55",
-        #     "symbol": "MAG7.sse",
-        #     "coingecko_id": "mag7-ssi",
-        # },
-        # {
-        #     "address": "0xB1a03EdA10342529bBF8EB700a06C60441fEf25d",
-        #     "symbol": "MIGGLES",
-        #     "coingecko_id": "mister-miggles",
-        # },
+        {
+            "address": "0xAC1Bd2486aAf3B5C0fc3Fd868558b082a531B2B4",
+            "symbol": "TOSHI",
+            "coingecko_id": "toshi",
+        },
+        {
+            "address": "0x1111111111166b7fe7bd91427724b487980afc69",
+            "symbol": "ZORA",
+            "coingecko_id": "zora",
+        },
+        {
+            "address": "0x940181a94A35A4569E4529A3CDfB74e38FD98631",
+            "symbol": "AERO",
+            "coingecko_id": "aerodrome-finance",
+        },
+        {
+            "address": "0x768BE13e1680b5ebE0024C42c896E3dB59ec0149",
+            "symbol": "SKI",
+            "coingecko_id": "ski-mask-dog",
+        },
+        {
+            "address": "0x9E6A46f294bB67c20F1D1E7AfB0bBEf614403B55",
+            "symbol": "MAG7.ssi",
+            "coingecko_id": "mag7-ssi",
+        },
+        {
+            "address": "0xB1a03EdA10342529bBF8EB700a06C60441fEf25d",
+            "symbol": "MIGGLES",
+            "coingecko_id": "mister-miggles",
+        },
     ]
 }
 
@@ -333,6 +335,37 @@ class BaseState(State, ABC):
         self.context.outbox.put_message(message=msg)
         return dialogue
 
+    def _calculate_rate_limit_wait_time(self, api_name: str) -> int:
+        """Calculate the wait time for rate limiting based on the rate limiter state."""
+        if api_name == "coingecko":
+            return self.coingecko.rate_limiter.calculate_wait_time()
+        if api_name == "trendmoon":
+            return self.trendmoon.rate_limiter.calculate_wait_time()
+        return 0
+
+    def _wait_for_rate_limit(self, api_name: str) -> None:
+        """Wait for rate limit to reset before making request."""
+        wait_time = self._calculate_rate_limit_wait_time(api_name)
+        if wait_time > 0:
+            self.context.logger.info(f"Waiting {wait_time} seconds for {api_name} rate limit to reset")
+            time.sleep(wait_time)
+
+    def _submit_with_rate_limit_check(self, api_name: str, submit_func: Callable, *args, **kwargs) -> str:
+        """Submit API request with rate limit checking."""
+        try:
+            # Wait for rate limit if necessary
+            self._wait_for_rate_limit(api_name)
+
+            # Submit the request
+            return submit_func(*args, **kwargs)
+
+        except ValueError as e:
+            if "Rate limited" in str(e):
+                self.context.logger.warning(f"Rate limited by {api_name}, will retry later")
+                # You could implement a retry queue here
+                raise
+            raise
+
 
 # Define states
 
@@ -416,6 +449,7 @@ class DataCollectionRound(BaseState):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._state = MindshareabciappStates.DATACOLLECTIONROUND
+        self.started: bool = False
         self.collected_data: dict[str, Any] = {}
         self.started_at: datetime | None = None
         self.collection_initialized = False
@@ -426,9 +460,20 @@ class DataCollectionRound(BaseState):
         self.tokens_needing_ohlcv_update: set[str] = set()
         self.tokens_needing_social_update: set[str] = set()
 
+        # Generator state tracking
+        self._collection_generator: Generator[None, None, bool] | None = None
+        self._generator_completed: bool = False
+
+        # Async HTTP tracking
+        self.pending_http_requests: dict[str, dict] = {}
+        self.received_responses: list[dict[str, Any]] = []
+        self.async_requests_submitted: bool = False
+        self.total_expected_responses: int = 0
+
     def setup(self) -> None:
         """Perform the setup."""
         super().setup()
+        self.started = False
         self._is_done = False
         self.collection_initialized = False
         self.pending_tokens = []
@@ -440,32 +485,47 @@ class DataCollectionRound(BaseState):
         self.tokens_needing_ohlcv_update = set()
         self.tokens_needing_social_update = set()
 
+        # Reset generator state
+        self._collection_generator = None
+        self._generator_completed = False
+
+        # Reset async HTTP tracking
+        self.pending_http_requests = {}
+        self.received_responses = []
+        self.async_requests_submitted = False
+        self.total_expected_responses = 0
+
     def act(self) -> None:
-        """Perform the act."""
+        """Perform the act using generator pattern to yield control."""
         try:
-            self.context.logger.info(f"Entering {self._state} state.")
-            if not self.collection_initialized:
-                self._initialize_collection()
+            if not self.started:
+                self.context.logger.info(f"Entering {self._state} state.")
+                self.started = True
 
-            if self.current_token_index >= len(self.pending_tokens):
-                self.context.logger.info("All tokens processed, finalizing collection...")
-                self._finalize_collection()
-                self._event = (
-                    MindshareabciappEvents.DONE if self._is_data_sufficient() else MindshareabciappEvents.ERROR
-                )
-                self._is_done = True
-                return
+            # Initialize generator on first call
+            if self._collection_generator is None:
+                self._collection_generator = self._collect_all_data()
+                self._generator_completed = False
 
-            token_info = self.pending_tokens[self.current_token_index]
-            self._collect_token_data(token_info)
-            self.current_token_index += 1
+            # Continue generator execution
+            if not self._generator_completed:
+                try:
+                    next(self._collection_generator)
+                    # Generator yielded, will continue next round
+                    return
+                except StopIteration as e:
+                    # Generator completed
+                    self._generator_completed = True
+                    success = e.value if hasattr(e, "value") else True
 
-            progress = f"{self.current_token_index}/{len(self.pending_tokens)}"
-            ohlcv_updates = len(self.tokens_needing_ohlcv_update)
-            social_updates = len(self.tokens_needing_social_update)
-            self.context.logger.info(
-                f"Progress: {progress} | OHLCV updates: {ohlcv_updates} | Social updates: {social_updates}"
-            )
+                    self.context.logger.info("Data collection completed, finalizing...")
+                    self._finalize_collection()
+                    self._event = (
+                        MindshareabciappEvents.DONE
+                        if success and self._is_data_sufficient()
+                        else MindshareabciappEvents.ERROR
+                    )
+                    self._is_done = True
 
         except Exception as e:
             self.context.logger.exception(f"Data collection failed: {e}")
@@ -639,73 +699,150 @@ class DataCollectionRound(BaseState):
             self.context.logger.warning(f"Error parsing social update time for {symbol}: {e}")
             return True
 
+    def _collect_all_data(self) -> Generator[None, None, bool]:
+        """Generator that yields control between token processing operations."""
+        # Initialize collection on first run
+        if not self.collection_initialized:
+            self._initialize_collection()
+            yield  # Yield after initialization
+
+        # Phase 1: Submit all async requests
+        if not self.async_requests_submitted:
+            self.context.logger.info("Phase 1: Submitting async requests for all tokens")
+            for token_info in self.pending_tokens:
+                self.context.logger.info(
+                    f"Submitting requests for {token_info['symbol']} ({self.current_token_index + 1}/{len(self.pending_tokens)})"
+                )
+
+                try:
+                    # Submit async requests without blocking
+                    self._collect_token_data(token_info)
+                    self.completed_tokens.append(token_info)
+
+                except Exception as e:
+                    self.context.logger.warning(f"Failed to submit requests for {token_info['symbol']}: {e}")
+                    self.failed_tokens.append(token_info)
+                    self.collected_data["errors"].append(
+                        f"Error processing {token_info['symbol']} ({token_info['address']}): {e}"
+                    )
+
+                self.current_token_index += 1
+                yield  # Yield after each token to allow message processing
+
+            self.async_requests_submitted = True
+            self.total_expected_responses = len(self.pending_http_requests)
+            self.context.logger.info(f"Phase 1 complete: Submitted {self.total_expected_responses} async requests")
+            yield
+
+        # Phase 2: Wait for and process all responses
+        self.context.logger.info("Phase 2: Waiting for async responses")
+        yield from self._wait_for_async_responses()
+
+        # All tokens processed successfully
+        self.context.logger.info("All async data collection completed successfully")
+        return True
+
     def _collect_token_data(self, token_info: dict[str, str]) -> None:
-        """Collect data for a single token."""
+        """Submit async requests for a single token."""
         symbol = token_info["symbol"]
         address = token_info["address"]
 
         self.context.logger.info(f"Processing {symbol} ({address})")
 
         try:
-            # Always fetch current price data (lightweight)
-            price_data = self._fetch_current_price_data(token_info)
-            if price_data:
-                self.collected_data["current_prices"][symbol] = price_data
-                self.context.logger.debug(f"Updated price data for {symbol}")
-
-            # Conditionally update OHLCV data
+            # Submit async requests for data that needs updating
             if symbol in self.tokens_needing_ohlcv_update:
-                self.context.logger.info(f"Updating OHLCV data for {symbol}")
-                self._update_ohlcv_data(token_info)
+                self.context.logger.info(f"Submitting async OHLCV request for {symbol}")
+                self._submit_async_ohlcv_request(token_info)
                 self.tokens_needing_ohlcv_update.discard(symbol)
             else:
                 self.context.logger.info(f"Skipping OHLCV update for {symbol} (data is fresh)")
 
-            # Conditionally update social data
             if symbol in self.tokens_needing_social_update:
-                self.context.logger.info(f"Updating social data for {symbol}")
-                self._update_social_data(token_info)
+                self.context.logger.info(f"Submitting async social request for {symbol}")
+                self._submit_async_social_request(token_info)
                 self.tokens_needing_social_update.discard(symbol)
             else:
                 self.context.logger.info(f"Skipping social update for {symbol} (data is fresh)")
 
-            self.completed_tokens.append(token_info)
-            self.context.logger.info(f"Successfully processed {symbol}")
+            # Always submit async price request for current data
+            self._submit_async_price_request(token_info)
 
-        except (ValueError, KeyError, ConnectionError, TimeoutError) as e:
-            self.context.logger.warning(f"Failed to collect data for {symbol}: {e}")
-            self.failed_tokens.append(token_info)
-            self.collected_data["errors"].append(f"Error processing {symbol} ({address}): {e}")
-
-    def _update_ohlcv_data(self, token_info: dict[str, str]) -> None:
-        """Update OHLCV data for a token."""
-        symbol = token_info["symbol"]
-
-        try:
-            self.collected_data["api_calls"] += 1
-            fresh_ohlcv_data = self._get_historical_ohlcv_data(token_info["coingecko_id"])
-
-            if not fresh_ohlcv_data:
-                msg = "No OHLCV data returned from CoinGecko"
-                raise ValueError(msg)
-
-            existing_ohlcv = self.collected_data["ohlcv"].get(symbol, [])
-
-            if existing_ohlcv:
-                merged_data = self._merge_ohlcv_data(existing_ohlcv, fresh_ohlcv_data)
-                self.collected_data["ohlcv"][symbol] = merged_data
-                self.context.logger.info(f"Merged OHLCV data for {symbol}: {len(merged_data)} total candles")
-            else:
-                # No existing data, use fresh data
-                self.collected_data["ohlcv"][symbol] = fresh_ohlcv_data
-                self.context.logger.info(f"Set fresh OHLCV data for {symbol}: {len(fresh_ohlcv_data)} candles")
-
-            # Update tracking timestamp
-            self.collected_data["last_ohlcv_update"][symbol] = datetime.now(UTC).isoformat()
+            self.context.logger.debug(f"Successfully submitted async requests for {symbol}")
 
         except Exception as e:
-            self.context.logger.exception(f"Failed to update OHLCV data for {symbol}: {e}")
-            raise
+            self.context.logger.warning(f"Failed to submit requests for {symbol}: {e}")
+            raise  # Re-raise to be handled by the generator
+
+    def _submit_async_ohlcv_request(self, token_info: dict[str, str]) -> None:
+        """Submit async request for OHLCV data."""
+        symbol = token_info["symbol"]
+        coingecko_id = token_info["coingecko_id"]
+
+        self.context.logger.info(f"Submitting async OHLCV request for {symbol}")
+
+        path_params = {"id": coingecko_id}
+        query_params = {"vs_currency": "usd", "days": 30}
+
+        # Submit async request
+        # ohlc_request_id = self.context.coingecko.submit_coin_ohlc_request(path_params, query_params)
+        # volume_request_id = self.context.coingecko.submit_coin_historical_chart_request(path_params, query_params)
+        ohlc_request_id = self._submit_with_rate_limit_check(
+            "coingecko",
+            self.context.coingecko.submit_coin_ohlc_request,
+            path_params,
+            query_params,
+        )
+        volume_request_id = self._submit_with_rate_limit_check(
+            "coingecko",
+            self.context.coingecko.submit_coin_historical_chart_request,
+            path_params,
+            query_params,
+        )
+
+        # Track requests for identification
+        self.pending_http_requests[ohlc_request_id] = {
+            "request_type": "ohlc",
+            "token_symbol": symbol,
+            "coingecko_id": coingecko_id,
+        }
+        self.pending_http_requests[volume_request_id] = {
+            "request_type": "volume",
+            "token_symbol": symbol,
+            "coingecko_id": coingecko_id,
+        }
+
+        self.collected_data["api_calls"] += 2
+
+    def _process_ohlcv_response(self, token_symbol: str, ohlc_data: list, volume_data: dict) -> None:
+        """Process OHLCV response data."""
+        if not ohlc_data or not volume_data:
+            self.context.logger.error(f"Missing OHLCV data for {token_symbol}")
+            return
+
+        # Merge OHLC and volume data like the original method
+        total_volumes = volume_data.get("total_volumes", [])
+        ohlcv_data = []
+
+        for ohlc in ohlc_data:
+            ohlc_timestamp = ohlc[0]
+            closest_volume_entry = min(total_volumes, key=lambda x: abs(x[0] - ohlc_timestamp))
+            volume = closest_volume_entry[1]
+            ohlcv_entry = [ohlc_timestamp] + ohlc[1:] + [volume]
+            ohlcv_data.append(ohlcv_entry)
+
+        # Merge with existing data if any
+        existing_ohlcv = self.collected_data["ohlcv"].get(token_symbol, [])
+        if existing_ohlcv:
+            merged_data = self._merge_ohlcv_data(existing_ohlcv, ohlcv_data)
+            self.collected_data["ohlcv"][token_symbol] = merged_data
+            self.context.logger.info(f"Merged OHLCV data for {token_symbol}: {len(merged_data)} total candles")
+        else:
+            self.collected_data["ohlcv"][token_symbol] = ohlcv_data
+            self.context.logger.info(f"Set fresh OHLCV data for {token_symbol}: {len(ohlcv_data)} candles")
+
+        # Update tracking timestamp
+        self.collected_data["last_ohlcv_update"][token_symbol] = datetime.now(UTC).isoformat()
 
     def _merge_ohlcv_data(self, existing_data: list, fresh_data: list) -> list:
         """Merge existing and fresh OHLCV data, avoiding duplicates."""
@@ -728,33 +865,187 @@ class DataCollectionRound(BaseState):
 
         return merged_data
 
-    def _update_social_data(self, token_info: dict[str, str]) -> None:
-        """Update social data for a token."""
+    def _submit_async_social_request(self, token_info: dict[str, str]) -> None:
+        """Submit async request for social data."""
         symbol = token_info["symbol"]
 
-        try:
-            self.collected_data["api_calls"] += 1
-            social_data = self._fetch_trendmoon_social_data(token_info)
+        self.context.logger.info(f"Submitting async social data request for {symbol}")
 
-            if social_data:
-                self.collected_data["social_data"][symbol] = social_data
-                self.collected_data["last_social_update"][symbol] = datetime.now(UTC).isoformat()
-                self.context.logger.info(f"Updated social data for {symbol}")
-            else:
-                self.context.logger.warning(f"No social data available for {symbol}")
+        # Submit TrendMoon request
+        # trends_request_id = self.context.trendmoon.submit_coin_trends_request(
+        #     symbol=symbol, time_interval="1h", date_interval=30
+        # )
+        trends_request_id = self._submit_with_rate_limit_check(
+            "trendmoon",
+            self.context.trendmoon.submit_coin_trends_request,
+            symbol=symbol,
+            time_interval="1h",
+            date_interval=30,
+        )
 
-        except Exception as e:
-            self.context.logger.exception(f"Failed to update social data for {symbol}: {e}")
-            raise
+        # Track request for identification
+        self.pending_http_requests[trends_request_id] = {"request_type": "social", "token_symbol": symbol}
 
-    def _fetch_current_price_data(self, token_info: dict[str, str]) -> dict | None:
-        """Fetch current price data for a token."""
-        try:
-            self.collected_data["api_calls"] += 1
-            return self._get_current_price_data(token_info["coingecko_id"])
-        except Exception as e:
-            self.context.logger.warning(f"Failed to fetch price data for {token_info['symbol']}: {e}")
-            return None
+        self.collected_data["api_calls"] += 1
+
+    def _process_social_response(self, token_symbol: str, social_data: dict) -> None:
+        """Process social response data."""
+        if social_data:
+            self.collected_data["social_data"][token_symbol] = social_data
+            self.collected_data["last_social_update"][token_symbol] = datetime.now(UTC).isoformat()
+            self.context.logger.info(f"Updated social data for {token_symbol}")
+        else:
+            self.context.logger.warning(f"No social data available for {token_symbol}")
+
+    def _submit_async_price_request(self, token_info: dict[str, str]) -> None:
+        """Submit async request for current price data."""
+        symbol = token_info["symbol"]
+        coingecko_id = token_info["coingecko_id"]
+
+        self.context.logger.info(f"Submitting async price request for {symbol}")
+
+        query_params = {
+            "ids": coingecko_id,
+            "vs_currencies": "usd",
+            "include_market_cap": "true",
+            "include_24hr_vol": "true",
+            "include_24hr_change": "true",
+        }
+
+        # price_request_id = self.context.coingecko.submit_coin_price_request(query_params)
+        price_request_id = self._submit_with_rate_limit_check(
+            "coingecko",
+            self.context.coingecko.submit_coin_price_request,
+            query_params,
+        )
+
+        # Track request for identification
+        self.pending_http_requests[price_request_id] = {
+            "request_type": "price",
+            "token_symbol": symbol,
+            "coingecko_id": coingecko_id,
+        }
+
+        self.collected_data["api_calls"] += 1
+
+    def _process_price_response(self, token_symbol: str, coingecko_id: str, price_data: dict) -> None:
+        """Process current price response data."""
+        if price_data and coingecko_id in price_data:
+            self.collected_data["current_prices"][token_symbol] = price_data[coingecko_id]
+            self.context.logger.info(f"Updated price data for {token_symbol}")
+        else:
+            self.context.logger.warning(f"No price data available for {token_symbol}")
+
+    def handle_http_response(self, message: HttpMessage) -> bool:
+        """Handle incoming HTTP response messages."""
+        if message.performative != HttpMessage.Performative.RESPONSE:
+            return False
+
+        # Find matching request by dialogue reference
+        if not message.dialogue_reference:
+            return False
+
+        request_id = message.dialogue_reference[0]
+        request_info = self.pending_http_requests.get(request_id)
+
+        if not request_info:
+            return False
+
+        # Parse response
+        if message.status_code >= 400:
+            response_text = message.body.decode("utf-8") if message.body else "No response body"
+            self.context.logger.error(
+                f"HTTP error for {request_info['request_type']}: {message.status_code} - {response_text}"
+            )
+            self.context.logger.error(f"Request was for token: {request_info.get('token_symbol', 'unknown')}")
+        else:
+            response_data = self._parse_response_body(message.body)
+            self.received_responses.append(
+                {
+                    "request_type": request_info["request_type"],
+                    "token_symbol": request_info.get("token_symbol", "unknown"),
+                    "coingecko_id": request_info.get("coingecko_id", None),
+                    "data": response_data,
+                    "status_code": message.status_code,
+                }
+            )
+            self.context.logger.info(
+                f"Successfully received {request_info['request_type']} response for {request_info.get('token_symbol', 'unknown')}"
+            )
+            self.context.logger.debug(f"Response data size: {len(response_data) if response_data else 0} items")
+
+        # Remove from pending requests
+        del self.pending_http_requests[request_id]
+
+        return True
+
+    def _parse_response_body(self, body: bytes) -> Any:
+        """Parse HTTP response body as JSON."""
+        if body:
+            try:
+                return json.loads(body.decode("utf-8"))
+            except json.JSONDecodeError:
+                self.context.logger.error("Failed to parse JSON response")
+                return None
+        return None
+
+    def _process_all_responses(self) -> None:
+        """Process all received HTTP responses."""
+        # Group responses by token and type
+        token_responses = {}
+
+        for response in self.received_responses:
+            token_symbol = response["token_symbol"]
+            request_type = response["request_type"]
+
+            if token_symbol not in token_responses:
+                token_responses[token_symbol] = {}
+            token_responses[token_symbol][request_type] = response
+
+        # Process responses for each token
+        for token_symbol, responses in token_responses.items():
+            try:
+                # Process OHLCV data (needs both ohlc and volume)
+                if "ohlc" in responses and "volume" in responses:
+                    ohlc_data = responses["ohlc"]["data"]
+                    volume_data = responses["volume"]["data"]
+                    self._process_ohlcv_response(token_symbol, ohlc_data, volume_data)
+
+                # Process social data
+                if "social" in responses:
+                    social_data = responses["social"]["data"]
+                    self._process_social_response(token_symbol, social_data)
+
+                # Process price data
+                if "price" in responses:
+                    price_data = responses["price"]["data"]
+                    coingecko_id = responses["price"]["coingecko_id"]
+                    self._process_price_response(token_symbol, coingecko_id, price_data)
+
+            except Exception as e:
+                self.context.logger.exception(f"Error processing responses for {token_symbol}: {e}")
+
+    def _wait_for_async_responses(self) -> Generator:
+        """Wait for all async HTTP responses to be received."""
+        if not self.pending_http_requests:
+            return
+
+        self.context.logger.info(f"Waiting for {len(self.pending_http_requests)} async HTTP responses...")
+        timeout_seconds = 30
+        start_time = datetime.now(UTC)
+
+        while len(self.received_responses) < self.total_expected_responses:
+            elapsed = (datetime.now(UTC) - start_time).total_seconds()
+            if elapsed > timeout_seconds:
+                self.context.logger.error(
+                    f"Timeout waiting for HTTP responses. Got {len(self.received_responses)}/{self.total_expected_responses}"
+                )
+                break
+
+            yield
+
+        self.context.logger.info(f"Received {len(self.received_responses)} responses")
+        self._process_all_responses()
 
     def _log_collection_summary(self) -> None:
         """Log enhanced collection summary."""
@@ -5567,6 +5858,22 @@ class MindshareabciappFsmBehaviour(FSMBehaviour):
         """Implement the setup."""
         self.context.logger.info("Setting up Mindshareabciapp FSM behaviour.")
         self._last_transition_timestamp = datetime.now(UTC)
+
+    def handle_message(self, message: Message) -> None:
+        """Handle incoming messages, including HTTP responses for async data collection."""
+        # Handle HTTP responses during data collection
+        if isinstance(message, HttpMessage):
+            current_state = self.get_state(self.current) if self.current else None
+            if isinstance(current_state, DataCollectionRound):
+                if current_state.handle_http_response(message):
+                    self.context.logger.debug(f"HTTP response handled by DataCollectionRound: {message.performative}")
+                    return  # Message was handled
+
+            # Log unhandled HTTP messages for debugging
+            self.context.logger.debug(f"Unhandled HTTP message: {message.performative} in state {self.current}")
+
+        # Handle other message types normally
+        super().handle_message(message)
 
     def teardown(self) -> None:
         """Implement the teardown."""
