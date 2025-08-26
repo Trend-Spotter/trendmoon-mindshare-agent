@@ -1266,6 +1266,8 @@ class CallCheckpointRound(BaseState):
 
     supported_protocols = {
         ContractApiMessage.protocol_id: [],
+        LedgerApiMessage.protocol_id: [],
+        SigningMessage.protocol_id: [],
     }
 
     def __init__(self, **kwargs: Any) -> None:
@@ -1282,6 +1284,13 @@ class CallCheckpointRound(BaseState):
         self.next_checkpoint_ts: int | None = None
         self.is_checkpoint_reached: bool = False
         self.checkpoint_preparation_complete: bool = False
+        self.safe_tx_hash_prepared: bool = False
+        self.checkpoint_tx_signing_submitted: bool = False
+        self.checkpoint_tx_broadcast_submitted: bool = False
+        self.checkpoint_tx_executed: bool = False
+        self.checkpoint_tx_raw_data: bytes | None = None
+        self.checkpoint_tx_signed_data: bytes | None = None
+        self.checkpoint_tx_final_hash: str | None = None
 
     def setup(self) -> None:
         """Perform the setup."""
@@ -1298,6 +1307,13 @@ class CallCheckpointRound(BaseState):
         self.next_checkpoint_ts = None
         self.is_checkpoint_reached = False
         self.checkpoint_preparation_complete = False
+        self.safe_tx_hash_prepared = False
+        self.checkpoint_tx_signing_submitted = False
+        self.checkpoint_tx_broadcast_submitted = False
+        self.checkpoint_tx_executed = False
+        self.checkpoint_tx_raw_data = None
+        self.checkpoint_tx_signed_data = None
+        self.checkpoint_tx_final_hash = None
         for k in self.supported_protocols:
             self.supported_protocols[k] = []
 
@@ -1317,25 +1333,50 @@ class CallCheckpointRound(BaseState):
                 if not self.staking_state_check_complete:
                     return
 
-            if (self.service_staking_state == StakingState.STAKED and 
-                not self.is_checkpoint_reached and 
+            if (self.service_staking_state == StakingState.STAKED and
+                not self.is_checkpoint_reached and
                 self.next_checkpoint_ts is not None):
                 self._check_if_checkpoint_reached()
                 if not self.is_checkpoint_reached:
                     self.context.logger.info("Next checkpoint not reached yet")
-                    self._event = MindshareabciappEvents.NEXT_CHECKPOINT_NOT_REACHED_YET
+                    self._event = MindshareabciappEvents.CHECKPOINT_NOT_REACHED
                     self._is_done = True
                     return
 
-            if (self.service_staking_state == StakingState.STAKED and 
-                self.is_checkpoint_reached and 
+            if (self.service_staking_state == StakingState.STAKED and
+                self.is_checkpoint_reached and
                 not self.checkpoint_preparation_complete):
                 self._prepare_checkpoint_tx_async()
                 return
 
-            if self.checkpoint_preparation_complete:
+            if self.checkpoint_preparation_complete and not self.safe_tx_hash_prepared:
                 self._check_checkpoint_preparation_responses()
-                if not self.checkpoint_preparation_complete:
+                if not self.safe_tx_hash_prepared:
+                    return
+
+            # If Safe transaction hash is prepared but not signed, sign it
+            if (self.safe_tx_hash_prepared and
+                self.checkpoint_tx_raw_data and
+                not self.checkpoint_tx_signing_submitted):
+                self._sign_checkpoint_transaction()
+                return
+
+            # Check for signing responses
+            if self.checkpoint_tx_signing_submitted and not self.checkpoint_tx_signed_data:
+                self._check_signing_responses()
+                if not self.checkpoint_tx_signed_data:
+                    return
+
+            # If signed but not broadcast, broadcast it
+            if (self.checkpoint_tx_signed_data and
+                not self.checkpoint_tx_broadcast_submitted):
+                self._broadcast_checkpoint_transaction()
+                return
+
+            # Check for broadcast responses
+            if self.checkpoint_tx_broadcast_submitted and not self.checkpoint_tx_executed:
+                self._check_broadcast_responses()
+                if not self.checkpoint_tx_executed:
                     return
 
             self._finalize_checkpoint_check()
@@ -1373,8 +1414,8 @@ class CallCheckpointRound(BaseState):
         try:
             staking_chain = self.context.params.staking_chain
             staking_token_contract_address = getattr(self.context.params, "staking_token_contract_address", None)
-            service_id = self.context.params.service_id
-            on_chain_service_id = self.context.params.on_chain_service_id
+            service_id = getattr(self.context.params, "service_id", None)
+            on_chain_service_id = getattr(self.context.params, "on_chain_service_id", None)
 
             if not staking_token_contract_address or not service_id:
                 self.context.logger.warning("Missing staking contract address or service ID")
@@ -1446,6 +1487,8 @@ class CallCheckpointRound(BaseState):
                         self._process_next_checkpoint_response(response)
                     elif request_type == "checkpoint_preparation":
                         self._process_checkpoint_preparation_response(response)
+                    elif request_type == "safe_tx_preparation":
+                        self._process_safe_tx_preparation_response(response)
 
                     self.pending_contract_calls.remove(dialogue)
 
@@ -1637,11 +1680,18 @@ class CallCheckpointRound(BaseState):
         self.checkpoint_preparation_complete = True
         self.context.logger.info(f"Checkpoint transaction prepared: {self.checkpoint_tx_hex}")
 
+    def _process_safe_tx_preparation_response(self, response: dict) -> None:
+        """Process Safe transaction preparation response."""
+        safe_tx_raw_data = response["safe_tx_raw_data"]
+        self.checkpoint_tx_raw_data = safe_tx_raw_data
+        self.safe_tx_hash_prepared = True
+        self.context.logger.info("Safe transaction raw data received and ready for signing")
+
     def _prepare_safe_tx_hash(self, data: bytes) -> str | None:
-        """Prepare safe transaction hash."""
+        """Prepare safe transaction hash and full transaction."""
         try:
             staking_chain = self.context.params.staking_chain
-            safe_addresses = getattr(self.context.params, "safe_contract_addresses", {})
+            safe_addresses = self.context.params.safe_contract_addresses
 
             if isinstance(safe_addresses, str):
                 try:
@@ -1658,12 +1708,153 @@ class CallCheckpointRound(BaseState):
             if not staking_token_contract_address:
                 return None
 
-            safe_tx_hash = f"0x{data.hex()}"
-            return safe_tx_hash
+            # Submit contract call to get the raw Safe transaction
+            dialogue = self.submit_msg(
+                performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,
+                connection_id=LEDGER_API_ADDRESS,
+                contract_address=safe_address,
+                contract_id=str(GnosisSafeContract.contract_id),
+                callable="get_raw_safe_transaction",
+                ledger_id="ethereum",
+                kwargs=ContractApiMessage.Kwargs({
+                    "sender_address": self.context.agent_address,
+                    "owners": (self.context.agent_address,),
+                    "to_address": staking_token_contract_address,
+                    "value": ETHER_VALUE,
+                    "data": data,
+                    "signatures_by_owner": {self.context.agent_address: self._get_preapproved_signature()},
+                    "operation": SafeOperation.CALL.value,
+                    "safe_tx_gas": SAFE_TX_GAS,
+                    "base_gas": 0,
+                    "gas_price": 1,
+                    "gas_token": NULL_ADDRESS,
+                    "refund_receiver": NULL_ADDRESS,
+                }),
+            )
+
+            dialogue.validation_func = self._validate_safe_tx_preparation_response
+            dialogue.request_type = "safe_tx_preparation"
+            self.pending_contract_calls.append(dialogue)
+
+            self.context.logger.info("Submitted Safe transaction preparation request")
+            return None  # Will be set when response arrives
 
         except Exception as e:
             self.context.logger.exception(f"Failed to prepare safe transaction hash: {e}")
             return None
+
+    def _validate_safe_tx_preparation_response(self, message: Message, dialogue: ContractApiDialogue) -> bool:
+        """Validate Safe transaction preparation response message."""
+        try:
+            if message.performative == ContractApiMessage.Performative.RAW_TRANSACTION:
+                if hasattr(message, "raw_transaction") and message.raw_transaction:
+                    raw_tx = message.raw_transaction
+                    if raw_tx:
+                        self.contract_responses[dialogue.dialogue_label.dialogue_reference[0]] = {
+                            "safe_tx_raw_data": raw_tx,
+                            "request_type": "safe_tx_preparation",
+                        }
+                        self.context.logger.info("Received Safe transaction raw data")
+                        return True
+
+            elif message.performative == ContractApiMessage.Performative.ERROR:
+                self.context.logger.warning(f"Contract API error: {message.message}")
+
+            return False
+
+        except Exception as e:
+            self.context.logger.exception(f"Error validating Safe tx preparation response: {e}")
+            return False
+
+    def _sign_checkpoint_transaction(self) -> None:
+        """Sign the checkpoint transaction."""
+        self.context.logger.info("Signing checkpoint transaction...")
+
+        terms = Terms(
+            ledger_id="ethereum",
+            sender_address=self.context.agent_address,
+            counterparty_address="",
+            amount_by_currency_id={},
+            quantities_by_good_id={},
+            is_sender_payable_tx_fee=True,
+            nonce="",
+            fee_by_currency_id={},
+        )
+
+        signing_msg, signing_dialogue = self.context.signing_dialogues.create(
+            counterparty=self.context.decision_maker_address,
+            performative=SigningMessage.Performative.SIGN_TRANSACTION,
+            raw_transaction=self.checkpoint_tx_raw_data,
+            terms=terms,
+        )
+
+        signing_dialogue.validation_func = self._validate_checkpoint_signing_response
+
+        request_nonce = signing_dialogue.dialogue_label.dialogue_reference[0]
+        self.context.requests.request_id_to_callback[request_nonce] = self.get_dialogue_callback_request()
+
+        self.context.decision_maker_message_queue.put_nowait(signing_msg)
+
+        self.checkpoint_tx_signing_submitted = True
+        self.context.logger.info("Checkpoint transaction sent for signing")
+
+    def _validate_checkpoint_signing_response(self, message: SigningMessage, _dialogue) -> bool:
+        """Process checkpoint transaction signing response."""
+        try:
+            if message.performative == SigningMessage.Performative.SIGNED_TRANSACTION:
+                self.checkpoint_tx_signed_data = message.signed_transaction
+                self.context.logger.info("Checkpoint transaction signed successfully")
+                return True
+
+            self.context.logger.error(f"Checkpoint transaction signing failed: {message.performative}")
+            return False
+
+        except Exception as e:
+            self.context.logger.exception(f"Error processing checkpoint signing response: {e}")
+            return False
+
+    def _broadcast_checkpoint_transaction(self) -> None:
+        """Broadcast the signed checkpoint transaction."""
+        self.context.logger.info("Broadcasting checkpoint transaction to chain...")
+
+        dialogue = self.submit_msg(
+            performative=LedgerApiMessage.Performative.SEND_SIGNED_TRANSACTION,
+            connection_id=LEDGER_API_ADDRESS,
+            signed_transaction=self.checkpoint_tx_signed_data,
+            kwargs=LedgerApiMessage.Kwargs({"ledger_id": "ethereum"}),
+        )
+
+        dialogue.validation_func = self._validate_checkpoint_broadcast_response
+        self.checkpoint_tx_broadcast_submitted = True
+
+        self.context.logger.info("Broadcasting checkpoint transaction to chain")
+
+    def _validate_checkpoint_broadcast_response(self, message: LedgerApiMessage, dialogue) -> bool:
+        """Process checkpoint transaction broadcast response."""
+        try:
+            if message.performative == LedgerApiMessage.Performative.TRANSACTION_DIGEST:
+                tx_hash = message.transaction_digest.body
+                self.checkpoint_tx_final_hash = tx_hash
+                self.checkpoint_tx_executed = True
+                self.context.logger.info(f"Checkpoint transaction broadcast successful: {tx_hash}")
+                return True
+
+            self.context.logger.error(f"Checkpoint transaction broadcast failed: {message.performative}")
+            return False
+
+        except Exception as e:
+            self.context.logger.exception(f"Error processing checkpoint broadcast response: {e}")
+            return False
+
+    def _check_signing_responses(self) -> None:
+        """Check for signing responses."""
+        # Signing responses are handled directly by the validation function
+        pass
+
+    def _check_broadcast_responses(self) -> None:
+        """Check for broadcast responses."""
+        # Broadcast responses are handled directly by the validation function  
+        pass
 
     def _finalize_checkpoint_check(self) -> None:
         """Finalize checkpoint check and determine transition."""
@@ -1676,7 +1867,10 @@ class CallCheckpointRound(BaseState):
             self.context.logger.info("Service has been evicted")
             self._event = MindshareabciappEvents.SERVICE_EVICTED
         elif self.service_staking_state == StakingState.STAKED:
-            if self.checkpoint_tx_hex:
+            if self.checkpoint_tx_executed and self.checkpoint_tx_final_hash:
+                self.context.logger.info(f"Checkpoint transaction executed successfully: {self.checkpoint_tx_final_hash}")
+                self._event = MindshareabciappEvents.DONE
+            elif self.checkpoint_tx_hex:
                 self.context.logger.info(f"Checkpoint transaction prepared: {self.checkpoint_tx_hex}")
                 self._event = MindshareabciappEvents.CHECKPOINT_PREPARED
             else:
