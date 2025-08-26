@@ -52,6 +52,7 @@ from packages.valory.connections.ledger.connection import (
 from packages.eightballer.contracts.erc_20.contract import Erc20
 from packages.eightballer.protocols.tickers.message import TickersMessage
 from packages.xiuxiuxar.skills.mindshare_app.models import Coingecko, Trendmoon
+from packages.valory.contracts.staking_token.contract import StakingTokenContract
 from packages.valory.protocols.ledger_api.custom_types import Terms, TransactionDigest
 from packages.xiuxiuxar.contracts.gnosis_safe.contract import SafeOperation, GnosisSafeContract
 from packages.xiuxiuxar.skills.mindshare_app.dialogues import ContractApiDialogue
@@ -177,6 +178,14 @@ if TYPE_CHECKING:
     from packages.eightballer.protocols.tickers.custom_types import Ticker
 
 
+class StakingState(Enum):
+    """Staking state enumeration for the staking."""
+
+    UNSTAKED = 0
+    STAKED = 1
+    EVICTED = 2
+
+
 class MindshareabciappEvents(Enum):
     """Events for the fsm."""
 
@@ -196,6 +205,10 @@ class MindshareabciappEvents(Enum):
     EXECUTED = "EXECUTED"
     RETRY = "RETRY"
     CAN_TRADE = "CAN_TRADE"
+    SERVICE_NOT_STAKED = "SERVICE_NOT_STAKED"
+    SERVICE_EVICTED = "SERVICE_EVICTED"
+    CHECKPOINT_PREPARED = "CHECKPOINT_PREPARED"
+    NEXT_CHECKPOINT_NOT_REACHED_YET = "NEXT_CHECKPOINT_NOT_REACHED_YET"
 
 
 class MindshareabciappStates(Enum):
@@ -205,6 +218,7 @@ class MindshareabciappStates(Enum):
     PORTFOLIOVALIDATIONROUND = "portfoliovalidationround"
     RISKEVALUATIONROUND = "riskevaluationround"
     PAUSEDROUND = "pausedround"
+    CALLCHECKPOINTROUND = "callcheckpointround"
     CHECKSTAKINGKPIROUND = "checkstakingkpiround"
     SIGNALAGGREGATIONROUND = "signalaggregationround"
     HANDLEERRORROUND = "handleerrorround"
@@ -1245,6 +1259,434 @@ class PausedRound(BaseState):
         self._is_done = True
         self._event = MindshareabciappEvents.RESUME
         self.started = False
+
+
+class CallCheckpointRound(BaseState):
+    """This class implements the behaviour of the state CallCheckpointRound."""
+
+    supported_protocols = {
+        ContractApiMessage.protocol_id: [],
+    }
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self._state = MindshareabciappStates.CALLCHECKPOINTROUND
+        self.started: bool = False
+        self.checkpoint_initialized: bool = False
+        self.service_staking_state: StakingState | None = None
+        self.checkpoint_tx_hex: str | None = None
+        self.min_num_of_safe_tx_required: int | None = None
+        self.pending_contract_calls: list[ContractApiDialogue] = []
+        self.contract_responses: dict[str, Any] = {}
+        self.staking_state_check_complete: bool = False
+        self.next_checkpoint_ts: int | None = None
+        self.is_checkpoint_reached: bool = False
+        self.checkpoint_preparation_complete: bool = False
+
+    def setup(self) -> None:
+        """Perform the setup."""
+        super().setup()
+        self._is_done = False
+        self.started = False
+        self.checkpoint_initialized = False
+        self.service_staking_state = None
+        self.checkpoint_tx_hex = None
+        self.min_num_of_safe_tx_required = None
+        self.pending_contract_calls = []
+        self.contract_responses = {}
+        self.staking_state_check_complete = False
+        self.next_checkpoint_ts = None
+        self.is_checkpoint_reached = False
+        self.checkpoint_preparation_complete = False
+        for k in self.supported_protocols:
+            self.supported_protocols[k] = []
+
+    def act(self) -> None:
+        """Perform the act."""
+        try:
+            if not self.started:
+                self.context.logger.info(f"Entering {self._state} state.")
+                self.started = True
+
+            if not self.checkpoint_initialized:
+                self._initialize_checkpoint_check()
+                return
+
+            if not self.staking_state_check_complete:
+                self._check_contract_responses()
+                if not self.staking_state_check_complete:
+                    return
+
+            if (self.service_staking_state == StakingState.STAKED and 
+                not self.is_checkpoint_reached and 
+                self.next_checkpoint_ts is not None):
+                self._check_if_checkpoint_reached()
+                if not self.is_checkpoint_reached:
+                    self.context.logger.info("Next checkpoint not reached yet")
+                    self._event = MindshareabciappEvents.NEXT_CHECKPOINT_NOT_REACHED_YET
+                    self._is_done = True
+                    return
+
+            if (self.service_staking_state == StakingState.STAKED and 
+                self.is_checkpoint_reached and 
+                not self.checkpoint_preparation_complete):
+                self._prepare_checkpoint_tx_async()
+                return
+
+            if self.checkpoint_preparation_complete:
+                self._check_checkpoint_preparation_responses()
+                if not self.checkpoint_preparation_complete:
+                    return
+
+            self._finalize_checkpoint_check()
+
+        except Exception as e:
+            self.context.logger.exception(f"CallCheckpointRound failed: {e}")
+            self.context.error_context = {
+                "error_type": "checkpoint_error",
+                "error_message": str(e),
+                "originating_round": str(self._state),
+            }
+            self._event = MindshareabciappEvents.ERROR
+            self._is_done = True
+
+    def _initialize_checkpoint_check(self) -> None:
+        """Initialize checkpoint check."""
+        if self.checkpoint_initialized:
+            return
+
+        self.context.logger.info("Initializing checkpoint check...")
+
+        staking_chain = self.context.params.staking_chain
+        if not staking_chain:
+            self.context.logger.warning("Service has not been staked on any chain!")
+            self.service_staking_state = StakingState.UNSTAKED
+            self.staking_state_check_complete = True
+            self.checkpoint_initialized = True
+            return
+
+        self._get_service_staking_state_async()
+        self.checkpoint_initialized = True
+
+    def _get_service_staking_state_async(self) -> None:
+        """Get service staking state asynchronously."""
+        try:
+            staking_chain = self.context.params.staking_chain
+            staking_token_contract_address = getattr(self.context.params, "staking_token_contract_address", None)
+            service_id = self.context.params.service_id
+            on_chain_service_id = self.context.params.on_chain_service_id
+
+            if not staking_token_contract_address or not service_id:
+                self.context.logger.warning("Missing staking contract address or service ID")
+                self.service_staking_state = StakingState.UNSTAKED
+                self.staking_state_check_complete = True
+                return
+
+            dialogue = self.submit_msg(
+                performative=ContractApiMessage.Performative.GET_STATE,
+                connection_id=LEDGER_API_ADDRESS,
+                contract_address=staking_token_contract_address,
+                contract_id=str(StakingTokenContract.contract_id),
+                callable="get_service_staking_state",
+                ledger_id="ethereum",
+                kwargs=ContractApiMessage.Kwargs({
+                    "service_id": on_chain_service_id,
+                    "chain_id": staking_chain,
+                }),
+            )
+
+            dialogue.validation_func = self._validate_staking_state_response
+            dialogue.request_type = "staking_state"
+            self.pending_contract_calls.append(dialogue)
+
+            self.context.logger.info(f"Submitted staking state request for service {service_id}")
+
+        except Exception as e:
+            self.context.logger.exception(f"Failed to get service staking state: {e}")
+            self.service_staking_state = StakingState.UNSTAKED
+            self.staking_state_check_complete = True
+
+    def _validate_staking_state_response(self, message: Message, dialogue: ContractApiDialogue) -> bool:
+        """Validate staking state response message."""
+        try:
+            if message.performative == ContractApiMessage.Performative.STATE:
+                if hasattr(message, "state") and message.state:
+                    state_data = message.state.body.get("data")
+                    if state_data is not None:
+                        staking_state = int(state_data)
+                        self.contract_responses[dialogue.dialogue_label.dialogue_reference[0]] = {
+                            "staking_state": staking_state,
+                            "request_type": "staking_state",
+                        }
+                        self.context.logger.info(f"Received staking state: {staking_state}")
+                        return True
+
+            elif message.performative == ContractApiMessage.Performative.ERROR:
+                self.context.logger.warning(f"Contract API error: {message.message}")
+
+            return False
+
+        except Exception as e:
+            self.context.logger.exception(f"Error validating staking state response: {e}")
+            return False
+
+    def _check_contract_responses(self) -> None:
+        """Check if contract responses have arrived and process them."""
+        try:
+            for dialogue in self.pending_contract_calls.copy():
+                request_nonce = dialogue.dialogue_label.dialogue_reference[0]
+
+                if request_nonce in self.contract_responses:
+                    response = self.contract_responses[request_nonce]
+                    request_type = response.get("request_type")
+
+                    if request_type == "staking_state":
+                        self._process_staking_state_response(response)
+                    elif request_type == "next_checkpoint":
+                        self._process_next_checkpoint_response(response)
+                    elif request_type == "checkpoint_preparation":
+                        self._process_checkpoint_preparation_response(response)
+
+                    self.pending_contract_calls.remove(dialogue)
+
+            if not self.pending_contract_calls and not self.staking_state_check_complete:
+                self.service_staking_state = StakingState.UNSTAKED
+                self.staking_state_check_complete = True
+                self.context.logger.info("No staking state response received, assuming unstaked")
+
+        except Exception as e:
+            self.context.logger.exception(f"Error checking contract responses: {e}")
+            self.service_staking_state = StakingState.UNSTAKED
+            self.staking_state_check_complete = True
+
+    def _process_staking_state_response(self, response: dict) -> None:
+        """Process staking state response."""
+        staking_state = response["staking_state"]
+
+        if staking_state == 0:
+            self.service_staking_state = StakingState.UNSTAKED
+            self.context.logger.info("Service is not staked")
+        elif staking_state == 1:
+            self.service_staking_state = StakingState.STAKED
+            self.context.logger.info("Service is staked")
+            self._get_next_checkpoint_async()
+        elif staking_state == 2:
+            self.service_staking_state = StakingState.EVICTED
+            self.context.logger.error("Service has been evicted!")
+        else:
+            self.context.logger.warning(f"Unknown staking state: {staking_state}")
+            self.service_staking_state = StakingState.UNSTAKED
+
+        if self.service_staking_state in {StakingState.UNSTAKED, StakingState.EVICTED}:
+            self.staking_state_check_complete = True
+
+    def _get_next_checkpoint_async(self) -> None:
+        """Get next checkpoint timestamp asynchronously."""
+        try:
+            staking_token_contract_address = getattr(self.context.params, "staking_token_contract_address", None)
+            if not staking_token_contract_address:
+                self.staking_state_check_complete = True
+                return
+
+            dialogue = self.submit_msg(
+                performative=ContractApiMessage.Performative.GET_STATE,
+                connection_id=LEDGER_API_ADDRESS,
+                contract_address=staking_token_contract_address,
+                contract_id=str(StakingTokenContract.contract_id),
+                callable="get_next_checkpoint_ts",
+                ledger_id="ethereum",
+                kwargs=ContractApiMessage.Kwargs({"chain_id": self.context.params.staking_chain}),
+            )
+
+            dialogue.validation_func = self._validate_next_checkpoint_response
+            dialogue.request_type = "next_checkpoint"
+            self.pending_contract_calls.append(dialogue)
+
+            self.context.logger.info("Submitted next checkpoint request")
+
+        except Exception as e:
+            self.context.logger.exception(f"Failed to get next checkpoint: {e}")
+            self.staking_state_check_complete = True
+
+    def _validate_next_checkpoint_response(self, message: Message, dialogue: ContractApiDialogue) -> bool:
+        """Validate next checkpoint response message."""
+        try:
+            if message.performative == ContractApiMessage.Performative.STATE:
+                if hasattr(message, "state") and message.state:
+                    checkpoint_data = message.state.body.get("data")
+                    if checkpoint_data is not None:
+                        self.contract_responses[dialogue.dialogue_label.dialogue_reference[0]] = {
+                            "next_checkpoint_ts": int(checkpoint_data),
+                            "request_type": "next_checkpoint",
+                        }
+                        self.context.logger.info(f"Received next checkpoint timestamp: {checkpoint_data}")
+                        return True
+
+            elif message.performative == ContractApiMessage.Performative.ERROR:
+                self.context.logger.warning(f"Contract API error: {message.message}")
+
+            return False
+
+        except Exception as e:
+            self.context.logger.exception(f"Error validating next checkpoint response: {e}")
+            return False
+
+    def _process_next_checkpoint_response(self, response: dict) -> None:
+        """Process next checkpoint response."""
+        self.next_checkpoint_ts = response["next_checkpoint_ts"]
+        self.staking_state_check_complete = True
+        self.context.logger.info(f"Next checkpoint at timestamp: {self.next_checkpoint_ts}")
+
+    def _check_if_checkpoint_reached(self) -> None:
+        """Check if checkpoint is reached."""
+        if self.next_checkpoint_ts is None:
+            self.is_checkpoint_reached = False
+            return
+
+        if self.next_checkpoint_ts == 0:
+            self.is_checkpoint_reached = True
+            return
+
+        current_timestamp = int(datetime.now(UTC).timestamp())
+        self.is_checkpoint_reached = self.next_checkpoint_ts <= current_timestamp
+
+        self.context.logger.info(
+            f"Checkpoint check: current={current_timestamp}, next_checkpoint={self.next_checkpoint_ts}, "
+            f"reached={self.is_checkpoint_reached}"
+        )
+
+    def _prepare_checkpoint_tx_async(self) -> None:
+        """Prepare checkpoint transaction asynchronously."""
+        try:
+            self.context.logger.info("Preparing checkpoint transaction...")
+            staking_token_contract_address = getattr(self.context.params, "staking_token_contract_address", None)
+
+            if not staking_token_contract_address:
+                self.context.logger.warning("No staking token contract address")
+                self.checkpoint_preparation_complete = True
+                return
+
+            dialogue = self.submit_msg(
+                performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,
+                connection_id=LEDGER_API_ADDRESS,
+                contract_address=staking_token_contract_address,
+                contract_id=str(StakingTokenContract.contract_id),
+                callable="build_checkpoint_tx",
+                ledger_id="ethereum",
+                kwargs=ContractApiMessage.Kwargs({"chain_id": self.context.params.staking_chain}),
+            )
+
+            dialogue.validation_func = self._validate_checkpoint_preparation_response
+            dialogue.request_type = "checkpoint_preparation"
+            self.pending_contract_calls.append(dialogue)
+
+            self.context.logger.info("Submitted checkpoint preparation request")
+
+        except Exception as e:
+            self.context.logger.exception(f"Failed to prepare checkpoint transaction: {e}")
+            self.checkpoint_preparation_complete = True
+
+    def _validate_checkpoint_preparation_response(self, message: Message, dialogue: ContractApiDialogue) -> bool:
+        """Validate checkpoint preparation response message."""
+        try:
+            if message.performative == ContractApiMessage.Performative.RAW_TRANSACTION:
+                if hasattr(message, "raw_transaction") and message.raw_transaction:
+                    checkpoint_data = message.raw_transaction.body.get("data")
+                    if checkpoint_data:
+                        self.contract_responses[dialogue.dialogue_label.dialogue_reference[0]] = {
+                            "checkpoint_data": checkpoint_data,
+                            "request_type": "checkpoint_preparation",
+                        }
+                        self.context.logger.info("Received checkpoint transaction data")
+                        return True
+
+            elif message.performative == ContractApiMessage.Performative.ERROR:
+                self.context.logger.warning(f"Contract API error: {message.message}")
+
+            return False
+
+        except Exception as e:
+            self.context.logger.exception(f"Error validating checkpoint preparation response: {e}")
+            return False
+
+    def _check_checkpoint_preparation_responses(self) -> None:
+        """Check if checkpoint preparation responses have arrived."""
+        try:
+            for dialogue in self.pending_contract_calls.copy():
+                request_nonce = dialogue.dialogue_label.dialogue_reference[0]
+
+                if request_nonce in self.contract_responses:
+                    response = self.contract_responses[request_nonce]
+
+                    if response.get("request_type") == "checkpoint_preparation":
+                        self._process_checkpoint_preparation_response(response)
+                        self.pending_contract_calls.remove(dialogue)
+
+            if not self.pending_contract_calls and not self.checkpoint_preparation_complete:
+                self.checkpoint_preparation_complete = True
+                self.context.logger.info("Checkpoint preparation completed (no response)")
+
+        except Exception as e:
+            self.context.logger.exception(f"Error checking checkpoint preparation responses: {e}")
+            self.checkpoint_preparation_complete = True
+
+    def _process_checkpoint_preparation_response(self, response: dict) -> None:
+        """Process checkpoint preparation response."""
+        checkpoint_data = response["checkpoint_data"]
+        self.checkpoint_tx_hex = self._prepare_safe_tx_hash(checkpoint_data)
+        self.checkpoint_preparation_complete = True
+        self.context.logger.info(f"Checkpoint transaction prepared: {self.checkpoint_tx_hex}")
+
+    def _prepare_safe_tx_hash(self, data: bytes) -> str | None:
+        """Prepare safe transaction hash."""
+        try:
+            staking_chain = self.context.params.staking_chain
+            safe_addresses = getattr(self.context.params, "safe_contract_addresses", {})
+
+            if isinstance(safe_addresses, str):
+                try:
+                    safe_addresses = json.loads(safe_addresses)
+                except json.JSONDecodeError:
+                    safe_addresses = {}
+
+            safe_address = safe_addresses.get(staking_chain)
+            if not safe_address:
+                self.context.logger.warning(f"No safe address found for staking chain {staking_chain}")
+                return None
+
+            staking_token_contract_address = getattr(self.context.params, "staking_token_contract_address", None)
+            if not staking_token_contract_address:
+                return None
+
+            safe_tx_hash = f"0x{data.hex()}"
+            return safe_tx_hash
+
+        except Exception as e:
+            self.context.logger.exception(f"Failed to prepare safe transaction hash: {e}")
+            return None
+
+    def _finalize_checkpoint_check(self) -> None:
+        """Finalize checkpoint check and determine transition."""
+        self.context.logger.info("Finalizing checkpoint check...")
+
+        if self.service_staking_state == StakingState.UNSTAKED:
+            self.context.logger.info("Service is not staked")
+            self._event = MindshareabciappEvents.SERVICE_NOT_STAKED
+        elif self.service_staking_state == StakingState.EVICTED:
+            self.context.logger.info("Service has been evicted")
+            self._event = MindshareabciappEvents.SERVICE_EVICTED
+        elif self.service_staking_state == StakingState.STAKED:
+            if self.checkpoint_tx_hex:
+                self.context.logger.info(f"Checkpoint transaction prepared: {self.checkpoint_tx_hex}")
+                self._event = MindshareabciappEvents.CHECKPOINT_PREPARED
+            else:
+                self.context.logger.info("Checkpoint not reached yet")
+                self._event = MindshareabciappEvents.CHECKPOINT_NOT_REACHED
+        else:
+            self.context.logger.error("Unknown staking state")
+            self._event = MindshareabciappEvents.ERROR
+
+        self._is_done = True
 
 
 class CheckStakingKPIRound(BaseState):
@@ -6339,6 +6781,7 @@ class MindshareabciappFsmBehaviour(FSMBehaviour):
         self.register_state(MindshareabciappStates.RISKEVALUATIONROUND.value, RiskEvaluationRound(**kwargs))
         self.register_state(MindshareabciappStates.PAUSEDROUND.value, PausedRound(**kwargs))
         self.register_state(MindshareabciappStates.CHECKSTAKINGKPIROUND.value, CheckStakingKPIRound(**kwargs))
+        self.register_state(MindshareabciappStates.CALLCHECKPOINTROUND.value, CallCheckpointRound(**kwargs))
         self.register_state(MindshareabciappStates.SIGNALAGGREGATIONROUND.value, SignalAggregationRound(**kwargs))
         self.register_state(MindshareabciappStates.POSITIONMONITORINGROUND.value, PositionMonitoringRound(**kwargs))
         self.register_state(MindshareabciappStates.ANALYSISROUND.value, AnalysisRound(**kwargs))
@@ -6362,6 +6805,31 @@ class MindshareabciappFsmBehaviour(FSMBehaviour):
         )
         self.register_transition(
             source=MindshareabciappStates.CHECKSTAKINGKPIROUND.value,
+            event=MindshareabciappEvents.ERROR,
+            destination=MindshareabciappStates.HANDLEERRORROUND.value,
+        )
+        self.register_transition(
+            source=MindshareabciappStates.CALLCHECKPOINTROUND.value,
+            event=MindshareabciappEvents.DONE,
+            destination=MindshareabciappStates.CHECKSTAKINGKPIROUND.value,
+        )
+        self.register_transition(
+            source=MindshareabciappStates.CALLCHECKPOINTROUND.value,
+            event=MindshareabciappEvents.NEXT_CHECKPOINT_NOT_REACHED_YET,
+            destination=MindshareabciappStates.CHECKSTAKINGKPIROUND.value,
+        )
+        self.register_transition(
+            source=MindshareabciappStates.CALLCHECKPOINTROUND.value,
+            event=MindshareabciappEvents.SERVICE_EVICTED,
+            destination=MindshareabciappStates.DATACOLLECTIONROUND.value,
+        )
+        self.register_transition(
+            source=MindshareabciappStates.CALLCHECKPOINTROUND.value,
+            event=MindshareabciappEvents.SERVICE_NOT_STAKED,
+            destination=MindshareabciappStates.DATACOLLECTIONROUND.value,
+        )
+        self.register_transition(
+            source=MindshareabciappStates.CALLCHECKPOINTROUND.value,
             event=MindshareabciappEvents.ERROR,
             destination=MindshareabciappStates.HANDLEERRORROUND.value,
         )
@@ -6408,7 +6876,7 @@ class MindshareabciappFsmBehaviour(FSMBehaviour):
         self.register_transition(
             source=MindshareabciappStates.PAUSEDROUND.value,
             event=MindshareabciappEvents.RESUME,
-            destination=MindshareabciappStates.CHECKSTAKINGKPIROUND.value,
+            destination=MindshareabciappStates.CALLCHECKPOINTROUND.value,
         )
         self.register_transition(
             source=MindshareabciappStates.PORTFOLIOVALIDATIONROUND.value,
@@ -6458,7 +6926,7 @@ class MindshareabciappFsmBehaviour(FSMBehaviour):
         self.register_transition(
             source=MindshareabciappStates.SETUPROUND.value,
             event=MindshareabciappEvents.DONE,
-            destination=MindshareabciappStates.CHECKSTAKINGKPIROUND.value,
+            destination=MindshareabciappStates.CALLCHECKPOINTROUND.value,
         )
         self.register_transition(
             source=MindshareabciappStates.SETUPROUND.value,
@@ -6473,7 +6941,7 @@ class MindshareabciappFsmBehaviour(FSMBehaviour):
         self.register_transition(
             source=MindshareabciappStates.SIGNALAGGREGATIONROUND.value,
             event=MindshareabciappEvents.NO_SIGNAL,
-            destination=MindshareabciappStates.CHECKSTAKINGKPIROUND.value,
+            destination=MindshareabciappStates.PAUSEDROUND.value,
         )
         self.register_transition(
             source=MindshareabciappStates.SIGNALAGGREGATIONROUND.value,

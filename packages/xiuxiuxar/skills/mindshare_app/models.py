@@ -577,6 +577,9 @@ class Params(Model):
         self.staking_chain = kwargs.pop("staking_chain", "base")
         self.staking_threshold_period = kwargs.pop("staking_threshold_period", 22)
         self.min_num_of_safe_tx_required = kwargs.pop("min_num_of_safe_tx_required", 5)
+        self.staking_token_contract_address = kwargs.pop("staking_token_contract_address", "0xEB5638eefE289691EcE01943f768EDBF96258a80")
+        self.service_id = kwargs.pop("service_id", "mindshare")
+        self.on_chain_service_id = kwargs.pop("on_chain_service_id", None)
 
         # Trading
         self.data_sufficiency_threshold = kwargs.pop("data_sufficiency_threshold", 0.5)

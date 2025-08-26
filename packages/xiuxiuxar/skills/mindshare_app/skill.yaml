@@ -30,6 +30,7 @@ contracts:
 - valory/erc20:0.1.0:bafybeiczphtgmlot3tbsqwfstagnuffw6rlzlxpodnvafodwq573q555ye
 - xiuxiuxar/gnosis_safe:0.1.0:bafybeidg4eqnaoinikb44n3erkxet2tuiurtaqdiis5iqal3ey2odf3ieu
 - valory/multisend:0.1.0:bafybeig5byt5urg2d2bsecufxe5ql7f4mezg3mekfleeh32nmuusx66p4y
+- valory/staking_token:0.1.0:bafybeiclu2xkt6yzgm2d336wcjid7zrgdnvjnxinksxxw5yvfwvwiqd6ii
 protocols:
 - valory/contract_api:1.0.0:bafybeid247uig2ekykdumh7ewhp2cdq7rchaeqjj6e7urx35zfpdl5zrn4
 - eightballer/default:0.1.0:bafybeickzbjjhatxl2a5gq3qr2taczznuw7co7w7et33gtb3hagx2wlesy
@@ -109,6 +110,9 @@ models:
       staking_chain: base
       staking_threshold_period: 1
       min_num_of_safe_tx_required: 5
+      staking_token_contract_address: "0xEB5638eefE289691EcE01943f768EDBF96258a80"
+      on_chain_service_id: null
+      service_id: mindshare
       cowswap_slippage_tolerance: 0.005
       cowswap_timeout_seconds: 300
       data_sufficiency_threshold: 0.5
