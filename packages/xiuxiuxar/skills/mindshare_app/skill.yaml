@@ -106,6 +106,9 @@ models:
       trendmoon_rate_limit_per_minute: 20
       trendmoon_rate_limit_per_second: 5
       trendmoon_monthly_credits: 10000
+      staking_chain: base
+      staking_threshold_period: 1
+      min_num_of_safe_tx_required: 5
       cowswap_slippage_tolerance: 0.005
       cowswap_timeout_seconds: 300
       data_sufficiency_threshold: 0.5

@@ -91,6 +91,9 @@ models:
       trendmoon_rate_limit_per_minute: ${int:100}
       trendmoon_rate_limit_per_second: ${int:5}
       trendmoon_monthly_credits: ${int:10000}
+      staking_chain: ${str:base}
+      staking_threshold_period: ${int:2}
+      min_num_of_safe_tx_required: ${int:1}
       data_sufficiency_threshold: ${float:0.5}
       max_exposure_per_position: ${float:20.0}
       max_positions: ${int:5}

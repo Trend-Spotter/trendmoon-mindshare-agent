@@ -565,12 +565,20 @@ class Params(Model):
     """This class implements the parameters for the Mindshare app."""
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
+        # Data sources
         self.coingecko_api_key = kwargs.pop("coingecko_api_key", "")
         self.trendmoon_api_key = kwargs.pop("trendmoon_api_key", "")
         self.coingecko_rate_limit_per_minute = kwargs.pop("coingecko_rate_limit_per_minute", 50)
         self.coingecko_monthly_credits = kwargs.pop("coingecko_monthly_credits", 100000)
         self.trendmoon_rate_limit_per_minute = kwargs.pop("trendmoon_rate_limit_per_minute", 100)
         self.trendmoon_monthly_credits = kwargs.pop("trendmoon_monthly_credits", 10000)
+
+        # Staking
+        self.staking_chain = kwargs.pop("staking_chain", "base")
+        self.staking_threshold_period = kwargs.pop("staking_threshold_period", 22)
+        self.min_num_of_safe_tx_required = kwargs.pop("min_num_of_safe_tx_required", 5)
+
+        # Trading
         self.data_sufficiency_threshold = kwargs.pop("data_sufficiency_threshold", 0.5)
         self.safe_contract_addresses = kwargs.pop("safe_contract_addresses", {})
         self.store_path = kwargs.pop("store_path", "./persistent_data")
