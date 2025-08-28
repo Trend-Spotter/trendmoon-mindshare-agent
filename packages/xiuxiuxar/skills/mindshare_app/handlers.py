@@ -407,6 +407,7 @@ class OrdersHandler(Handler):
     allowed_response_performatives = frozenset(
         {
             OrdersMessage.Performative.ORDER,
+            OrdersMessage.Performative.ORDERS,
             OrdersMessage.Performative.ORDER_CREATED,
             OrdersMessage.Performative.ERROR,
         }

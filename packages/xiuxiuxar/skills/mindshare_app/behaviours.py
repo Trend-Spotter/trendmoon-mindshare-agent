@@ -5640,7 +5640,7 @@ class TradeConstructionRound(BaseState):
             min_size = self.risk_parameters["min_position_size"]
             position_size = max(min_size, position_size)
 
-            max_positions = 7
+            max_positions = self.context.params.max_positions
             current_positions = len(self.open_positions)
             if current_positions >= max_positions:
                 self.context.logger.info(f"Max positions reached: {current_positions}/{max_positions}")
@@ -6357,8 +6357,22 @@ class ExecutionRound(BaseState):
         """Process CoW order submission response."""
         try:
             if message.performative in {OrdersMessage.Performative.ORDER, OrdersMessage.Performative.ORDER_CREATED}:
-                order = message.order
-                if order:
+                response_order = message.order
+                if response_order:
+                    # Store original order ID for tracking
+                    original_order_id = self.active_operation["order"].id
+
+                    # Update the order object with the actual CoW Protocol order ID
+                    self.active_operation["order"].id = response_order.id
+
+                    # Store the original ID in the operation metadata for reference
+                    self.active_operation["original_order_id"] = original_order_id
+
+                    self.context.logger.info(
+                        f"CoW order submitted successfully. Original ID: {original_order_id}, "
+                        f"CoW Protocol ID: {response_order.id}"
+                    )
+
                     self.active_operation["state"] = "monitoring"
                     self._clear_dialogue(dialogue)
 
@@ -6374,13 +6388,92 @@ class ExecutionRound(BaseState):
 
     def _monitor_cow_execution(self) -> None:
         """Monitor CoW order execution status."""
-        # For now, mark as complete - in real implementation would check CoW API
         order = self.active_operation["order"]
         self.context.logger.info(f"Monitoring CoW order execution: {order.id}")
 
-        # TODO: Implement actual monitoring via CoW API
-        # For now, simulate success
-        self._finalize_cow_order()
+        # Submit GET_ORDERS request to check order status
+        dialogue = self.submit_msg(
+            performative=OrdersMessage.Performative.GET_ORDERS,
+            connection_id=str(DCXT_PUBLIC_ID),
+            exchange_id="cowswap",
+            ledger_id="base",  # here ledger_id defines DCXT chain for the exchange.
+            account=self._get_safe_address() or self.context.agent_address,
+        )
+
+        # Set validation function for the response
+        dialogue.validation_func = self._validate_cow_monitoring_response
+        self.active_operation["monitoring_dialogue"] = dialogue
+
+    def _validate_cow_monitoring_response(self, message: OrdersMessage, _dialogue: BaseDialogue) -> bool:
+        """Validate CoW order monitoring response and finalize if needed."""
+        try:
+            if message.performative == OrdersMessage.Performative.ORDERS:
+                orders = message.orders.orders
+                target_order_id = self.active_operation["order"].id
+
+                self.context.logger.info(
+                    f"Checking CoW order {target_order_id} against {len(orders)} returned orders"
+                )
+
+                # Debug: log all order IDs for comparison
+                if orders:
+                    order_ids = [order.id for order in orders]
+                    self.context.logger.info(f"Returned order IDs: {order_ids}")
+                else:
+                    self.context.logger.info("No orders returned from CoW API")
+
+                # Look for our specific order in the returned orders
+                target_order = None
+                for order in orders:
+                    self.context.logger.debug(f"Comparing order ID: '{order.id}' with target: '{target_order_id}'")
+                    if str(order.id) == str(target_order_id):
+                        target_order = order
+                        self.context.logger.info(f"Found matching order: {order.id} with status: {order.status}")
+                        break
+
+                if target_order is None:
+                    # Order not found in open orders - it has been filled or cancelled
+                    self.context.logger.info(
+                        f"CoW order {target_order_id} no longer in open orders - assuming filled"
+                    )
+                    self._finalize_cow_order()
+                    return True
+
+                # Order still exists - check its status
+                if target_order.status in {OrderStatus.FILLED, OrderStatus.PARTIALLY_FILLED}:
+                    self.context.logger.info(
+                        f"CoW order {target_order_id} executed with status: {target_order.status}"
+                    )
+                    self.active_operation["order"] = target_order  # Update with latest status
+                    self._finalize_cow_order()
+                    return True
+
+                if target_order.status == OrderStatus.CANCELLED:
+                    self.context.logger.warning(f"CoW order {target_order_id} was cancelled")
+                    self.active_operation["state"] = "failed"
+                    return True
+
+                if target_order.status == OrderStatus.EXPIRED:
+                    self.context.logger.warning(f"CoW order {target_order_id} expired")
+                    self.active_operation["state"] = "failed"
+                    return True
+
+                # Order still open, continue monitoring
+                self.context.logger.info(
+                    f"CoW order {target_order_id} still open with status: {target_order.status}"
+                )
+                return True
+
+            if message.performative == OrdersMessage.Performative.ERROR:
+                self.context.logger.error(f"Error monitoring CoW order: {message.error_msg}")
+                # Continue monitoring on error - don't fail the operation
+                return True
+
+            return False
+
+        except Exception as e:
+            self.context.logger.exception(f"Error validating CoW monitoring response: {e}")
+            return False
 
     # =========== Multisend construction ===========
 

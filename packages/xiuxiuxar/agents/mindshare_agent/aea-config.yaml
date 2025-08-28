@@ -100,7 +100,7 @@ models:
       service_id: ${str:mindshare}
       data_sufficiency_threshold: ${float:0.5}
       max_exposure_per_position: ${float:20.0}
-      max_positions: ${int:5}
+      max_positions: ${int:7}
       max_total_exposure: ${float:80.0}
       min_capital_buffer: ${float:500.0}
       min_position_size_usd: ${float:100.0}
