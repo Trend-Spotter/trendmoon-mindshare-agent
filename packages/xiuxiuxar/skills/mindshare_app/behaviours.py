@@ -164,6 +164,7 @@ ALLOWED_ASSETS: dict[str, list[dict[str, str]]] = {
             "address": "0x9E6A46f294bB67c20F1D1E7AfB0bBEf614403B55",
             "symbol": "MAG7.ssi",
             "coingecko_id": "mag7-ssi",
+            "decimals": 8,
         },
         {
             "address": "0xB1a03EdA10342529bBF8EB700a06C60441fEf25d",
@@ -6503,7 +6504,7 @@ class ExecutionRound(BaseState):
                     self.active_operation["state"] = "failed"
                     return True
 
-                # Order still open, continue monitoring
+                # Order still open, transition to next round with ORDER_PLACED event
                 self.context.logger.info(
                     f"CoW order {target_order_id} still open with status: {target_order.status}"
                 )
@@ -7178,8 +7179,19 @@ class ExecutionRound(BaseState):
             buffer_multiplier = 1.005  # Buffer for slippage and fees
             return int(usdc_amount * buffer_multiplier * 10**6)  # USDC has 6 decimals
         if order.side == OrderSide.SELL:
-            msg = "Sell orders are not supported yet"
-            raise NotImplementedError(msg)
+            # For sell orders, approve the token amount being sold
+            token_address = order.asset_a
+            token_amount = order.amount
+            buffer_multiplier = 1.005
+
+            # Look up token decimals from ALLOWED_ASSETS
+            token_decimals = 18  # Default to standard ERC20 decimals
+            for token in ALLOWED_ASSETS["base"]:
+                if token.get("address") == token_address:
+                    token_decimals = token.get("decimals", 18)
+                    break
+
+            return int(token_amount * buffer_multiplier * 10**token_decimals)
         return None
 
     def _has_pending_responses(self) -> bool:
