@@ -2833,8 +2833,8 @@ class PositionMonitoringRound(BaseState):
 
         # Check tailing stop loss activation
         entry_price = position["entry_price"]
-        if current_price >= entry_price * 1.25 and not position.get("tailing_stop_active"):
-            trailing_stop = current_price * 0.97
+        if current_price >= entry_price * self.context.params.trailing_stop_loss_activation_level and not position.get("tailing_stop_active"):
+            trailing_stop = current_price * self.context.params.trailing_stop_loss_pct
             updated_position["stop_loss_price"] = max(
                 trailing_stop,
                 position.get("stop_loss_price", 0),
@@ -4856,9 +4856,9 @@ class RiskEvaluationRound(BaseState):
                 self.context.logger.warning(f"No valid current price found for {symbol}")
                 return False
 
-            stop_loss_pct = 0.84
-            tailing_stop_loss_pct = 0.97
-            trailing_activation = 1.25
+            stop_loss_pct = self.context.params.stop_loss_pct
+            tailing_stop_loss_pct = self.context.params.trailing_stop_loss_pct
+            trailing_activation = self.context.params.trailing_stop_loss_activation_level
 
             stop_loss_price = current_price * stop_loss_pct
 

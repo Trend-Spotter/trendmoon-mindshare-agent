@@ -128,9 +128,12 @@ models:
       reset_pause_duration: 300
       safe_contract_addresses: '{"ethereum":"0x0000000000000000000000000000000000000000","arbitrum":"0x0000000000000000000000000000000000000000","base":"0x0000000000000000000000000000000000000000","optimism":"0x0000000000000000000000000000000000000000","mode":"0x0000000000000000000000000000000000000000"}'
       stop_loss_atr_multiplier: 1.5
+      stop_loss_pct: 0.84
       store_path: ./persistent_data
       take_profit_risk_ratio: 2.0
       trading_strategy: balanced
+      trailing_stop_loss_activation_level: 1.25
+      trailing_stop_loss_pct: 0.97
       moving_average_length: 20
     class_name: Params
 dependencies:
