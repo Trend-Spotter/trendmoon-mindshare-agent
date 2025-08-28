@@ -157,6 +157,12 @@ config:
     ledger_id: base
     etherscan_api_key: ${str:test_key}
     rpc_url: ${str:https://base.drpc.org}
+  - name: cowswap
+    key_path: ethereum_private_key.txt
+    wallet: null
+    ledger_id: base
+    etherscan_api_key: ${str:test_key}
+    rpc_url: ${str:https://base.drpc.org}
 ---
 public_id: eightballer/http_client:0.1.0
 type: connection  
