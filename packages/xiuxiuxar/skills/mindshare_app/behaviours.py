@@ -6369,6 +6369,9 @@ class ExecutionRound(BaseState):
                     # Store the original ID in the operation metadata for reference
                     self.active_operation["original_order_id"] = original_order_id
 
+                    # Append order ID to pending_trades.json for easy reference
+                    self._append_order_id_to_pending_trades(original_order_id, response_order.id)
+
                     self.context.logger.info(
                         f"CoW order submitted successfully. Original ID: {original_order_id}, "
                         f"CoW Protocol ID: {response_order.id}"
@@ -6386,6 +6389,47 @@ class ExecutionRound(BaseState):
         except Exception as e:
             self.context.logger.exception(f"Error processing CoW order response: {e}")
             return False
+
+    def _append_order_id_to_pending_trades(self, original_order_id: str, cowswap_order_id: str) -> None:
+        """Append the CoWSwap order ID to pending_trades.json for easy reference in position monitoring."""
+        try:
+            if not self.context.store_path:
+                self.context.logger.warning("No store_path available, cannot update pending_trades.json")
+                return
+
+            trades_file = self.context.store_path / "pending_trades.json"
+
+            if not trades_file.exists():
+                self.context.logger.warning(f"pending_trades.json not found at {trades_file}")
+                return
+
+            # Load existing pending trades
+            with open(trades_file, encoding="utf-8") as f:
+                pending_trades = json.load(f)
+
+            # Find the trade with matching original order ID and add CoWSwap order ID
+            trades_updated = False
+            for trade in pending_trades.get("trades", []):
+                if trade.get("trade_id") == original_order_id:
+                    trade["cowswap_order_id"] = cowswap_order_id
+                    trade["order_submitted_at"] = datetime.now(UTC).isoformat()
+                    trades_updated = True
+                    self.context.logger.info(f"Added CoWSwap order ID {cowswap_order_id} to trade {original_order_id}")
+                    break
+
+            if trades_updated:
+                # Update timestamp and save
+                pending_trades["last_updated"] = datetime.now(UTC).isoformat()
+
+                with open(trades_file, "w", encoding="utf-8") as f:
+                    json.dump(pending_trades, f, indent=2)
+
+                self.context.logger.info("Updated pending_trades.json with CoWSwap order ID")
+            else:
+                self.context.logger.warning(f"Could not find trade with ID {original_order_id} in pending_trades.json")
+
+        except Exception as e:
+            self.context.logger.exception(f"Failed to append order ID to pending_trades.json: {e}")
 
     def _monitor_cow_execution(self) -> None:
         """Monitor CoW order execution status."""
