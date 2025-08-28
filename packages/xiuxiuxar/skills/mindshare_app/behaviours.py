@@ -68,6 +68,7 @@ SAFE_TX_GAS = 300_000  # Non-zero value to prevent Safe revert during gas estima
 MAX_UINT256 = 2**256 - 1
 NULL_ADDRESS = "0x" + "0" * 40
 BALANCER_VAULT = "0xBA12222222228d8Ba445958a75a0704d566BF2C8"  # Balancer V2 Vault on Base
+COW_VAULT_RELAYER = "0xC92E8bdf79f0507f65a392b0ab4667716BFE0110"  # CoW Protocol GPv2VaultRelayer on Base
 MULTISEND_ADDRESS = "0x40A2aCCbd92BCA938b02010E17A5b8929b49130D"  # Base chain multisend
 
 
@@ -5301,21 +5302,21 @@ class TradeConstructionRound(BaseState):
             ticker_dialogue = self.submit_msg(
                 TickersMessage.Performative.GET_TICKER,
                 connection_id=str(DCXT_PUBLIC_ID),
-                exchange_id="balancer",
+                exchange_id="cowswap",
                 ledger_id="base",
                 symbol=trading_pair,
                 params=json.dumps({"amount": ticker_amount}).encode(DEFAULT_ENCODING),
             )
 
             ticker_dialogue.validation_func = self._validate_ticker_msg
-            ticker_dialogue.exchange_id = "balancer"
+            ticker_dialogue.exchange_id = "cowswap"
             ticker_dialogue.ledger_id = "base"
             ticker_dialogue.symbol = symbol
             ticker_dialogue.trading_pair = trading_pair
 
             price_request = PriceRequest(
                 symbol=symbol,
-                exchange_id="balancer",
+                exchange_id="cowswap",
                 ledger_id="base",
                 ticker_dialogue=ticker_dialogue,
                 request_timestamp=datetime.now(UTC),
@@ -6029,6 +6030,9 @@ class ExecutionRound(BaseState):
             self.context.logger.warning(f"Invalid token quantity for {symbol}: {quantity}")
             return None
 
+        # Select best exchange for this exit trade
+        exchange_id = self._select_exchange_for_trade("exit", symbol, quantity)
+
         order = Order(
             id=f"exit_{symbol}_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}",
             symbol=f"{symbol}/USDC",
@@ -6036,7 +6040,7 @@ class ExecutionRound(BaseState):
             amount=quantity,  # Amount in token units (human readable)
             price=position.get("exit_price", position.get("current_price", 0)),
             type=OrderType.MARKET,
-            exchange_id="balancer",
+            exchange_id=exchange_id,
             ledger_id="base",
             status=OrderStatus.NEW,
             timestamp=datetime.now(UTC).timestamp(),
@@ -6053,6 +6057,9 @@ class ExecutionRound(BaseState):
         symbol = trade.get("symbol")
         quantity = truncate_to_decimals(trade.get("token_quantity"))
 
+        # Select best exchange for this entry trade
+        exchange_id = self._select_exchange_for_trade("entry", symbol, quantity)
+
         order = Order(
             id=trade.get("trade_id"),
             symbol=f"{symbol}/USDC",
@@ -6062,7 +6069,7 @@ class ExecutionRound(BaseState):
             amount=quantity,  # Amount in BUY tokens
             price=trade.get("entry_price"),
             type=OrderType.MARKET,
-            exchange_id="balancer",
+            exchange_id=exchange_id,
             ledger_id="base",  # Use "base" for Base chain
             status=OrderStatus.NEW,
             timestamp=datetime.now(UTC).timestamp(),
@@ -6091,9 +6098,13 @@ class ExecutionRound(BaseState):
         self._continue_operation()
 
     def _create_operation(self, order: Order) -> dict[str, Any]:
-        """Create a new multisend operation."""
+        """Create a new operation (multisend for Balancer, direct for CoWSwap)."""
+        # Determine exchange from order or use default
+        exchange_id = getattr(order, "exchange_id", "balancer")
+
         return {
             "order": order,
+            "exchange_id": exchange_id,
             "state": "approve_pending",
             "approve_data": None,
             "swap_data": None,
@@ -6103,18 +6114,45 @@ class ExecutionRound(BaseState):
         }
 
     def _continue_operation(self) -> None:
-        """Continue processing the active multisendoperation."""
+        """Continue processing the active operation (multisend for Balancer, direct for CoWSwap)."""
         if not self.active_operation:
             return
 
+        exchange_id = self.active_operation.get("exchange_id", "balancer")
         state = self.active_operation["state"]
 
+        if exchange_id == "cowswap":
+            self._continue_cowswap_operation(state)
+        else:
+            self._continue_balancer_operation(state)
+
+    def _continue_balancer_operation(self, state: str) -> None:
+        """Continue processing Balancer multisend operation."""
         if state == "approve_pending":
             self._request_approve_data()
         elif state == "swap_pending":
             self._request_swap_data()
         elif state == "multisend_pending":
             self._build_multisend()
+        elif state == "safe_hash_pending":
+            self._request_safe_hash()
+        elif state == "execution_pending":
+            self._execute_safe_tx()
+        elif state == "signing_pending":
+            self._sign_transaction()
+        elif state == "broadcast_pending":
+            self._broadcast_transaction()
+        elif state == "receipt_pending":
+            self._request_receipt(self.active_operation["tx_digest"])
+
+    def _continue_cowswap_operation(self, state: str) -> None:
+        """Continue processing CoWSwap operation."""
+        if state == "approve_pending":
+            self._request_cow_approval_transaction()
+        elif state == "approval_confirmed":
+            self._submit_cow_order()
+        elif state == "monitoring":
+            self._monitor_cow_execution()
         elif state == "safe_hash_pending":
             self._request_safe_hash()
         elif state == "execution_pending":
@@ -6137,6 +6175,8 @@ class ExecutionRound(BaseState):
 
         order = self.active_operation["order"]
         amount = self._calculate_approval_amount(order)
+        exchange_id = self.active_operation.get("exchange_id", "balancer")
+        spender = self._get_spender_for_exchange(exchange_id)
 
         dialogue = self.submit_msg(
             performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,
@@ -6147,7 +6187,7 @@ class ExecutionRound(BaseState):
             callable="build_approval_tx",
             kwargs=ContractApiMessage.Kwargs(
                 {
-                    "spender": BALANCER_VAULT,
+                    "spender": spender,
                     "amount": amount,
                 }
             ),
@@ -6193,7 +6233,7 @@ class ExecutionRound(BaseState):
             connection_id=str(DCXT_PUBLIC_ID),
             order=order,
             exchange_id="balancer",
-            ledger_id="base",
+            ledger_id="ethereum",
         )
 
         dialogue.validation_func = self._validate_swap_response
@@ -6223,6 +6263,124 @@ class ExecutionRound(BaseState):
         except Exception as e:
             self.context.logger.exception(f"Error processing swap response: {e}")
             return False
+
+    # =========== Exchange Selection ===========
+
+    def _select_exchange_for_trade(self, trade_type: str, symbol: str, amount: float) -> str:
+        """Select the best exchange for a trade based on various factors."""
+        # Placeholder
+
+        return "cowswap"
+
+    def _get_spender_for_exchange(self, exchange_id: str) -> str:
+        """Get the appropriate spender address for the exchange."""
+        if exchange_id == "cowswap":
+            return COW_VAULT_RELAYER
+        return BALANCER_VAULT
+
+    # =========== CoWSwap Methods ===========
+
+    def _request_cow_approval_transaction(self) -> None:
+        """Request ERC20 approval transaction for CoWSwap (direct, no multisend)."""
+        if any(dialogue_type == "approve" for dialogue_type in self.pending_dialogues.values()):
+            self.context.logger.info("CoW approval dialogue already in progress, skipping approval request")
+            return
+
+        order = self.active_operation["order"]
+        amount = self._calculate_approval_amount(order)
+
+        token_address = order.asset_b if order.side == OrderSide.BUY else order.asset_a
+
+        dialogue = self.submit_msg(
+            performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,
+            connection_id="valory/ledger:0.19.0",
+            contract_address=token_address,
+            contract_id=str(ERC20.contract_id),
+            ledger_id="ethereum",
+            callable="build_approval_tx",
+            kwargs=ContractApiMessage.Kwargs(
+                {
+                    "spender": COW_VAULT_RELAYER,
+                    "amount": amount,
+                }
+            ),
+        )
+
+        dialogue.validation_func = self._validate_cow_approval_response
+        self._track_dialogue(dialogue, "approve")
+
+        self.context.logger.info(f"Requested CoW ERC20 approval for {order.asset_b}")
+
+    def _validate_cow_approval_response(self, message: Message, dialogue: BaseDialogue) -> bool:
+        """Process CoW ERC20 approval response and prepare for Safe execution."""
+        try:
+            if message.performative == ContractApiMessage.Performative.RAW_TRANSACTION:
+                data = message.raw_transaction.body.get("data")
+                if data:
+                    self.active_operation["approve_data"] = "0x" + data.hex()
+                    # For CoWSwap, we need to execute the approval as a single Safe transaction
+                    self.active_operation["state"] = "safe_hash_pending"
+                    self._clear_dialogue(dialogue)
+
+                    self._auto_continue()
+                    return True
+
+            self.context.logger.error(f"Invalid CoW approval response: {message.performative}")
+            return False
+
+        except Exception as e:
+            self.context.logger.exception(f"Error processing CoW approval response: {e}")
+            return False
+
+    def _submit_cow_order(self) -> None:
+        """Submit order to CoW Protocol via API after approval confirmed."""
+        order = self.active_operation["order"]
+
+        safe_address = self._get_safe_address()
+        if safe_address:
+            order.info = json.dumps({"safe_contract_address": safe_address})
+
+        dialogue = self.submit_msg(
+            performative=OrdersMessage.Performative.CREATE_ORDER,
+            connection_id=str(DCXT_PUBLIC_ID),
+            order=order,
+            exchange_id="cowswap",
+            ledger_id="ethereum",
+        )
+
+        dialogue.validation_func = self._validate_cow_order_response
+        self._track_dialogue(dialogue, "cow_order")
+
+        self.context.logger.info(f"Submitted CoW order: {order.id}")
+
+    def _validate_cow_order_response(self, message: OrdersMessage, dialogue: BaseDialogue) -> bool:
+        """Process CoW order submission response."""
+        try:
+            if message.performative in {OrdersMessage.Performative.ORDER, OrdersMessage.Performative.ORDER_CREATED}:
+                order = message.order
+                if order:
+                    self.active_operation["state"] = "monitoring"
+                    self._clear_dialogue(dialogue)
+
+                    self._auto_continue()
+                    return True
+
+            self.context.logger.error(f"Invalid CoW order response: {message.performative}")
+            return False
+
+        except Exception as e:
+            self.context.logger.exception(f"Error processing CoW order response: {e}")
+            return False
+
+    def _monitor_cow_execution(self) -> None:
+        """Monitor CoW order execution status."""
+        # For now, mark as complete - in real implementation would check CoW API
+        order = self.active_operation["order"]
+        self.context.logger.info(f"Monitoring CoW order execution: {order.id}")
+
+        # TODO: Implement actual monitoring via CoW API
+        # For now, simulate success
+        self._finalize_cow_order()
 
     # =========== Multisend construction ===========
 
@@ -6279,33 +6437,65 @@ class ExecutionRound(BaseState):
 
     def _request_safe_hash(self) -> None:
         """Request Safe transaction hash."""
-        multisend_data = self.active_operation["multisend_data"]
         safe_address = self._get_safe_address()
+        exchange_id = self.active_operation.get("exchange_id", "balancer")
 
-        dialogue = self.submit_msg(
-            performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,
-            connection_id="valory/ledger:0.19.0",
-            contract_address=safe_address,
-            contract_id=str(GnosisSafeContract.contract_id),
-            callable="get_raw_safe_transaction_hash",
-            ledger_id="ethereum",
-            kwargs=ContractApiMessage.Kwargs(
-                {
-                    "to_address": MULTISEND_ADDRESS,
-                    "value": 0,
-                    "data": bytes.fromhex(multisend_data.body["data"][2:]),
-                    "operation": SafeOperation.DELEGATE_CALL.value,
-                    "safe_tx_gas": 0,
-                    "gas_price": 0,
-                }
-            ),
-        )
+        if exchange_id == "cowswap":
+            # For CoWSwap, create direct approval transaction
+            order = self.active_operation["order"]
+            approve_data = self.active_operation["approve_data"]
+
+            token_address = order.asset_b if order.side == OrderSide.BUY else order.asset_a
+
+            dialogue = self.submit_msg(
+                performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,
+                connection_id="valory/ledger:0.19.0",
+                contract_address=safe_address,
+                contract_id=str(GnosisSafeContract.contract_id),
+                callable="get_raw_safe_transaction_hash",
+                ledger_id="ethereum",
+                kwargs=ContractApiMessage.Kwargs(
+                    {
+                        "to_address": token_address,  # Token contract
+                        "value": 0,
+                        "data": bytes.fromhex(approve_data[2:]),
+                        "operation": SafeOperation.CALL.value,
+                        "safe_tx_gas": SAFE_TX_GAS,  # Use defined gas amount
+                        "gas_price": 0,
+                    }
+                ),
+            )
+            dialogue.original_data = approve_data
+            transaction_type = "CoWSwap approval"
+        else:
+            # For Balancer, use multisend transaction
+            multisend_data = self.active_operation["multisend_data"]
+
+            dialogue = self.submit_msg(
+                performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,
+                connection_id="valory/ledger:0.19.0",
+                contract_address=safe_address,
+                contract_id=str(GnosisSafeContract.contract_id),
+                callable="get_raw_safe_transaction_hash",
+                ledger_id="ethereum",
+                kwargs=ContractApiMessage.Kwargs(
+                    {
+                        "to_address": MULTISEND_ADDRESS,
+                        "value": 0,
+                        "data": bytes.fromhex(multisend_data.body["data"][2:]),
+                        "operation": SafeOperation.DELEGATE_CALL.value,
+                        "safe_tx_gas": 0,
+                        "gas_price": 0,
+                    }
+                ),
+            )
+            dialogue.original_data = multisend_data.body["data"]
+            transaction_type = "Balancer multisend"
 
         dialogue.validation_func = self._validate_safe_hash_response
-        dialogue.original_data = multisend_data.body["data"]
         self._track_dialogue(dialogue, "safe_hash")
 
-        self.context.logger.info("Requesting Safe transaction hash")
+        self.context.logger.info(f"Requesting Safe transaction hash for {transaction_type}")
 
     def _validate_safe_hash_response(self, message: ContractApiMessage, dialogue: BaseDialogue) -> bool:
         """Process Safe hash response."""
@@ -6331,6 +6521,18 @@ class ExecutionRound(BaseState):
         """Execute Safe transaction with pre-approved signature."""
         safe_address = self._get_safe_address()
         call_data = self.active_operation["original_data"]
+        exchange_id = self.active_operation.get("exchange_id", "balancer")
+
+        if exchange_id == "cowswap":
+            # For CoWSwap: direct CALL to token contract
+            order = self.active_operation["order"]
+
+            to_address = order.asset_b if order.side == OrderSide.BUY else order.asset_a
+            operation = SafeOperation.CALL.value
+        else:
+            # For Balancer: DELEGATE_CALL to MultiSend
+            to_address = MULTISEND_ADDRESS
+            operation = SafeOperation.DELEGATE_CALL.value
 
         dialogue = self.submit_msg(
             performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,
@@ -6338,17 +6540,17 @@ class ExecutionRound(BaseState):
             contract_address=safe_address,
             contract_id=str(GnosisSafeContract.contract_id),
             callable="get_raw_safe_transaction",
-            ledger_id="ethereum",
+            ledger_id="ethereum",  # Use Base chain
             kwargs=ContractApiMessage.Kwargs(
                 {
                     "sender_address": self.context.agent_address,
                     "owners": (self.context.agent_address,),
-                    "to_address": MULTISEND_ADDRESS,
+                    "to_address": to_address,
                     "value": 0,
                     "data": bytes.fromhex(call_data.removeprefix("0x")),
                     "signatures_by_owner": {self.context.agent_address: self._get_preapproved_signature()},
-                    "operation": SafeOperation.DELEGATE_CALL.value,
-                    "safe_tx_gas": 0,
+                    "operation": operation,
+                    "safe_tx_gas": SAFE_TX_GAS,
                     "base_gas": 0,
                     "gas_price": 0,
                     "gas_token": NULL_ADDRESS,
@@ -6514,6 +6716,27 @@ class ExecutionRound(BaseState):
 
     def _complete_operation(self) -> None:
         """Mark operation as complete and update positions."""
+        exchange_id = self.active_operation.get("exchange_id", "balancer")
+
+        # For CoWSwap, completion depends on the current state
+        if exchange_id == "cowswap":
+            current_state = self.active_operation.get("state", "")
+            if current_state == "receipt_pending":
+                # This means the approval transaction was successful
+                # Transition to submit the CoW order
+                self.active_operation["state"] = "approval_confirmed"
+                self._auto_continue()
+                return
+            if current_state == "monitoring":
+                # This is the final completion of the CoW order
+                self._finalize_cow_order()
+                return
+
+        # For Balancer or final CoW completion
+        self._finalize_order()
+
+    def _finalize_order(self) -> None:
+        """Complete the order and update positions."""
         order = self.active_operation["order"]
         order.status = OrderStatus.FILLED
         order.filled = order.amount
@@ -6530,6 +6753,32 @@ class ExecutionRound(BaseState):
             self._create_position(order)
 
         self.context.logger.info(f"Order {order.id} completed successfully")
+
+        # Clear operation
+        self.active_operation = None
+
+        # Check if more orders to process
+        if not self.pending_orders and not self.submitted_orders:
+            self._finalize()
+
+    def _finalize_cow_order(self) -> None:
+        """Complete the CoW order execution."""
+        order = self.active_operation["order"]
+        order.status = OrderStatus.FILLED
+        order.filled = order.amount
+
+        # Move from submitted to completed
+        if order in self.submitted_orders:
+            self.submitted_orders.remove(order)
+        self.completed_orders.append(order)
+
+        # Update position tracking
+        if self.execution_type == "exit":
+            self._finalize_exit(order)
+        else:
+            self._create_position(order)
+
+        self.context.logger.info(f"CoW order {order.id} completed successfully")
 
         # Clear operation
         self.active_operation = None
