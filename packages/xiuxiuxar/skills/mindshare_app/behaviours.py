@@ -204,6 +204,7 @@ class MindshareabciappEvents(Enum):
     RETRIES_EXCEEDED = "RETRIES_EXCEEDED"
     AT_LIMIT = "AT_LIMIT"
     EXECUTED = "EXECUTED"
+    ORDER_PLACED = "ORDER_PLACED"
     RETRY = "RETRY"
     CAN_TRADE = "CAN_TRADE"
     SERVICE_NOT_STAKED = "SERVICE_NOT_STAKED"
@@ -6462,6 +6463,7 @@ class ExecutionRound(BaseState):
                 self.context.logger.info(
                     f"CoW order {target_order_id} still open with status: {target_order.status}"
                 )
+                self._complete(MindshareabciappEvents.ORDER_PLACED)
                 return True
 
             if message.performative == OrdersMessage.Performative.ERROR:
@@ -7382,6 +7384,11 @@ class MindshareabciappFsmBehaviour(FSMBehaviour):
         self.register_transition(
             source=MindshareabciappStates.EXECUTIONROUND.value,
             event=MindshareabciappEvents.EXECUTED,
+            destination=MindshareabciappStates.PAUSEDROUND.value,
+        )
+        self.register_transition(
+            source=MindshareabciappStates.EXECUTIONROUND.value,
+            event=MindshareabciappEvents.ORDER_PLACED,
             destination=MindshareabciappStates.PAUSEDROUND.value,
         )
         self.register_transition(
