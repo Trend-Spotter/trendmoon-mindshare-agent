@@ -85,17 +85,20 @@ def truncate_to_decimals(amount: float, decimals: int = 4) -> float:
 class TradingStrategy:
     """Consolidated trading strategy for buy signal generation."""
 
-    def __init__(self, strategy_type: str = "balanced"):
+    def __init__(self, strategy_type: str = "balanced", context=None):
         self.strategy_type = strategy_type.lower()
+        self.context = context
         self._initialize_strategy_params()
 
     def _initialize_strategy_params(self) -> None:
         """Initialize strategy parameters based on strategy type."""
+        # Use context params if available, otherwise fallback to defaults
+
         base_params = {
             "min_conditions_met": 4,  # All 4 core conditions must be met
-            "rsi_lower_limit": 39,
-            "rsi_upper_limit": 66,
-            "adx_threshold": 41,
+            "rsi_lower_limit": self.context.params.rsi_lower_limit,
+            "rsi_upper_limit": self.context.params.rsi_upper_limit,
+            "adx_threshold": self.context.params.adx_threshold,
             "social_threshold": 0.6,
         }
 
@@ -160,7 +163,6 @@ class TradingStrategy:
         macd = technical_scores.get("macd")
         macd_signal = technical_scores.get("macd_signal")
         adx = technical_scores.get("adx")
-        # obv = technical_scores.get("obv")
         p_social = social_scores.get("p_social", 0.5)
 
         # 1. Price above 20MA
@@ -747,9 +749,6 @@ class DataCollectionRound(BaseState):
             "current_prices": {},
             "market_data": {},
             "social_data": {},
-            "technical_data": {},
-            "fundamental_data": {},
-            "onchain_data": {},
             "collection_timestamp": datetime.now(UTC).isoformat(),
             "last_ohlcv_update": {},
             "last_social_update": {},
@@ -1159,7 +1158,7 @@ class DataCollectionRound(BaseState):
             try:
                 return json.loads(body.decode("utf-8"))
             except json.JSONDecodeError:
-                self.context.logger.error("Failed to parse JSON response")
+                self.context.logger.exception("Failed to parse JSON response")
                 return None
         return None
 
@@ -3605,7 +3604,7 @@ class AnalysisRound(BaseState):
 
         # Initialize consolidated trading strategy
         strategy_type = getattr(self.context.params, "trading_strategy", "balanced")
-        self.trading_strategy = TradingStrategy(strategy_type)
+        self.trading_strategy = TradingStrategy(strategy_type, self.context)
 
         self.pending_tokens = ALLOWED_ASSETS["base"].copy()
         self.completed_analysis = []
@@ -3666,7 +3665,7 @@ class AnalysisRound(BaseState):
             self.completed_analysis.append(token_info)
             self.context.logger.info(f"Completed analysis for {symbol}")
 
-        except Exception as e:
+        except (ValueError, KeyError, TypeError, AttributeError) as e:
             self.context.logger.warning(f"Failed to analyze {symbol}: {e}")
             self.failed_analysis.append(token_info)
             self.analysis_results["token_analysis"][symbol] = {
@@ -3795,7 +3794,7 @@ class AnalysisRound(BaseState):
 
             self.context.logger.info(f"Technical analysis for {symbol}: p_technical={p_technical:.3f}")
 
-        except Exception as e:
+        except (ValueError, KeyError, TypeError, AttributeError) as e:
             self.context.logger.warning(f"Technical analysis failed for {symbol}: {e}")
 
         return technical_scores
@@ -3813,7 +3812,7 @@ class AnalysisRound(BaseState):
 
             return max(0.0, min(1.0, p_social))  # Clamp to [0, 1]
 
-        except Exception as e:
+        except (ValueError, KeyError, TypeError, AttributeError) as e:
             self.context.logger.warning(f"Failed to calculate social score: {e}")
             return 0.5
 
@@ -3844,7 +3843,7 @@ class AnalysisRound(BaseState):
         conditions_met = self.trading_strategy.evaluate_conditions(current_price, social_scores, technical_scores)
 
         # Calculate technical probability as binary (1 or 0) based on meeting all four conditions
-        technical_conditions = ["price_above_ma", "rsi_in_range", "macd_bullish", "adx_strong"]
+        technical_conditions = self.trading_strategy.params["core_conditions"]
         all_conditions_met = all(
             conditions_met.get(condition, {}).get("condition", False) for condition in technical_conditions
         )
@@ -3919,7 +3918,7 @@ class AnalysisRound(BaseState):
                     )
 
             # Sort by combined score
-            strong_signals.sort(key=lambda x: x["p_combined"], reverse=True)
+            strong_signals.sort(key=operator.itemgetter("p_combined"), reverse=True)
             self.analysis_results["strong_signals"] = strong_signals
 
             # Store results for SignalAggregationRound
@@ -3980,16 +3979,15 @@ class AnalysisRound(BaseState):
         """Convert numpy/pandas types to JSON-serializable Python types."""
         if hasattr(obj, "item"):  # numpy scalar
             return obj.item()
-        elif isinstance(obj, dict):
+        if isinstance(obj, dict):
             return {key: self._make_json_serializable(value) for key, value in obj.items()}
-        elif isinstance(obj, list):
+        if isinstance(obj, list):
             return [self._make_json_serializable(item) for item in obj]
-        elif isinstance(obj, tuple):
+        if isinstance(obj, tuple):
             return tuple(self._make_json_serializable(item) for item in obj)
-        elif hasattr(obj, "isoformat"):  # datetime objects
+        if hasattr(obj, "isoformat"):  # datetime objects
             return obj.isoformat()
-        else:
-            return obj
+        return obj
 
     def _has_detailed_technical_data(self) -> bool:
         """Check if there is detailed technical data available."""
@@ -4262,7 +4260,7 @@ class SignalAggregationRound(BaseState):
 
         # Initialize consolidated trading strategy
         strategy_type = getattr(self.context.params, "trading_strategy", "balanced")
-        self.trading_strategy = TradingStrategy(strategy_type)
+        self.trading_strategy = TradingStrategy(strategy_type, self.context)
 
         self.context.logger.info(f"Initialized {strategy_type} trading strategy")
 
@@ -4372,7 +4370,7 @@ class SignalAggregationRound(BaseState):
                 return None
 
             # Create trade signal
-            signal = {
+            return {
                 "signal_id": f"sig_{symbol}_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}",
                 "symbol": symbol,
                 "direction": "buy",
@@ -4399,8 +4397,6 @@ class SignalAggregationRound(BaseState):
                 "status": "generated",
             }
 
-            return signal
-
         except Exception as e:
             self.context.logger.exception(f"Failed to evaluate signal for {symbol}: {e}")
             return None
@@ -4425,7 +4421,7 @@ class SignalAggregationRound(BaseState):
 
         # Sort by p_trade (signal strength) descending
         sorted_signals = sorted(
-            self.candidate_signals, key=lambda x: (x["p_trade"], x["num_conditions_met"]), reverse=True
+            self.candidate_signals, key=operator.itemgetter("p_trade", "num_conditions_met"), reverse=True
         )
 
         # Select the top signal

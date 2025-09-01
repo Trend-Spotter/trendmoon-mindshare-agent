@@ -113,10 +113,13 @@ models:
       trailing_stop_loss_pct: ${float:0.97}
       moving_average_length: ${int:20}
       rsi_period_length: ${int:14}
+      rsi_lower_limit: ${int:39}
+      rsi_upper_limit: ${int:66}
       macd_fast_period: ${int:12}
       macd_slow_period: ${int:26}
       macd_signal_period: ${int:9}
       adx_period_length: ${int:14}
+      adx_threshold: ${int:41}
 ---
 public_id: valory/ledger:0.19.0
 type: connection
