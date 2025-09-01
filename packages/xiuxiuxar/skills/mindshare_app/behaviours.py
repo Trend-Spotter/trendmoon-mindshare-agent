@@ -82,6 +82,152 @@ def truncate_to_decimals(amount: float, decimals: int = 4) -> float:
 
 
 @dataclass
+class TradingStrategy:
+    """Consolidated trading strategy for buy signal generation."""
+
+    def __init__(self, strategy_type: str = "balanced"):
+        self.strategy_type = strategy_type.lower()
+        self._initialize_strategy_params()
+
+    def _initialize_strategy_params(self) -> None:
+        """Initialize strategy parameters based on strategy type."""
+        base_params = {
+            "min_conditions_met": 4,  # All 4 core conditions must be met
+            "rsi_lower_limit": 39,
+            "rsi_upper_limit": 66,
+            "adx_threshold": 41,
+            "social_threshold": 0.6,
+        }
+
+        # Core trading conditions (all must be met for a trade)
+        core_conditions = ["price_above_ma", "rsi_in_range", "macd_bullish", "adx_strong"]
+
+        # Strategy-specific weights (for probability scoring only, not trading decisions)
+        if self.strategy_type == "conservative":
+            self.params = {
+                **base_params,
+                "core_conditions": core_conditions,
+                "weights": {
+                    "price_above_ma": 0.25,
+                    "rsi_in_range": 0.25,
+                    "macd_bullish": 0.25,
+                    "adx_strong": 0.25,
+                    "obv_increasing": 0.0,  # Data only
+                    "social_bullish": 0.0,  # Data only
+                },
+                "social_weight": 0.3,
+                "technical_weight": 0.7,
+            }
+        elif self.strategy_type == "aggressive":
+            self.params = {
+                **base_params,
+                "social_threshold": 0.5,
+                "core_conditions": core_conditions,
+                "weights": {
+                    "price_above_ma": 0.25,
+                    "rsi_in_range": 0.25,
+                    "macd_bullish": 0.25,
+                    "adx_strong": 0.25,
+                    "obv_increasing": 0.0,  # Data only
+                    "social_bullish": 0.0,  # Data only
+                },
+                "social_weight": 0.5,
+                "technical_weight": 0.5,
+            }
+        else:  # balanced (default)
+            self.params = {
+                **base_params,
+                "core_conditions": core_conditions,
+                "weights": {
+                    "price_above_ma": 0.25,
+                    "rsi_in_range": 0.25,
+                    "macd_bullish": 0.25,
+                    "adx_strong": 0.25,
+                    "obv_increasing": 0.0,  # Data only
+                    "social_bullish": 0.0,  # Data only
+                },
+                "social_weight": 0.4,
+                "technical_weight": 0.6,
+            }
+
+    def evaluate_conditions(self, current_price: float, social_scores: dict, technical_scores: dict) -> dict:
+        """Evaluate trading conditions and return results."""
+        conditions_met = {}
+
+        # Extract technical indicators
+        sma = technical_scores.get("sma")
+        rsi = technical_scores.get("rsi")
+        macd = technical_scores.get("macd")
+        macd_signal = technical_scores.get("macd_signal")
+        adx = technical_scores.get("adx")
+        # obv = technical_scores.get("obv")
+        p_social = social_scores.get("p_social", 0.5)
+
+        # 1. Price above 20MA
+        conditions_met["price_above_ma"] = {
+            "condition": current_price > sma if sma and sma > 0 else False,
+            "weight": self.params["weights"]["price_above_ma"],
+            "value": current_price - sma if sma else 0,
+            "description": "Price is above MA20",
+        }
+
+        # 2. RSI in healthy range
+        conditions_met["rsi_in_range"] = {
+            "condition": (self.params["rsi_lower_limit"] < rsi < self.params["rsi_upper_limit"])
+            if rsi is not None
+            else False,
+            "weight": self.params["weights"]["rsi_in_range"],
+            "value": rsi,
+            "description": f"RSI in range ({self.params['rsi_lower_limit']}-{self.params['rsi_upper_limit']})",
+        }
+
+        # 3. MACD bullish cross
+        conditions_met["macd_bullish"] = {
+            "condition": macd > macd_signal if macd is not None and macd_signal is not None else False,
+            "weight": self.params["weights"]["macd_bullish"],
+            "value": macd - macd_signal if macd is not None and macd_signal is not None else 0,
+            "description": "MACD above signal line",
+        }
+
+        # 4. ADX strong trend
+        conditions_met["adx_strong"] = {
+            "condition": adx > self.params["adx_threshold"] if adx is not None else False,
+            "weight": self.params["weights"]["adx_strong"],
+            "value": adx,
+            "description": f"ADX indicates strong trend (>{self.params['adx_threshold']})",
+        }
+
+        return conditions_met
+
+    def calculate_signal_strength(self, conditions_met: dict) -> tuple[float, int]:
+        """Calculate weighted signal strength and count met conditions."""
+        signal_strength = 0.0
+        num_conditions_met = 0
+
+        for condition_data in conditions_met.values():
+            if condition_data["condition"]:
+                signal_strength += condition_data["weight"]
+                num_conditions_met += 1
+
+        return signal_strength, num_conditions_met
+
+    def should_generate_signal(self, conditions_met: dict) -> bool:
+        """Determine if signal should be generated based on core conditions only."""
+        # All 4 core conditions must be met for a trade signal
+        core_conditions = self.params["core_conditions"]
+
+        for condition_name in core_conditions:
+            if condition_name not in conditions_met or not conditions_met[condition_name]["condition"]:
+                return False
+
+        return True
+
+    def calculate_combined_probability(self, p_social: float, p_technical: float) -> float:
+        """Calculate combined probability score using strategy weights."""
+        return p_social * self.params["social_weight"] + p_technical * self.params["technical_weight"]
+
+
+@dataclass
 class PriceRequest:
     """Price request."""
 
@@ -100,21 +246,21 @@ ALLOWED_ASSETS: dict[str, list[dict[str, str]]] = {
         #     "symbol": "USDC",
         #     "coingecko_id": "usd-coin",
         # },
-        {
-            "address": "0x2Ae3F1Ec7F1F5012CFEab0185bfc7aa3cf0DEc22",
-            "symbol": "cbETH",
-            "coingecko_id": "coinbase-wrapped-staked-eth",
-        },
+        # {
+        #     "address": "0x2Ae3F1Ec7F1F5012CFEab0185bfc7aa3cf0DEc22",
+        #     "symbol": "cbETH",
+        #     "coingecko_id": "coinbase-wrapped-staked-eth",
+        # },
         # {
         #     "address": "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf",
         #     "symbol": "cbBTC",
         #     "coingecko_id": "coinbase-wrapped-btc",
         # },
-        {
-            "address": "0x4200000000000000000000000000000000000006",
-            "symbol": "WETH",
-            "coingecko_id": "l2-standard-bridged-weth-base",
-        },
+        # {
+        #     "address": "0x4200000000000000000000000000000000000006",
+        #     "symbol": "WETH",
+        #     "coingecko_id": "l2-standard-bridged-weth-base",
+        # },
         {
             "address": "0x0b3e328455c4059EEb9e3f84b5543F74E24e7E1b",
             "symbol": "VIRTUAL",
@@ -1336,9 +1482,11 @@ class CallCheckpointRound(BaseState):
                 if not self.staking_state_check_complete:
                     return
 
-            if (self.service_staking_state == StakingState.STAKED and
-                not self.is_checkpoint_reached and
-                self.next_checkpoint_ts is not None):
+            if (
+                self.service_staking_state == StakingState.STAKED
+                and not self.is_checkpoint_reached
+                and self.next_checkpoint_ts is not None
+            ):
                 self._check_if_checkpoint_reached()
                 if not self.is_checkpoint_reached:
                     self.context.logger.info("Next checkpoint not reached yet")
@@ -1346,9 +1494,11 @@ class CallCheckpointRound(BaseState):
                     self._is_done = True
                     return
 
-            if (self.service_staking_state == StakingState.STAKED and
-                self.is_checkpoint_reached and
-                not self.checkpoint_preparation_complete):
+            if (
+                self.service_staking_state == StakingState.STAKED
+                and self.is_checkpoint_reached
+                and not self.checkpoint_preparation_complete
+            ):
                 self._prepare_checkpoint_tx_async()
                 return
 
@@ -1358,9 +1508,7 @@ class CallCheckpointRound(BaseState):
                     return
 
             # If Safe transaction hash is prepared but not signed, sign it
-            if (self.safe_tx_hash_prepared and
-                self.checkpoint_tx_raw_data and
-                not self.checkpoint_tx_signing_submitted):
+            if self.safe_tx_hash_prepared and self.checkpoint_tx_raw_data and not self.checkpoint_tx_signing_submitted:
                 self._sign_checkpoint_transaction()
                 return
 
@@ -1371,8 +1519,7 @@ class CallCheckpointRound(BaseState):
                     return
 
             # If signed but not broadcast, broadcast it
-            if (self.checkpoint_tx_signed_data and
-                not self.checkpoint_tx_broadcast_submitted):
+            if self.checkpoint_tx_signed_data and not self.checkpoint_tx_broadcast_submitted:
                 self._broadcast_checkpoint_transaction()
                 return
 
@@ -1433,10 +1580,12 @@ class CallCheckpointRound(BaseState):
                 contract_id=str(StakingTokenContract.contract_id),
                 callable="get_service_staking_state",
                 ledger_id="ethereum",
-                kwargs=ContractApiMessage.Kwargs({
-                    "service_id": on_chain_service_id,
-                    "chain_id": staking_chain,
-                }),
+                kwargs=ContractApiMessage.Kwargs(
+                    {
+                        "service_id": on_chain_service_id,
+                        "chain_id": staking_chain,
+                    }
+                ),
             )
 
             dialogue.validation_func = self._validate_staking_state_response
@@ -1719,20 +1868,22 @@ class CallCheckpointRound(BaseState):
                 contract_id=str(GnosisSafeContract.contract_id),
                 callable="get_raw_safe_transaction",
                 ledger_id="ethereum",
-                kwargs=ContractApiMessage.Kwargs({
-                    "sender_address": self.context.agent_address,
-                    "owners": (self.context.agent_address,),
-                    "to_address": staking_token_contract_address,
-                    "value": ETHER_VALUE,
-                    "data": data,
-                    "signatures_by_owner": {self.context.agent_address: self._get_preapproved_signature()},
-                    "operation": SafeOperation.CALL.value,
-                    "safe_tx_gas": SAFE_TX_GAS,
-                    "base_gas": 0,
-                    "gas_price": 1,
-                    "gas_token": NULL_ADDRESS,
-                    "refund_receiver": NULL_ADDRESS,
-                }),
+                kwargs=ContractApiMessage.Kwargs(
+                    {
+                        "sender_address": self.context.agent_address,
+                        "owners": (self.context.agent_address,),
+                        "to_address": staking_token_contract_address,
+                        "value": ETHER_VALUE,
+                        "data": data,
+                        "signatures_by_owner": {self.context.agent_address: self._get_preapproved_signature()},
+                        "operation": SafeOperation.CALL.value,
+                        "safe_tx_gas": SAFE_TX_GAS,
+                        "base_gas": 0,
+                        "gas_price": 1,
+                        "gas_token": NULL_ADDRESS,
+                        "refund_receiver": NULL_ADDRESS,
+                    }
+                ),
             )
 
             dialogue.validation_func = self._validate_safe_tx_preparation_response
@@ -1856,7 +2007,7 @@ class CallCheckpointRound(BaseState):
 
     def _check_broadcast_responses(self) -> None:
         """Check for broadcast responses."""
-        # Broadcast responses are handled directly by the validation function  
+        # Broadcast responses are handled directly by the validation function
         pass
 
     def _finalize_checkpoint_check(self) -> None:
@@ -1871,7 +2022,9 @@ class CallCheckpointRound(BaseState):
             self._event = MindshareabciappEvents.SERVICE_EVICTED
         elif self.service_staking_state == StakingState.STAKED:
             if self.checkpoint_tx_executed and self.checkpoint_tx_final_hash:
-                self.context.logger.info(f"Checkpoint transaction executed successfully: {self.checkpoint_tx_final_hash}")
+                self.context.logger.info(
+                    f"Checkpoint transaction executed successfully: {self.checkpoint_tx_final_hash}"
+                )
                 self._event = MindshareabciappEvents.DONE
             elif self.checkpoint_tx_hex:
                 self.context.logger.info(f"Checkpoint transaction prepared: {self.checkpoint_tx_hex}")
@@ -1957,9 +2110,11 @@ class CheckStakingKPIRound(BaseState):
                     return  # Still waiting for response, let FSM cycle
 
             # If KPI is not met and we need vanity tx but haven't submitted request
-            if (not self.is_staking_kpi_met and
-                not self.vanity_tx_request_submitted and
-                self._should_prepare_vanity_tx()):
+            if (
+                not self.is_staking_kpi_met
+                and not self.vanity_tx_request_submitted
+                and self._should_prepare_vanity_tx()
+            ):
                 self._prepare_vanity_tx_async()
                 return
 
@@ -1970,9 +2125,7 @@ class CheckStakingKPIRound(BaseState):
                     return
 
             # If vanity tx prepared but not executed, execute it
-            if (self.vanity_tx_prepared and 
-                self.vanity_tx_hex and 
-                not self.vanity_tx_execution_submitted):
+            if self.vanity_tx_prepared and self.vanity_tx_hex and not self.vanity_tx_execution_submitted:
                 self._execute_vanity_tx_async()
                 return
 
@@ -2123,13 +2276,15 @@ class CheckStakingKPIRound(BaseState):
             # Increment period count for this round
             period_count += 1
 
-            self.context.logger.info(f"KPI Evaluation - Current nonce: {current_nonce}, "
-                                   f"Last checkpoint nonce: {last_checkpoint_nonce}, "
-                                   f"Period count: {period_count}, "
-                                   f"Last CP period: {period_number_at_last_cp}")
+            self.context.logger.info(
+                f"KPI Evaluation - Current nonce: {current_nonce}, "
+                f"Last checkpoint nonce: {last_checkpoint_nonce}, "
+                f"Period count: {period_count}, "
+                f"Last CP period: {period_number_at_last_cp}"
+            )
 
             # Check if we're past the threshold period
-            is_period_threshold_exceeded = (period_count - period_number_at_last_cp >= staking_threshold_period)
+            is_period_threshold_exceeded = period_count - period_number_at_last_cp >= staking_threshold_period
 
             if not is_period_threshold_exceeded:
                 self.context.logger.info("Period threshold not exceeded yet")
@@ -2138,7 +2293,9 @@ class CheckStakingKPIRound(BaseState):
                 # Calculate transactions since last checkpoint
                 multisig_nonces_since_last_cp = current_nonce - last_checkpoint_nonce
 
-                self.context.logger.info(f"Multisig transactions since last checkpoint: {multisig_nonces_since_last_cp}")
+                self.context.logger.info(
+                    f"Multisig transactions since last checkpoint: {multisig_nonces_since_last_cp}"
+                )
 
                 if multisig_nonces_since_last_cp >= min_num_of_safe_tx_required:
                     self.context.logger.info("Staking KPI already met!")
@@ -2211,7 +2368,7 @@ class CheckStakingKPIRound(BaseState):
         period_count = kpi_state.get("period_count", 0)
         period_number_at_last_cp = kpi_state.get("period_number_at_last_cp", 0)
 
-        is_period_threshold_exceeded = (period_count - period_number_at_last_cp >= staking_threshold_period)
+        is_period_threshold_exceeded = period_count - period_number_at_last_cp >= staking_threshold_period
 
         return is_period_threshold_exceeded
 
@@ -2249,14 +2406,16 @@ class CheckStakingKPIRound(BaseState):
                 contract_id=str(GnosisSafeContract.contract_id),
                 callable="get_raw_safe_transaction_hash",
                 ledger_id="ethereum",
-                kwargs=ContractApiMessage.Kwargs({
-                    "to_address": NULL_ADDRESS,
-                    "value": ETHER_VALUE,
-                    "data": tx_data,
-                    "operation": SafeOperation.CALL.value,
-                    "safe_tx_gas": SAFE_TX_GAS,
-                    "chain_id": staking_chain,
-                }),
+                kwargs=ContractApiMessage.Kwargs(
+                    {
+                        "to_address": NULL_ADDRESS,
+                        "value": ETHER_VALUE,
+                        "data": tx_data,
+                        "operation": SafeOperation.CALL.value,
+                        "safe_tx_gas": SAFE_TX_GAS,
+                        "chain_id": staking_chain,
+                    }
+                ),
             )
 
             # Add validation function and metadata
@@ -2379,20 +2538,22 @@ class CheckStakingKPIRound(BaseState):
                 contract_id=str(GnosisSafeContract.contract_id),
                 callable="get_raw_safe_transaction",
                 ledger_id="ethereum",
-                kwargs=ContractApiMessage.Kwargs({
-                    "sender_address": self.context.agent_address,
-                    "owners": (self.context.agent_address,),
-                    "to_address": NULL_ADDRESS,
-                    "value": ETHER_VALUE,
-                    "data": tx_data,
-                    "signatures_by_owner": {self.context.agent_address: self._get_preapproved_signature()},
-                    "operation": SafeOperation.CALL.value,
-                    "safe_tx_gas": SAFE_TX_GAS,
-                    "base_gas": 0,
-                    "gas_price": 1,
-                    "gas_token": NULL_ADDRESS,
-                    "refund_receiver": NULL_ADDRESS,
-                }),
+                kwargs=ContractApiMessage.Kwargs(
+                    {
+                        "sender_address": self.context.agent_address,
+                        "owners": (self.context.agent_address,),
+                        "to_address": NULL_ADDRESS,
+                        "value": ETHER_VALUE,
+                        "data": tx_data,
+                        "signatures_by_owner": {self.context.agent_address: self._get_preapproved_signature()},
+                        "operation": SafeOperation.CALL.value,
+                        "safe_tx_gas": SAFE_TX_GAS,
+                        "base_gas": 0,
+                        "gas_price": 1,
+                        "gas_token": NULL_ADDRESS,
+                        "refund_receiver": NULL_ADDRESS,
+                    }
+                ),
             )
 
             # Add validation function and metadata
@@ -2833,7 +2994,9 @@ class PositionMonitoringRound(BaseState):
 
         # Check tailing stop loss activation
         entry_price = position["entry_price"]
-        if current_price >= entry_price * self.context.params.trailing_stop_loss_activation_level and not position.get("tailing_stop_active"):
+        if current_price >= entry_price * self.context.params.trailing_stop_loss_activation_level and not position.get(
+            "tailing_stop_active"
+        ):
             trailing_stop = current_price * self.context.params.trailing_stop_loss_pct
             updated_position["stop_loss_price"] = max(
                 trailing_stop,
@@ -3440,6 +3603,10 @@ class AnalysisRound(BaseState):
             self._is_done = True
             return
 
+        # Initialize consolidated trading strategy
+        strategy_type = getattr(self.context.params, "trading_strategy", "balanced")
+        self.trading_strategy = TradingStrategy(strategy_type)
+
         self.pending_tokens = ALLOWED_ASSETS["base"].copy()
         self.completed_analysis = []
         self.failed_analysis = []
@@ -3559,7 +3726,7 @@ class AnalysisRound(BaseState):
         """Perform technical analysis for a single token."""
         symbol = token_info["symbol"]
         technical_scores = {
-            "sma_20": None,
+            "sma": None,
             "ema_20": None,
             "rsi": None,
             "macd": None,
@@ -3592,7 +3759,7 @@ class AnalysisRound(BaseState):
 
             technical_scores.update(
                 {
-                    "sma_20": indicators_dict.get("SMA"),
+                    "sma": indicators_dict.get("SMA"),
                     "ema_20": indicators_dict.get("EMA"),
                     "rsi": indicators_dict.get("RSI"),
                     "adx": indicators_dict.get("ADX"),
@@ -3606,22 +3773,25 @@ class AnalysisRound(BaseState):
                 technical_scores["macd"] = macd_data.get("MACD")
                 technical_scores["macd_signal"] = macd_data.get("MACDs")
 
-            p_technical, technical_traits = self._calculate_technical_probability_score(
+            p_technical, conditions_met = self._calculate_technical_probability_score(
                 current_price=current_price, indicators=indicators_dict
             )
 
             technical_scores["p_technical"] = p_technical
-            technical_scores["technical_traits"] = technical_traits
+            technical_scores["conditions_met"] = conditions_met
 
-            technical_scores.update(
-                {
-                    "price_above_ma20": technical_traits.get("price_above_ma20", {}).get("condition", False),
-                    "rsi_in_range": technical_traits.get("rsi_in_range", {}).get("condition", False),
-                    "macd_bullish": technical_traits.get("macd_bullish", {}).get("condition", False),
-                    "adx_strong_trend": technical_traits.get("adx_strong_trend", {}).get("condition", False),
-                    "obv_increasing": technical_traits.get("obv_increasing", {}).get("condition", False),
-                }
-            )
+            # Update with condition results (excluding social_bullish)
+            for condition_name, condition_data in conditions_met.items():
+                if condition_name != "social_bullish":
+                    # Map to old naming convention for compatibility
+                    if condition_name == "price_above_ma":
+                        technical_scores["price_above_ma20"] = condition_data["condition"]
+                    elif condition_name == "adx_strong":
+                        technical_scores["adx_strong_trend"] = condition_data["condition"]
+                    elif condition_name == "macd_bullish":
+                        technical_scores["macd_bullish"] = condition_data["condition"]
+                    else:
+                        technical_scores[condition_name] = condition_data["condition"]
 
             self.context.logger.info(f"Technical analysis for {symbol}: p_technical={p_technical:.3f}")
 
@@ -3650,61 +3820,37 @@ class AnalysisRound(BaseState):
     def _calculate_technical_probability_score(
         self, current_price: float, indicators: dict[str, Any]
     ) -> tuple[float, dict[str, Any]]:
-        """Calculate the technical probability score."""
-
-        sma_20 = indicators.get("SMA", current_price)
-        rsi = indicators.get("RSI", 50.0)
-        adx = indicators.get("ADX", 20.0)
-        obv = indicators.get("OBV", 0)
-
-        macd_data = indicators.get("MACD", {})
-        if isinstance(macd_data, dict):
-            macd = macd_data.get("MACD", 0)
-            macd_signal = macd_data.get("MACDs", 0)
-        else:
-            macd = macd_signal = 0
-
-        # Calculate OBV slope (simplified)
-        obv_slope = 1 if obv > 0 else -1 if obv < 0 else 0
-
-        # Define technical analysis traits (based on notebook strategy)
-        traits = {
-            "price_above_ma20": {
-                "condition": current_price > sma_20 if sma_20 else False,
-                "weight": 0.2,
-                "description": "Price is above MA20",
-                "value": current_price - sma_20 if sma_20 else 0,
-            },
-            "rsi_in_range": {
-                "condition": 39 < rsi < 66,
-                "weight": 0.2,
-                "description": "RSI is in healthy range",
-                "value": rsi,
-            },
-            "macd_bullish_cross": {
-                "condition": macd > macd_signal,
-                "weight": 0.2,
-                "description": "MACD is above its signal line",
-                "value": macd - macd_signal,
-            },
-            "adx_strong_trend": {
-                "condition": adx > 41,
-                "weight": 0.2,
-                "description": "ADX indicates a strong trend",
-                "value": adx,
-            },
-            "obv_increasing": {
-                "condition": obv_slope > 0,
-                "weight": 0.2,
-                "description": "OBV is increasing (positive slope)",
-                "value": obv_slope,
-            },
+        """Calculate the technical probability score using consolidated trading strategy."""
+        # Create technical_scores dict for the consolidated strategy
+        technical_scores = {
+            "sma": indicators.get("SMA", current_price),
+            "rsi": indicators.get("RSI", 50.0),
+            "adx": indicators.get("ADX", 20.0),
+            "obv": indicators.get("OBV", 0),
         }
 
-        # Calculate probability score
-        p_technical = sum(trait["weight"] for trait in traits.values() if trait["condition"])
+        # Extract MACD data
+        macd_data = indicators.get("MACD", {})
+        if isinstance(macd_data, dict):
+            technical_scores["macd"] = macd_data.get("MACD", 0)
+            technical_scores["macd_signal"] = macd_data.get("MACDs", 0)
+        else:
+            technical_scores["macd"] = technical_scores["macd_signal"] = 0
 
-        return p_technical, traits
+        # Use consolidated trading strategy for evaluation
+        # Create minimal social_scores for compatibility
+        social_scores = {"p_social": 0.5}
+
+        conditions_met = self.trading_strategy.evaluate_conditions(current_price, social_scores, technical_scores)
+
+        # Calculate technical probability as binary (1 or 0) based on meeting all four conditions
+        technical_conditions = ["price_above_ma", "rsi_in_range", "macd_bullish", "adx_strong"]
+        all_conditions_met = all(
+            conditions_met.get(condition, {}).get("condition", False) for condition in technical_conditions
+        )
+        p_technical = 1.0 if all_conditions_met else 0.0
+
+        return p_technical, conditions_met
 
     def _combine_analysis_results(
         self, token_info: dict[str, str], social_scores: dict[str, Any], technical_scores: dict[str, Any]
@@ -3717,20 +3863,8 @@ class AnalysisRound(BaseState):
             p_social = social_scores.get("p_social", 0.5)
             p_technical = technical_scores.get("p_technical", 0.5)
 
-            # Default weights for Balanced strategy (from TDD)
-            # [social, fundamental, onchain, technical] = [0.2, 0.3, 0.25, 0.25]
-            # Since we don't have fundamental/onchain yet, redistribute weights
-            social_weight = 0.4
-            technical_weight = 0.6
-
-            # Calculate combined probability score
-            p_combined = p_social * social_weight + p_technical * technical_weight
-
-            # Risk assessment (basic)
-            # risk_level = self._assess_risk_level(p_combined, social_scores, technical_scores)
-
-            # Trading signal strength
-            # signal_strength = self._calculate_signal_strength(p_combined, social_scores, technical_scores)
+            # Use consolidated trading strategy for weights and combination
+            p_combined = self.trading_strategy.calculate_combined_probability(p_social, p_technical)
 
             return {
                 "symbol": symbol,
@@ -3738,14 +3872,10 @@ class AnalysisRound(BaseState):
                 "p_social": round(p_social, 3),
                 "p_technical": round(p_technical, 3),
                 "p_combined": round(p_combined, 3),
-                # "risk_level": risk_level,
-                # "signal_strength": signal_strength,
-                # "trading_recommendation": self._get_trading_recommendation(p_combined),
-                # "confidence": self._calculate_confidence(social_scores, technical_scores),
-                "analysis_quality": self._assess_analysis_quality(social_scores, technical_scores),
+                "strategy_type": self.trading_strategy.strategy_type,
                 "weights_used": {
-                    "social_weight": social_weight,
-                    "technical_weight": technical_weight,
+                    "social_weight": self.trading_strategy.params["social_weight"],
+                    "technical_weight": self.trading_strategy.params["technical_weight"],
                 },
             }
 
@@ -3758,85 +3888,6 @@ class AnalysisRound(BaseState):
                 "p_technical": 0.5,
                 "p_combined": 0.5,
             }
-
-    def _assess_risk_level(
-        self, p_combined: float, social_scores: dict[str, Any], technical_scores: dict[str, Any]
-    ) -> str:
-        """Assess the risk level based on the analysis score.."""
-        try:
-            if p_combined > 0.7:
-                return "low"
-            if p_combined > 0.5:
-                return "medium"
-            return "high"
-
-        except Exception:
-            return "medium"
-
-    # def _calculate_signal_strength(self, p_combined: float, social_scores: dict, technical_scores: dict) -> str:
-    #     """Calculate trading signal strength."""
-    #     try:
-    #         if p_combined > 0.75:
-    #             return "strong_buy"
-    #         if p_combined > 0.6:
-    #             return "buy"
-    #         if p_combined > 0.4:
-    #             return "neutral"
-    #         if p_combined > 0.25:
-    #             return "sell"
-    #         return "strong_sell"
-    #     except Exception:
-    #         return "neutral"
-
-    # def _get_trading_recommendation(self, p_combined: float) -> str:
-    #     """Get trading recommendation based on combined score."""
-    #     try:
-    #         if p_combined > 0.6:
-    #             return "BUY"
-    #         if p_combined < 0.4:
-    #             return "SELL"
-    #         return "HOLD"
-    #     except Exception:
-    #         return "HOLD"
-
-    def _calculate_confidence(self, social_scores: dict, technical_scores: dict) -> float:
-        """Calculate confidence in the analysis."""
-        try:
-            # Confidence based on data availability and score consistency
-            social_available = social_scores.get("social_metrics_available", False)
-            technical_quality = 1.0 if technical_scores.get("rsi") is not None else 0.5
-
-            confidence = 0.5  # Base confidence
-            if social_available:
-                confidence += 0.25
-            confidence += technical_quality * 0.25
-
-            return round(confidence, 3)
-        except Exception:
-            return 0.5
-
-    def _assess_analysis_quality(self, social_scores: dict, technical_scores: dict) -> str:
-        """Assess the quality of analysis data."""
-        try:
-            score = 0
-            max_score = 2
-
-            # Check social data quality
-            if social_scores.get("social_metrics_available"):
-                score += 1
-
-            # Check technical data quality
-            if technical_scores.get("rsi") is not None:
-                score += 1
-
-            quality_pct = score / max_score
-            if quality_pct > 0.8:
-                return "high"
-            if quality_pct > 0.5:
-                return "medium"
-            return "low"
-        except Exception:
-            return "low"
 
     def _finalize_analysis(self) -> None:
         """Finalize analysis and prepare results for next round."""
@@ -3971,13 +4022,13 @@ class AnalysisRound(BaseState):
         except Exception as e:
             self.context.logger.warning(f"Failed to store technical data: {e}")
 
-    def _get_technical_data(self, ohlcv_data: list[list[Any]], moving_average_length: int = 20) -> list:
+    def _get_technical_data(self, ohlcv_data: list[list[Any]]) -> list:
         """Calculate core technical indicators for a coin using pandas-ta with validation."""
         try:
             data = self._preprocess_ohlcv_data(ohlcv_data)
 
             # Calculate different groups of indicators
-            self._calculate_trend_indicators(data, moving_average_length)
+            self._calculate_trend_indicators(data, self.context.params.moving_average_length)
             self._calculate_momentum_indicators(data)
             self._calculate_volatility_indicators(data)
             self._calculate_volume_indicators(data)
@@ -4008,7 +4059,7 @@ class AnalysisRound(BaseState):
     def _calculate_momentum_indicators(self, data: pd.DataFrame) -> None:
         """Calculate momentum indicators (RSI, MACD, ADX)."""
         # RSI (normalized 0-100)
-        data["RSI"] = ta.rsi(data["close"], length=14)
+        data["RSI"] = ta.rsi(data["close"], length=self.context.params.rsi_period_length)
         data["RSI"] = data["RSI"].clip(0, 100)
 
         # MACD
@@ -4019,7 +4070,12 @@ class AnalysisRound(BaseState):
 
     def _process_macd_indicator(self, data: pd.DataFrame) -> None:
         """Process MACD indicator and handle different column naming conventions."""
-        macd = ta.macd(data["close"], fast=12, slow=26, signal=9)
+        macd = ta.macd(
+            data["close"],
+            fast=self.context.params.macd_fast_period,
+            slow=self.context.params.macd_slow_period,
+            signal=self.context.params.macd_signal_period,
+        )
         if macd is None or macd.empty:
             return
 
@@ -4044,7 +4100,7 @@ class AnalysisRound(BaseState):
 
     def _process_adx_indicator(self, data: pd.DataFrame) -> None:
         """Process ADX indicator and handle different column naming conventions."""
-        adx = ta.adx(data["high"], data["low"], data["close"], length=14)
+        adx = ta.adx(data["high"], data["low"], data["close"], length=self.context.params.adx_period_length)
         if adx is None or adx.empty:
             return
 
@@ -4176,8 +4232,8 @@ class SignalAggregationRound(BaseState):
                 if self.aggregated_signal:
                     self._store_aggregated_signal()
                     self.context.logger.info(
-                        f"Trade signal generated for {self.aggregated_signal['symbol']}"
-                        f"with strenght {self.aggregated_signal['signal_strength']}"
+                        f"Trade signal generated for {self.aggregated_signal['symbol'] }"
+                        f"with strength {self.aggregated_signal['signal_strength']}"
                     )
                     self._event = MindshareabciappEvents.SIGNAL_GENERATED
                 else:
@@ -4204,22 +4260,11 @@ class SignalAggregationRound(BaseState):
         """Initialize signal aggregation."""
         self.context.logger.info("Initializing signal aggregation...")
 
-        # Load strategy parameters
-        self.strategy_params = {
-            "min_signal_strength": 0.6,  # Minimum aggregated score to generate signal
-            "rsi_lower_limit": 39,
-            "rsi_upper_limit": 66,
-            "adx_threshold": 41,
-            "min_conditions_met": 3,  # Minimum number of conditions to be met
-            "weights": {
-                "price_above_ma": 0.2,
-                "rsi_in_range": 0.2,
-                "macd_bullish": 0.2,
-                "adx_strong": 0.2,
-                "obv_increasing": 0.1,
-                "social_bullish": 0.1,
-            },
-        }
+        # Initialize consolidated trading strategy
+        strategy_type = getattr(self.context.params, "trading_strategy", "balanced")
+        self.trading_strategy = TradingStrategy(strategy_type)
+
+        self.context.logger.info(f"Initialized {strategy_type} trading strategy")
 
         self.aggregation_initialized = True
 
@@ -4289,7 +4334,7 @@ class SignalAggregationRound(BaseState):
             technical_scores = self.analysis_results.get("technical_scores", {}).get(symbol, {})
             social_scores = self.analysis_results.get("social_scores", {}).get(symbol, {})
 
-            # Get current price and indicators
+            # Get current price
             current_prices = self.collected_data.get("current_prices", {}).get(symbol, {})
             current_price = current_prices.get("usd", 0) if current_prices else 0
 
@@ -4297,83 +4342,32 @@ class SignalAggregationRound(BaseState):
                 self.context.logger.warning(f"No valid price for {symbol}")
                 return None
 
-            # Extract indicators
-            sma_20 = technical_scores.get("sma_20")
-            rsi = technical_scores.get("rsi")
-            macd = technical_scores.get("macd")
-            macd_signal = technical_scores.get("macd_signal")
-            adx = technical_scores.get("adx")
-            obv = technical_scores.get("obv")
+            # Use consolidated trading strategy to evaluate conditions
+            conditions_met = self.trading_strategy.evaluate_conditions(current_price, social_scores, technical_scores)
 
-            # Check buy conditions
-            conditions_met = {}
-
-            # 1. Price above 20MA
-            if sma_20 and sma_20 > 0:
-                conditions_met["price_above_ma"] = current_price > sma_20
-            else:
-                conditions_met["price_above_ma"] = False
-
-            # 2. RSI in range (39 < RSI < 66)
-            if rsi is not None:
-                conditions_met["rsi_in_range"] = (
-                    self.strategy_params["rsi_lower_limit"] < rsi < self.strategy_params["rsi_upper_limit"]
-                )
-            else:
-                conditions_met["rsi_in_range"] = False
-
-            # 3. MACD bullish cross (MACD > MACD Signal)
-            if macd is not None and macd_signal is not None:
-                conditions_met["macd_bullish"] = macd > macd_signal
-            else:
-                conditions_met["macd_bullish"] = False
-
-            # 4. ADX strong trend (ADX > 41)
-            if adx is not None:
-                conditions_met["adx_strong"] = adx > self.strategy_params["adx_threshold"]
-            else:
-                conditions_met["adx_strong"] = False
-
-            # 5. OBV increasing (bonus condition)
-            if obv is not None:
-                conditions_met["obv_increasing"] = obv > 0
-            else:
-                conditions_met["obv_increasing"] = False
-
-            # 6. Social sentiment bullish (bonus condition)
-            p_social = social_scores.get("p_social", 0.5)
-            conditions_met["social_bullish"] = p_social > 0.6
-
-            # Count conditions met
-            num_conditions_met = sum(conditions_met.values())
-
-            # Calculate weighted signal strength
-            signal_strength = 0.0
-            weights = self.strategy_params["weights"]
-
-            for condition, met in conditions_met.items():
-                if condition in weights and met:
-                    signal_strength += weights[condition]
+            # Calculate signal strength and count met conditions
+            signal_strength, num_conditions_met = self.trading_strategy.calculate_signal_strength(conditions_met)
 
             # Log conditions for debugging
+            met_conditions = {k: v["condition"] for k, v in conditions_met.items()}
             self.context.logger.debug(
                 f"Signal evaluation for {symbol}: "
                 f"conditions_met={num_conditions_met}, "
                 f"signal_strength={signal_strength:.3f}, "
-                f"details={conditions_met}"
+                f"details={met_conditions}"
             )
 
-            # Check if minimum conditions are met
-            if num_conditions_met < self.strategy_params["min_conditions_met"]:
+            # Check if signal should be generated (all 4 core conditions must be met)
+            if not self.trading_strategy.should_generate_signal(conditions_met):
+                # Identify which core conditions are missing
+                core_conditions = self.trading_strategy.params["core_conditions"]
+                missing_conditions = [
+                    cond
+                    for cond in core_conditions
+                    if cond not in conditions_met or not conditions_met[cond]["condition"]
+                ]
                 self.context.logger.debug(
-                    f"Insufficient conditions for {symbol}: {num_conditions_met} < {self.strategy_params['min_conditions_met']}"
-                )
-                return None
-
-            # Check if signal strength meets threshold
-            if signal_strength < self.strategy_params["min_signal_strength"]:
-                self.context.logger.debug(
-                    f"Weak signal for {symbol}: {signal_strength:.3f} < {self.strategy_params['min_signal_strength']}"
+                    f"Signal not generated for {symbol}: " f"Missing core conditions: {missing_conditions}"
                 )
                 return None
 
@@ -4381,10 +4375,11 @@ class SignalAggregationRound(BaseState):
             signal = {
                 "signal_id": f"sig_{symbol}_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}",
                 "symbol": symbol,
-                "direction": "buy",  # Currently only supporting buy signals
+                "direction": "buy",
                 "p_trade": signal_strength,
                 "signal_strength": self._classify_signal_strength(signal_strength),
-                "conditions_met": conditions_met,
+                "conditions_met": met_conditions,
+                "conditions_details": conditions_met,
                 "num_conditions_met": num_conditions_met,
                 "analysis_scores": {
                     "p_social": analysis.get("p_social", 0),
@@ -4393,12 +4388,12 @@ class SignalAggregationRound(BaseState):
                 },
                 "indicators": {
                     "current_price": current_price,
-                    "sma_20": sma_20,
-                    "rsi": rsi,
-                    "macd": macd,
-                    "macd_signal": macd_signal,
-                    "adx": adx,
-                    "obv": obv,
+                    "sma": technical_scores.get("sma"),
+                    "rsi": technical_scores.get("rsi"),
+                    "macd": technical_scores.get("macd"),
+                    "macd_signal": technical_scores.get("macd_signal"),
+                    "adx": technical_scores.get("adx"),
+                    "obv": technical_scores.get("obv"),
                 },
                 "timestamp": datetime.now(UTC).isoformat(),
                 "status": "generated",
@@ -4436,26 +4431,20 @@ class SignalAggregationRound(BaseState):
         # Select the top signal
         best_signal = sorted_signals[0]
 
-        # Additional validation
-        if best_signal["p_trade"] >= self.strategy_params["min_signal_strength"]:
-            self.aggregated_signal = best_signal
+        # Select the best signal (all signals here have passed core conditions check)
+        self.aggregated_signal = best_signal
 
-            self.context.logger.info(
-                f"Selected best signal: {best_signal['symbol']} "
-                f"with p_trade={best_signal['p_trade']:.3f}, "
-                f"conditions_met={best_signal['num_conditions_met']}"
-            )
+        self.context.logger.info(
+            f"Selected best signal: {best_signal['symbol']} "
+            f"with p_trade={best_signal['p_trade']:.3f}, "
+            f"conditions_met={best_signal['num_conditions_met']}"
+        )
 
-            # Log runner-ups if any
-            if len(sorted_signals) > 1:
-                self.context.logger.info("Runner-up signals:")
-                for signal in sorted_signals[1:3]:  # Show top 3
-                    self.context.logger.info(f"  {signal['symbol']}: p_trade={signal['p_trade']:.3f}")
-        else:
-            self.context.logger.info(
-                f"Best signal {best_signal['symbol']} below threshold: "
-                f"{best_signal['p_trade']:.3f} < {self.strategy_params['min_signal_strength']}"
-            )
+        # Log runner-ups if any
+        if len(sorted_signals) > 1:
+            self.context.logger.info("Runner-up signals:")
+            for signal in sorted_signals[1:3]:  # Show top 3
+                self.context.logger.info(f"  {signal['symbol']}: p_trade={signal['p_trade']:.3f}")
 
     def _store_aggregated_signal(self) -> None:
         """Store the aggregated signal for the next round."""
@@ -6457,9 +6446,7 @@ class ExecutionRound(BaseState):
                 orders = message.orders.orders
                 target_order_id = self.active_operation["order"].id
 
-                self.context.logger.info(
-                    f"Checking CoW order {target_order_id} against {len(orders)} returned orders"
-                )
+                self.context.logger.info(f"Checking CoW order {target_order_id} against {len(orders)} returned orders")
 
                 # Debug: log all order IDs for comparison
                 if orders:
@@ -6479,17 +6466,13 @@ class ExecutionRound(BaseState):
 
                 if target_order is None:
                     # Order not found in open orders - it has been filled or cancelled
-                    self.context.logger.info(
-                        f"CoW order {target_order_id} no longer in open orders - assuming filled"
-                    )
+                    self.context.logger.info(f"CoW order {target_order_id} no longer in open orders - assuming filled")
                     self._finalize_cow_order()
                     return True
 
                 # Order still exists - check its status
                 if target_order.status in {OrderStatus.FILLED, OrderStatus.PARTIALLY_FILLED}:
-                    self.context.logger.info(
-                        f"CoW order {target_order_id} executed with status: {target_order.status}"
-                    )
+                    self.context.logger.info(f"CoW order {target_order_id} executed with status: {target_order.status}")
                     self.active_operation["order"] = target_order  # Update with latest status
                     self._finalize_cow_order()
                     return True
@@ -6505,9 +6488,7 @@ class ExecutionRound(BaseState):
                     return True
 
                 # Order still open, transition to next round with ORDER_PLACED event
-                self.context.logger.info(
-                    f"CoW order {target_order_id} still open with status: {target_order.status}"
-                )
+                self.context.logger.info(f"CoW order {target_order_id} still open with status: {target_order.status}")
                 self._complete(MindshareabciappEvents.ORDER_PLACED)
                 return True
 

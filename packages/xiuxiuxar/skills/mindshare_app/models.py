@@ -603,6 +603,11 @@ class Params(Model):
         self.cowswap_slippage_tolerance = kwargs.pop("cowswap_slippage_tolerance", 0.005)
         self.cowswap_timeout_seconds = kwargs.pop("cowswap_timeout_seconds", 300)
         self.moving_average_length = kwargs.pop("moving_average_length", 20)
+        self.rsi_period_length = kwargs.pop("rsi_period_length", 14)
+        self.macd_fast_period = kwargs.pop("macd_fast_period", 12)
+        self.macd_slow_period = kwargs.pop("macd_slow_period", 26)
+        self.macd_signal_period = kwargs.pop("macd_signal_period", 9)
+        self.adx_period_length = kwargs.pop("adx_period_length", 14)
         super().__init__(*args, **kwargs)
 
 

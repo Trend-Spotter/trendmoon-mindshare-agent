@@ -112,6 +112,11 @@ models:
       trailing_stop_loss_activation_level: ${float:1.25}
       trailing_stop_loss_pct: ${float:0.97}
       moving_average_length: ${int:20}
+      rsi_period_length: ${int:14}
+      macd_fast_period: ${int:12}
+      macd_slow_period: ${int:26}
+      macd_signal_period: ${int:9}
+      adx_period_length: ${int:14}
 ---
 public_id: valory/ledger:0.19.0
 type: connection

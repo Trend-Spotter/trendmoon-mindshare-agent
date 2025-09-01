@@ -135,6 +135,11 @@ models:
       trailing_stop_loss_activation_level: 1.25
       trailing_stop_loss_pct: 0.97
       moving_average_length: 20
+      rsi_period_length: 14
+      macd_fast_period: 12
+      macd_slow_period: 26
+      macd_signal_period: 9
+      adx_period_length: 14
     class_name: Params
 dependencies:
   pandas:
