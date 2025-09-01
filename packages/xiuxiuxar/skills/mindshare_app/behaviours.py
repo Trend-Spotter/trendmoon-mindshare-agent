@@ -60,6 +60,8 @@ from packages.eightballer.protocols.orders.custom_types import Order, OrderSide,
 
 
 LEDGER_API_ADDRESS = str(LEDGER_CONNECTION_PUBLIC_ID)
+MAX_DEVIATION = 0.50  # 50% deviation threshold
+WARNING_DEVIATION = 0.20  # 20% deviation for warnings
 DEFAULT_ENCODING = "utf-8"
 ETHER_VALUE = 0
 PRICE_COLLECTION_TIMEOUT_SECONDS = 60
@@ -170,7 +172,7 @@ class TradingStrategy:
             "condition": current_price > sma if sma and sma > 0 else False,
             "weight": self.params["weights"]["price_above_ma"],
             "value": current_price - sma if sma else 0,
-            "description": "Price is above MA20",
+            "description": "Price is above MA",
         }
 
         # 2. RSI in healthy range
@@ -3734,7 +3736,7 @@ class AnalysisRound(BaseState):
             "obv": None,
             "p_technical": 0.5,
             "technical_traits": {},
-            "price_above_ma20": False,
+            "price_above_ma": False,
             "rsi_in_range": False,
             "macd_bullish": False,
             "adx_strong_trend": False,
@@ -3784,7 +3786,7 @@ class AnalysisRound(BaseState):
                 if condition_name != "social_bullish":
                     # Map to old naming convention for compatibility
                     if condition_name == "price_above_ma":
-                        technical_scores["price_above_ma20"] = condition_data["condition"]
+                        technical_scores["price_above_ma"] = condition_data["condition"]
                     elif condition_name == "adx_strong":
                         technical_scores["adx_strong_trend"] = condition_data["condition"]
                     elif condition_name == "macd_bullish":
@@ -4269,47 +4271,55 @@ class SignalAggregationRound(BaseState):
     def _load_analysis_results(self) -> bool:
         """Load analysis results from previous round."""
         try:
-            # First try to load from context
-            if hasattr(self.context, "analysis_results") and self.context.analysis_results:
-                self.analysis_results = self.context.analysis_results
-                self.context.logger.info("Loaded analysis results from context")
-
-                if self.context.store_path:
-                    data_file = self.context.store_path / "collected_data.json"
-                    if data_file.exists():
-                        with open(data_file, encoding="utf-8") as f:
-                            self.collected_data = json.load(f)
-                        self.context.logger.debug("Loaded collected data from storage")
-                    else:
-                        self.context.logger.warning("No collected data file found")
-
+            if self._load_from_context():
                 return True
 
-            # Otherwise load from storage
             if not self.context.store_path:
                 self.context.logger.warning("No store path available")
                 return False
 
-            analysis_file = self.context.store_path / "analysis_results.json"
-            if not analysis_file.exists():
-                self.context.logger.warning("No analysis results file found")
-                return False
-
-            with open(analysis_file, encoding="utf-8") as f:
-                self.analysis_results = json.load(f)
-
-            # Also load collected data for access to prices and indicators
-            data_file = self.context.store_path / "collected_data.json"
-            if data_file.exists():
-                with open(data_file, encoding="utf-8") as f:
-                    self.collected_data = json.load(f)
-
-            self.context.logger.info("Successfully loaded analysis results from storage")
-            return True
+            return self._load_from_storage()
 
         except Exception as e:
             self.context.logger.exception(f"Failed to load analysis results: {e}")
             return False
+
+    def _load_from_context(self) -> bool:
+        """Load analysis results from context if available."""
+        if not hasattr(self.context, "analysis_results") or not self.context.analysis_results:
+            return False
+
+        self.analysis_results = self.context.analysis_results
+        self.context.logger.info("Loaded analysis results from context")
+
+        if self.context.store_path:
+            self._load_collected_data()
+
+        return True
+
+    def _load_from_storage(self) -> bool:
+        """Load analysis results from storage files."""
+        analysis_file = self.context.store_path / "analysis_results.json"
+        if not analysis_file.exists():
+            self.context.logger.warning("No analysis results file found")
+            return False
+
+        with open(analysis_file, encoding="utf-8") as f:
+            self.analysis_results = json.load(f)
+
+        self._load_collected_data()
+        self.context.logger.info("Successfully loaded analysis results from storage")
+        return True
+
+    def _load_collected_data(self) -> None:
+        """Load collected data from storage if available."""
+        data_file = self.context.store_path / "collected_data.json"
+        if data_file.exists():
+            with open(data_file, encoding="utf-8") as f:
+                self.collected_data = json.load(f)
+            self.context.logger.debug("Loaded collected data from storage")
+        else:
+            self.context.logger.warning("No collected data file found")
 
     def _generate_candidate_signals(self) -> None:
         """Generate trade signals for each analyzed token."""
@@ -4621,7 +4631,8 @@ class RiskEvaluationRound(BaseState):
 
         if existing_positions:
             self.context.logger.warning(
-                f"Trading pair duplication check: FAILED - Already have open position(s) in {target_symbol}: {len(existing_positions)} position(s)"
+                f"Trading pair duplication check: FAILED - Already have open position(s) "
+                f" in {target_symbol}: {len(existing_positions)} position(s)"
             )
 
             # Log details of existing positions
@@ -4629,7 +4640,7 @@ class RiskEvaluationRound(BaseState):
                 entry_value = pos.get("entry_value_usdc", 0)
                 pnl = pos.get("unrealized_pnl", 0)
                 side = pos.get("side", "unknown")
-                self.context.logger.info(f"  Existing position {i+1}: {side} ${entry_value:.2f} (P&L: ${pnl:.2f})")
+                self.context.logger.info(f"  Existing position {i + 1}: {side} ${entry_value:.2f} (P&L: ${pnl:.2f})")
 
             return False
 
@@ -5452,8 +5463,6 @@ class TradeConstructionRound(BaseState):
             price_deviation = abs(ticker_price_usd - coingecko_usd_price) / coingecko_usd_price
 
             # Define sanity check thresholds
-            MAX_DEVIATION = 0.50  # 50% deviation threshold
-            WARNING_DEVIATION = 0.20  # 20% deviation for warnings
 
             # Log price comparison for debugging
             self.context.logger.info(
@@ -5640,10 +5649,6 @@ class TradeConstructionRound(BaseState):
             )
 
             return position_size
-
-        except Exception as e:
-            self.context.logger.exception(f"Failed to calculate position size: {e}")
-            return self.risk_parameters["min_position_size"]
 
         except Exception as e:
             self.context.logger.exception(f"Failed to calculate position size: {e}")
@@ -7605,9 +7610,6 @@ class MindshareabciappFsmBehaviour(FSMBehaviour):
 
             # Log unhandled HTTP messages for debugging
             self.context.logger.debug(f"Unhandled HTTP message: {message.performative} in state {self.current}")
-
-        # Handle other message types normally
-        # super().handle_message(message)
 
     def teardown(self) -> None:
         """Implement the teardown."""
