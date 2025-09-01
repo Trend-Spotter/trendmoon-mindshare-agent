@@ -64,7 +64,7 @@ MAX_DEVIATION = 0.50  # 50% deviation threshold
 WARNING_DEVIATION = 0.20  # 20% deviation for warnings
 DEFAULT_ENCODING = "utf-8"
 ETHER_VALUE = 0
-PRICE_COLLECTION_TIMEOUT_SECONDS = 60
+PRICE_COLLECTION_TIMEOUT_SECONDS = 180
 ORDER_PLACEMENT_TIMEOUT_SECONDS = 30
 SAFE_TX_GAS = 300_000  # Non-zero value to prevent Safe revert during gas estimation
 MAX_UINT256 = 2**256 - 1
@@ -72,6 +72,14 @@ NULL_ADDRESS = "0x" + "0" * 40
 BALANCER_VAULT = "0xBA12222222228d8Ba445958a75a0704d566BF2C8"  # Balancer V2 Vault on Base
 COW_VAULT_RELAYER = "0xC92E8bdf79f0507f65a392b0ab4667716BFE0110"  # CoW Protocol GPv2VaultRelayer on Base
 MULTISEND_ADDRESS = "0x40A2aCCbd92BCA938b02010E17A5b8929b49130D"  # Base chain multisend
+
+
+class RateLimitError(Exception):
+    """Exception raised when API rate limit is exceeded."""
+    
+    def __init__(self, message: str, wait_time: int = 60):
+        super().__init__(message)
+        self.wait_time = wait_time
 
 
 def truncate_to_decimals(amount: float, decimals: int = 4) -> float:
@@ -321,6 +329,31 @@ ALLOWED_ASSETS: dict[str, list[dict[str, str]]] = {
             "symbol": "MIGGLES",
             "coingecko_id": "mister-miggles",
         },
+        {
+            "address": "0x226a2fa2556c48245e57cd1cba4c6c9e67077dd2",
+            "symbol": "BIO",
+            "coingecko_id": "bio-protocol",
+        },
+        {
+            "address": "0x2f299be3b081e8cd47dc56c1932fcae7a91b5dcd",
+            "symbol": "XTTA",
+            "coingecko_id": "xtta",
+        },
+        {
+            "address": "0xd5C3a723e63a0ECaB81081c26c6A3c4b2634Bf85",
+            "symbol": "WOJAK",
+            "coingecko_id": "based-wojak",
+        },
+        {
+            "address": "0xd5C3a723e63a0ECaB81081c26c6A3c4b2634Bf85",
+            "symbol": "BASEDHYPE",
+            "coingecko_id": "based-hype",
+        },
+        {
+            "address": "0xA4A2E2ca3fBfE21aed83471D28b6f65A233C6e00",
+            "symbol": "TIBBIR",
+            "coingecko_id": "ribbita-by-virtuals",
+        },
     ]
 }
 
@@ -514,24 +547,24 @@ class BaseState(State, ABC):
         """Wait for rate limit to reset before making request."""
         wait_time = self._calculate_rate_limit_wait_time(api_name)
         if wait_time > 0:
-            self.context.logger.info(f"Waiting {wait_time} seconds for {api_name} rate limit to reset")
-            time.sleep(wait_time)
+            self.context.logger.info(f"Rate limit hit for {api_name}. Will retry in {wait_time} seconds")
+            raise RateLimitError(f"Rate limited by {api_name} API. Retry in {wait_time}s", wait_time)
 
     def _submit_with_rate_limit_check(self, api_name: str, submit_func: Callable, *args, **kwargs) -> str:
-        """Submit API request with rate limit checking."""
-        try:
-            # Wait for rate limit if necessary
-            self._wait_for_rate_limit(api_name)
-
-            # Submit the request
-            return submit_func(*args, **kwargs)
-
-        except ValueError as e:
-            if "Rate limited" in str(e):
-                self.context.logger.warning(f"Rate limited by {api_name}, will retry later")
-                # You could implement a retry queue here
-                raise
-            raise
+        max_retries = 3
+        retry_count = 0
+        
+        while retry_count < max_retries:
+            try:
+                self._wait_for_rate_limit(api_name)
+                return submit_func(*args, **kwargs)
+            except RateLimitError as e:
+                retry_count += 1
+                if retry_count >= max_retries:
+                    raise
+                self.context.logger.info(f"Rate limited, retrying {retry_count}/{max_retries} in {e.wait_time}s")
+                # Could implement actual waiting here if needed
+                raise  # For now, let caller handle retry logic
 
     def _get_preapproved_signature(self) -> str:
         """Generate pre-approved signature format."""
@@ -648,6 +681,9 @@ class DataCollectionRound(BaseState):
         self.async_requests_submitted: bool = False
         self.total_expected_responses: int = 0
 
+        # Add to DataCollectionRound state
+        self.failed_requests: dict[str, dict] = {}  # Track failed requests for retry
+
     def setup(self) -> None:
         """Perform the setup."""
         super().setup()
@@ -672,6 +708,9 @@ class DataCollectionRound(BaseState):
         self.received_responses = []
         self.async_requests_submitted = False
         self.total_expected_responses = 0
+
+        # Add to DataCollectionRound state
+        self.failed_requests = {}  # Track failed requests for retry
 
     def act(self) -> None:
         """Perform the act using generator pattern to yield control."""
@@ -927,14 +966,12 @@ class DataCollectionRound(BaseState):
         try:
             # Submit async requests for data that needs updating
             if symbol in self.tokens_needing_ohlcv_update:
-                self.context.logger.info(f"Submitting async OHLCV request for {symbol}")
                 self._submit_async_ohlcv_request(token_info)
                 self.tokens_needing_ohlcv_update.discard(symbol)
             else:
                 self.context.logger.info(f"Skipping OHLCV update for {symbol} (data is fresh)")
 
             if symbol in self.tokens_needing_social_update:
-                self.context.logger.info(f"Submitting async social request for {symbol}")
                 self._submit_async_social_request(token_info)
                 self.tokens_needing_social_update.discard(symbol)
             else:
@@ -1217,10 +1254,43 @@ class DataCollectionRound(BaseState):
                 )
                 break
 
+            # Check for failed requests that can be retried
+            if self.failed_requests and self._can_retry_failed_requests():
+                yield from self._retry_failed_requests()
+            
             yield
 
         self.context.logger.info(f"Received {len(self.received_responses)} responses")
         self._process_all_responses()
+
+    def _can_retry_failed_requests(self) -> bool:
+        """Check if any failed requests can be retried."""
+        for symbol, request_info in self.failed_requests.items():
+            retry_count = request_info['retry_count']
+            max_retries = 3
+            if retry_count < max_retries:
+                return True
+        return False
+
+    def _retry_failed_requests(self) -> Generator:
+        """Retry failed requests."""
+        for symbol, request_info in list(self.failed_requests.items()):
+            retry_count = request_info['retry_count']
+            max_retries = 3
+            if retry_count < max_retries:
+                token_info = request_info['token_info']
+                try:
+                    self._collect_token_data(token_info)
+                    del self.failed_requests[symbol]
+                    self.context.logger.info(f"Retried failed request for {symbol}")
+                except Exception as e:
+                    self.context.logger.warning(f"Failed to retry request for {symbol}: {e}")
+                    request_info['retry_count'] += 1
+                    if request_info['retry_count'] >= max_retries:
+                        self.context.logger.error(f"Max retries reached for {symbol}, giving up")
+                        del self.failed_requests[symbol]
+                        self.failed_tokens.append(token_info)
+            yield
 
     def _log_collection_summary(self) -> None:
         """Log enhanced collection summary."""
@@ -1281,10 +1351,12 @@ class DataCollectionRound(BaseState):
 
     def _is_data_sufficient(self) -> bool:
         """Check if collected data is sufficient for analysis."""
+        # Consider all tokens, not just completed ones
+        all_tokens = self.completed_tokens + self.failed_tokens
         min_required = max(1, len(ALLOWED_ASSETS["base"]) * self.context.params.data_sufficiency_threshold)
 
         tokens_with_both_data = 0
-        for token in self.completed_tokens:
+        for token in all_tokens:
             symbol = token["symbol"]
             has_technical = symbol in self.collected_data["ohlcv"] and symbol in self.collected_data["current_prices"]
             has_social = symbol in self.collected_data["social_data"]
