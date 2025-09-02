@@ -19,7 +19,7 @@
 """This module contains the model for the Mindshare app."""
 
 import time
-from typing import TYPE_CHECKING, Any, Optional, cast
+from typing import TYPE_CHECKING, Any, cast
 from datetime import UTC, datetime
 
 import requests
@@ -63,12 +63,24 @@ class FrozenMixin:
 class APIRateLimiter:
     """Generic rate limiter for API requests."""
 
-    def __init__(self, requests_per_minute: int, monthly_credits: Optional[int] = None) -> None:
+    def __init__(
+        self,
+        requests_per_minute: int,
+        monthly_credits: int | None = None,
+        requests_per_second: int | None = None,
+        context: Any = None,
+    ) -> None:
         """Initialize the rate limiter."""
         self._limit = self._remaining_limit = requests_per_minute
         self._credits = monthly_credits
+        self.context = context
+
         self._remaining_credits = monthly_credits or float("inf")
         self._last_request_time = time.time()
+
+        # Per-second rate limiting
+        self._requests_per_second = requests_per_second
+        self._second_requests = []  # Track timestamps of requests in current second
 
     @property
     def last_request_time(self) -> float:
@@ -78,7 +90,7 @@ class APIRateLimiter:
     @property
     def rate_limited(self) -> bool:
         """Check whether we are rate limited."""
-        return self.remaining_limit == 0
+        return self.remaining_limit == 0 or self._second_rate_limited()
 
     @property
     def no_credits(self) -> bool:
@@ -100,36 +112,152 @@ class APIRateLimiter:
         """Get the remaining requests' cap per month."""
         return self._remaining_credits
 
+    def _second_rate_limited(self) -> bool:
+        """Check if we're rate limited by per-second limits."""
+        if not self._requests_per_second:
+            return False
+
+        current_time = time.time()
+        # Remove requests older than 1 second
+        self._second_requests = [t for t in self._second_requests if current_time - t < 1.0]
+
+        return len(self._second_requests) >= self._requests_per_second
+
     def _update_limits(self) -> None:
         """Update the remaining limits and the credits if necessary."""
         current_time = time.time()
         time_passed = current_time - self._last_request_time
         limit_increase = int(time_passed / MINUTE_UNIX) * self._limit
+
+        old_remaining_limit = self._remaining_limit
         self._remaining_limit = min(self._limit, self._remaining_limit + limit_increase)
+
+        self.context.logger.debug(
+            f"_update_limits(): "
+            f"time_passed={time_passed:.2f}s, "
+            f"limit_increase={limit_increase}, "
+            f"old_remaining_limit={old_remaining_limit}, "
+            f"new_remaining_limit={self._remaining_limit}"
+        )
 
         # Reset monthly credits if month has passed
         if self._credits and self._can_reset_credits(current_time):
+            old_credits = self._remaining_credits
             self._remaining_credits = self._credits
+            self.context.logger.info(
+                f"Monthly credits reset: " f"old_credits={old_credits}, " f"new_credits={self._remaining_credits}"
+            )
 
     def _can_reset_credits(self, current_time: float) -> bool:
         """Check whether the monthly credits can be reset."""
-        current_date = datetime.fromtimestamp(current_time)
-        first_day_of_next_month = datetime(current_date.year, current_date.month + 1, 1)
+        current_date = datetime.fromtimestamp(current_time, tz=UTC)
+
+        # Handle year rollover properly
+        if current_date.month == 12:
+            next_month_year = current_date.year + 1
+            next_month = 1
+        else:
+            next_month_year = current_date.year
+            next_month = current_date.month + 1
+
+        first_day_of_next_month = datetime(next_month_year, next_month, 1, tzinfo=UTC)
         return current_time >= first_day_of_next_month.timestamp()
 
     def _burn_credit(self) -> None:
         """Use one credit."""
+        current_time = time.time()
+
+        self.context.logger.debug(
+            f"_burn_credit(): "
+            f"Before burn: remaining_limit={self._remaining_limit}, "
+            f"remaining_credits={self._remaining_credits}"
+        )
+
         self._remaining_limit -= 1
         if self._credits:
             self._remaining_credits -= 1
-        self._last_request_time = time.time()
+        self._last_request_time = current_time
+
+        # Track per-second request
+        if self._requests_per_second:
+            self._second_requests.append(current_time)
+            self.context.logger.debug(
+                f"Added per-second request tracking: "
+                f"current_second_requests={len(self._second_requests)}, "
+                f"requests_per_second_limit={self._requests_per_second}"
+            )
 
     def check_and_burn(self) -> bool:
         """Check whether we can perform a new request, and if yes, update the remaining limit and credits."""
+        # Log initial state
+        self.context.logger.debug(
+            f"check_and_burn() called - Current state: "
+            f"remaining_limit={self._remaining_limit}, "
+            f"remaining_credits={self._remaining_credits}, "
+            f"last_request_time={self._last_request_time}, "
+            f"time_since_last={time.time() - self._last_request_time:.2f}s"
+        )
+
         self._update_limits()
-        if self.cannot_request:
+
+        # Log state after limits update
+        self.context.logger.debug(
+            f"After _update_limits(): "
+            f"remaining_limit={self._remaining_limit}, "
+            f"remaining_credits={self._remaining_credits}"
+        )
+
+        # Check each condition separately with detailed logging
+        is_rate_limited = self.rate_limited
+        is_no_credits = self.no_credits
+        cannot_request = self.cannot_request
+
+        self.context.logger.debug(
+            f"Rate limit checks: "
+            f"rate_limited={is_rate_limited}, "
+            f"no_credits={is_no_credits}, "
+            f"cannot_request={cannot_request}"
+        )
+
+        if is_rate_limited:
+            self.context.logger.warning(
+                f"Rate limited detected: "
+                f"remaining_limit={self._remaining_limit}, "
+                f"second_rate_limited={self._second_rate_limited()}, "
+                f"requests_per_second={self._requests_per_second}, "
+                f"current_second_requests={len(self._second_requests)}"
+            )
+
+        if is_no_credits:
+            self.context.logger.warning(
+                f"No credits remaining: "
+                f"remaining_credits={self._remaining_credits}, "
+                f"monthly_credits={self._credits}"
+            )
+
+        if cannot_request:
+            self.context.logger.warning(
+                f"Cannot perform request - returning False. "
+                f"Reason: rate_limited={is_rate_limited}, no_credits={is_no_credits}"
+            )
             return False
+
+        # If we can request, burn the credit and log
+        self.context.logger.debug(
+            f"Request allowed - burning credit. "
+            f"Before burn: remaining_limit={self._remaining_limit}, "
+            f"remaining_credits={self._remaining_credits}"
+        )
+
         self._burn_credit()
+
+        self.context.logger.debug(
+            f"Credit burned successfully. "
+            f"After burn: remaining_limit={self._remaining_limit}, "
+            f"remaining_credits={self._remaining_credits}, "
+            f"last_request_time={self._last_request_time}"
+        )
+
         return True
 
     def calculate_wait_time(self) -> int:
@@ -137,7 +265,14 @@ class APIRateLimiter:
         current_time = time.time()
         time_since_last = current_time - self._last_request_time
 
-        if self.rate_limited:
+        # Check per-second rate limiting first
+        if self._requests_per_second and self._second_rate_limited():
+            # Wait until the oldest request in the current second window expires
+            oldest_request_time = min(self._second_requests) if self._second_requests else current_time
+            wait_time = max(0, 1.0 - (current_time - oldest_request_time))
+            return int(wait_time) + 1  # Add 1 second buffer
+
+        if self.remaining_limit == 0:
             # Wait for the remainder of the current minute
             wait_time = max(0, MINUTE_UNIX - int(time_since_last))
             return min(wait_time, MINUTE_UNIX)
@@ -148,6 +283,31 @@ class APIRateLimiter:
         """Handle rate limit response from API."""
         self._remaining_limit = 0
         self._last_request_time = time.time()
+
+    def check_and_burn_with_wait(self) -> tuple[bool, float | None]:
+        """Check whether we can perform a new request. If rate limited, return wait time instead of blocking.
+
+        Returns:
+            tuple: (can_proceed, wait_until_timestamp)
+            - can_proceed: True if request can proceed, False if rate limited
+            - wait_until_timestamp: None if no wait needed, future timestamp if should wait until then
+
+        """
+        # Check if we can make a request
+        if self.check_and_burn():
+            return True, None
+
+        wait_time = self.calculate_wait_time()
+
+        if wait_time == 0:
+            self.context.logger.error("Rate limited but no wait time calculated")
+            return False, None
+
+        # Return the timestamp when the request can be retried
+        wait_until_timestamp = time.time() + wait_time
+        self.context.logger.info(f"Rate limited, should retry after {wait_time}s at {wait_until_timestamp}")
+
+        return False, wait_until_timestamp
 
 
 class Coingecko(Model):
@@ -160,7 +320,7 @@ class Coingecko(Model):
         """Setup the CoinGecko API client."""
         requests_per_minute = self.context.params.coingecko_rate_limit_per_minute
         monthly_credits = self.context.params.coingecko_monthly_credits
-        self.rate_limiter = APIRateLimiter(requests_per_minute, monthly_credits)
+        self.rate_limiter = APIRateLimiter(requests_per_minute, monthly_credits, context=self.context)
 
     def validate_required_params(self, params: dict[str, str], required_keys: list[str], param_type: str) -> None:
         """Validate that required parameters are present and not None."""
@@ -192,15 +352,23 @@ class Coingecko(Model):
 
         return response.json()
 
-    def submit_coingecko_request(self, base_url: str, query_params: dict[str, str]) -> str:
+    def submit_coingecko_request(self, base_url: str, query_params: dict[str, str]) -> tuple[str, float | None]:
         """Submit request to CoinGecko API using HTTP dialogue system."""
-        if not self.rate_limiter.check_and_burn():
-            self.context.logger.warning(
-                f"Rate limited by CoinGecko. Remaining: {self.rate_limiter.remaining_limit}/min, "
+        can_proceed, wait_until = self.rate_limiter.check_and_burn_with_wait()
+
+        if not can_proceed:
+            if wait_until is not None:
+                self.context.logger.info(f"CoinGecko rate limited, deferring request until {wait_until}")
+                return "", wait_until
+            self.context.logger.error(
+                f"Failed to get rate limit approval. Remaining: {self.rate_limiter.remaining_limit}/min, "
                 f"{self.rate_limiter.remaining_credits}/month"
             )
-            # You could implement a retry mechanism here or return an error
-            raise ValueError("Rate limited by CoinGecko API")
+            msg = "Rate limited by CoinGecko API - unable to calculate wait time"
+            raise ValueError(msg)
+
+        # Add delay to avoid hitting rate limits
+        time.sleep(2)
 
         coingecko_api_key = self.context.params.coingecko_api_key
         if coingecko_api_key is None or coingecko_api_key == "":
@@ -215,7 +383,6 @@ class Coingecko(Model):
         headers = {"accept": "application/json", "x-cg-demo-api-key": coingecko_api_key}
         headers_str = "\n".join(f"{k}: {v}" for k, v in headers.items())
 
-        # Use HTTP dialogue system to create request
         http_dialogues = self.context.http_dialogues
         request_http_message, http_dialogue = http_dialogues.create(
             counterparty=str(HTTP_CLIENT_PUBLIC_ID),
@@ -228,8 +395,8 @@ class Coingecko(Model):
         )
         self.context.outbox.put_message(message=request_http_message)
 
-        # Return dialogue reference for tracking
-        return http_dialogue.dialogue_label.dialogue_reference[0]
+        # Return dialogue reference for tracking and no wait time (since we already waited)
+        return http_dialogue.dialogue_label.dialogue_reference[0], None
 
     def handle_rate_limit_response(self) -> None:
         """Handle 429 rate limit response from CoinGecko."""
@@ -299,12 +466,14 @@ class Coingecko(Model):
             volume = closest_volume_entry[1]
 
             # Create OHLCV entry: [timestamp, open, high, low, close, volume]
-            ohlcv_entry = [ohlc_timestamp] + ohlc[1:] + [volume]
+            ohlcv_entry = [ohlc_timestamp, *ohlc[1:], volume]
             ohlcv_data.append(ohlcv_entry)
 
         return ohlcv_data
 
-    def submit_coin_ohlc_request(self, path_params: dict[str, str], query_params: dict[str, str]) -> str:
+    def submit_coin_ohlc_request(
+        self, path_params: dict[str, str], query_params: dict[str, str]
+    ) -> tuple[str, float | None]:
         """Submit async request for OHLC data from CoinGecko."""
         self.validate_required_params(path_params, ["id"], "path_params")
         self.validate_required_params(query_params, ["vs_currency", "days"], "query_params")
@@ -312,7 +481,9 @@ class Coingecko(Model):
         base_url = f"https://api.coingecko.com/api/v3/coins/{path_params['id']}/ohlc"
         return self.submit_coingecko_request(base_url, query_params)
 
-    def submit_coin_historical_chart_request(self, path_params: dict[str, str], query_params: dict[str, str]) -> str:
+    def submit_coin_historical_chart_request(
+        self, path_params: dict[str, str], query_params: dict[str, str]
+    ) -> tuple[str, float | None]:
         """Submit async request for historical chart data from CoinGecko."""
         self.validate_required_params(path_params, ["id"], "path_params")
         self.validate_required_params(query_params, ["vs_currency", "days"], "query_params")
@@ -320,7 +491,7 @@ class Coingecko(Model):
         base_url = f"https://api.coingecko.com/api/v3/coins/{path_params['id']}/market_chart"
         return self.submit_coingecko_request(base_url, query_params)
 
-    def submit_coin_price_request(self, query_params: dict[str, str]) -> str:
+    def submit_coin_price_request(self, query_params: dict[str, str]) -> tuple[str, float | None]:
         """Submit async request for price data from CoinGecko."""
         self.validate_required_params(query_params, ["vs_currencies"], "query_params")
 
@@ -338,16 +509,36 @@ class Trendmoon(Model):
         """Setup the Trendmoon API client."""
         requests_per_minute = self.context.params.trendmoon_rate_limit_per_minute
         monthly_credits = self.context.params.trendmoon_monthly_credits
-        self.rate_limiter = APIRateLimiter(requests_per_minute, monthly_credits)
+        self.rate_limiter = APIRateLimiter(
+            requests_per_minute,
+            monthly_credits,
+            requests_per_second=self.context.params.trendmoon_rate_limit_per_second,
+            context=self.context,
+        )
 
-    def submit_trendmoon_request(self, endpoint: str, query_params: dict[str, str]) -> str:
-        """Submit request to TrendMoon API using HTTP dialogue system."""
-        if not self.rate_limiter.check_and_burn():
-            self.context.logger.warning(
-                f"Rate limited by TrendMoon. Remaining: {self.rate_limiter.remaining_limit}/min"
-            )
-            msg = "Rate limited by TrendMoon API"
-            raise ValueError(msg)
+    def submit_trendmoon_request(self, endpoint: str, query_params: dict[str, str]) -> tuple[str, float | None]:
+        """Submit request to TrendMoon API using HTTP dialogue system.
+
+        Returns:
+            tuple: (request_id, wait_until_timestamp)
+            - request_id: The dialogue reference for tracking, or empty string if rate limited
+            - wait_until_timestamp: Unix timestamp to wait until, or None if no wait needed
+
+        """
+        can_proceed, wait_until = self.rate_limiter.check_and_burn_with_wait()
+
+        if not can_proceed:
+            if wait_until is None:
+                self.context.logger.error(
+                    f"Failed to get rate limit approval after retries. "
+                    f"Remaining: {self.rate_limiter.remaining_limit}/min"
+                )
+                msg = "Rate limited by TrendMoon API - max retries exceeded"
+                raise ValueError(msg)
+            return "", wait_until
+
+        # Add small delay to avoid hitting rate limits
+        time.sleep(0.2)
 
         url = f"https://api.qa.trendmoon.ai{endpoint}"
 
@@ -359,7 +550,6 @@ class Trendmoon(Model):
         headers = {"accept": "application/json", "Api-key": self.context.params.trendmoon_api_key}
         headers_str = "\n".join(f"{k}: {v}" for k, v in headers.items())
 
-        # Create HTTP request via dialogue
         http_dialogues = self.context.http_dialogues
         request_message, dialogue = http_dialogues.create(
             counterparty=str(HTTP_CLIENT_PUBLIC_ID),
@@ -373,7 +563,7 @@ class Trendmoon(Model):
 
         self.context.outbox.put_message(message=request_message)
 
-        return dialogue.dialogue_label.dialogue_reference[0]
+        return dialogue.dialogue_label.dialogue_reference[0], None
 
     def submit_coin_trends_request(
         self,
@@ -382,7 +572,7 @@ class Trendmoon(Model):
         contract_addresses: list[str] | None = None,
         date_interval: int | None = None,
         time_interval: str | None = "1h",
-    ) -> str:
+    ) -> tuple[str, float | None]:
         """Submit request for coin trends."""
         query_params = {
             "symbol": symbol,
@@ -571,13 +761,16 @@ class Params(Model):
         self.coingecko_rate_limit_per_minute = kwargs.pop("coingecko_rate_limit_per_minute", 50)
         self.coingecko_monthly_credits = kwargs.pop("coingecko_monthly_credits", 100000)
         self.trendmoon_rate_limit_per_minute = kwargs.pop("trendmoon_rate_limit_per_minute", 100)
+        self.trendmoon_rate_limit_per_second = kwargs.pop("trendmoon_rate_limit_per_second", 5)
         self.trendmoon_monthly_credits = kwargs.pop("trendmoon_monthly_credits", 10000)
 
         # Staking
         self.staking_chain = kwargs.pop("staking_chain", "base")
         self.staking_threshold_period = kwargs.pop("staking_threshold_period", 22)
         self.min_num_of_safe_tx_required = kwargs.pop("min_num_of_safe_tx_required", 5)
-        self.staking_token_contract_address = kwargs.pop("staking_token_contract_address", "0xEB5638eefE289691EcE01943f768EDBF96258a80")
+        self.staking_token_contract_address = kwargs.pop(
+            "staking_token_contract_address", "0xEB5638eefE289691EcE01943f768EDBF96258a80"
+        )
         self.service_id = kwargs.pop("service_id", "mindshare")
         self.on_chain_service_id = kwargs.pop("on_chain_service_id", None)
 

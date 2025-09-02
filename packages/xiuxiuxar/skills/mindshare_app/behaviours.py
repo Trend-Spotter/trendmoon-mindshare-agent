@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING, Any, cast
 from pathlib import Path
 from datetime import UTC, datetime, timedelta
 from dataclasses import dataclass
-from collections.abc import Callable, Generator
+from collections.abc import Generator
 
 import pandas as pd
 import pandas_ta as ta
@@ -76,10 +76,11 @@ MULTISEND_ADDRESS = "0x40A2aCCbd92BCA938b02010E17A5b8929b49130D"  # Base chain m
 
 class RateLimitError(Exception):
     """Exception raised when API rate limit is exceeded."""
-    
-    def __init__(self, message: str, wait_time: int = 60):
+
+    def __init__(self, message: str, wait_until: float | None = None, wait_time: int = 60):
         super().__init__(message)
         self.wait_time = wait_time
+        self.wait_until = wait_until
 
 
 def truncate_to_decimals(amount: float, decimals: int = 4) -> float:
@@ -253,26 +254,6 @@ class PriceRequest:
 ALLOWED_ASSETS: dict[str, list[dict[str, str]]] = {
     "base": [
         # BASE-chain Uniswap tokens
-        # {
-        #     "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
-        #     "symbol": "USDC",
-        #     "coingecko_id": "usd-coin",
-        # },
-        # {
-        #     "address": "0x2Ae3F1Ec7F1F5012CFEab0185bfc7aa3cf0DEc22",
-        #     "symbol": "cbETH",
-        #     "coingecko_id": "coinbase-wrapped-staked-eth",
-        # },
-        # {
-        #     "address": "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf",
-        #     "symbol": "cbBTC",
-        #     "coingecko_id": "coinbase-wrapped-btc",
-        # },
-        # {
-        #     "address": "0x4200000000000000000000000000000000000006",
-        #     "symbol": "WETH",
-        #     "coingecko_id": "l2-standard-bridged-weth-base",
-        # },
         {
             "address": "0x0b3e328455c4059EEb9e3f84b5543F74E24e7E1b",
             "symbol": "VIRTUAL",
@@ -343,11 +324,6 @@ ALLOWED_ASSETS: dict[str, list[dict[str, str]]] = {
             "address": "0xd5C3a723e63a0ECaB81081c26c6A3c4b2634Bf85",
             "symbol": "WOJAK",
             "coingecko_id": "based-wojak",
-        },
-        {
-            "address": "0xd5C3a723e63a0ECaB81081c26c6A3c4b2634Bf85",
-            "symbol": "BASEDHYPE",
-            "coingecko_id": "based-hype",
         },
         {
             "address": "0xA4A2E2ca3fBfE21aed83471D28b6f65A233C6e00",
@@ -535,37 +511,6 @@ class BaseState(State, ABC):
         self.context.outbox.put_message(message=msg)
         return dialogue
 
-    def _calculate_rate_limit_wait_time(self, api_name: str) -> int:
-        """Calculate the wait time for rate limiting based on the rate limiter state."""
-        if api_name == "coingecko":
-            return self.coingecko.rate_limiter.calculate_wait_time()
-        if api_name == "trendmoon":
-            return self.trendmoon.rate_limiter.calculate_wait_time()
-        return 0
-
-    def _wait_for_rate_limit(self, api_name: str) -> None:
-        """Wait for rate limit to reset before making request."""
-        wait_time = self._calculate_rate_limit_wait_time(api_name)
-        if wait_time > 0:
-            self.context.logger.info(f"Rate limit hit for {api_name}. Will retry in {wait_time} seconds")
-            raise RateLimitError(f"Rate limited by {api_name} API. Retry in {wait_time}s", wait_time)
-
-    def _submit_with_rate_limit_check(self, api_name: str, submit_func: Callable, *args, **kwargs) -> str:
-        max_retries = 3
-        retry_count = 0
-        
-        while retry_count < max_retries:
-            try:
-                self._wait_for_rate_limit(api_name)
-                return submit_func(*args, **kwargs)
-            except RateLimitError as e:
-                retry_count += 1
-                if retry_count >= max_retries:
-                    raise
-                self.context.logger.info(f"Rate limited, retrying {retry_count}/{max_retries} in {e.wait_time}s")
-                # Could implement actual waiting here if needed
-                raise  # For now, let caller handle retry logic
-
     def _get_preapproved_signature(self) -> str:
         """Generate pre-approved signature format."""
         owner = self.context.agent_address
@@ -668,6 +613,7 @@ class DataCollectionRound(BaseState):
         self.completed_tokens: list[dict[str, str]] = []
         self.failed_tokens: list[dict[str, str]] = []
         self.current_token_index: int = 0
+        self.rate_limiting_occurred: bool = False
         self.tokens_needing_ohlcv_update: set[str] = set()
         self.tokens_needing_social_update: set[str] = set()
 
@@ -694,6 +640,7 @@ class DataCollectionRound(BaseState):
         self.completed_tokens = []
         self.failed_tokens = []
         self.current_token_index = 0
+        self.rate_limiting_occurred = False
         self.collected_data = {}
         self.started_at = None
         self.tokens_needing_ohlcv_update = set()
@@ -719,6 +666,21 @@ class DataCollectionRound(BaseState):
                 self.context.logger.info(f"Entering {self._state} state.")
                 self.started = True
 
+            # Check for timeout to prevent indefinite execution
+            if hasattr(self, "started_at") and self.started_at:
+                elapsed_time = (datetime.now(UTC) - self.started_at).total_seconds()
+                max_collection_time = 300  # 5 minutes max
+                if elapsed_time > max_collection_time:
+                    self.context.logger.warning(
+                        f"Data collection timeout after {elapsed_time:.1f}s, proceeding with collected data"
+                    )
+                    self._finalize_collection()
+                    self._event = (
+                        MindshareabciappEvents.DONE if self._is_data_sufficient() else MindshareabciappEvents.ERROR
+                    )
+                    self._is_done = True
+                    return
+
             # Initialize generator on first call
             if self._collection_generator is None:
                 self._collection_generator = self._collect_all_data()
@@ -735,14 +697,21 @@ class DataCollectionRound(BaseState):
                     self._generator_completed = True
                     success = e.value if hasattr(e, "value") else True
 
-                    self.context.logger.info("Data collection completed, finalizing...")
-                    self._finalize_collection()
-                    self._event = (
-                        MindshareabciappEvents.DONE
-                        if success and self._is_data_sufficient()
-                        else MindshareabciappEvents.ERROR
-                    )
-                    self._is_done = True
+                    # Only finalize if the generator indicates success (no pending retries)
+                    if success:
+                        self.context.logger.info("Data collection completed, finalizing...")
+                        self._finalize_collection()
+                        self._event = (
+                            MindshareabciappEvents.DONE if self._is_data_sufficient() else MindshareabciappEvents.ERROR
+                        )
+                        self._is_done = True
+                    else:
+                        # Generator returned False, indicating pending retries
+                        self.context.logger.info("Data collection has pending retries, continuing...")
+                        # Reset generator for next iteration
+                        self._collection_generator = None
+                        self._generator_completed = False
+                        # Don't set _is_done, let the round continue
 
         except Exception as e:
             self.context.logger.exception(f"Data collection failed: {e}")
@@ -920,8 +889,8 @@ class DataCollectionRound(BaseState):
             self._initialize_collection()
             yield  # Yield after initialization
 
-        # Phase 1: Submit all async requests
-        if not self.async_requests_submitted:
+        # Phase 1: Submit all async requests for pending tokens
+        if not self.async_requests_submitted and self.pending_tokens:
             self.context.logger.info("Phase 1: Submitting async requests for all tokens")
             for token_info in self.pending_tokens:
                 self.context.logger.info(
@@ -933,6 +902,11 @@ class DataCollectionRound(BaseState):
                     self._collect_token_data(token_info)
                     self.completed_tokens.append(token_info)
 
+                except RateLimitError as e:
+                    self.rate_limiting_occurred = True
+                    self.context.logger.info(f"Rate limited for {token_info['symbol']}, will retry in phase 2")
+                    # Token is already added to failed_requests by _collect_token_data
+                    continue
                 except Exception as e:
                     self.context.logger.warning(f"Failed to submit requests for {token_info['symbol']}: {e}")
                     self.failed_tokens.append(token_info)
@@ -943,17 +917,33 @@ class DataCollectionRound(BaseState):
                 self.current_token_index += 1
                 yield  # Yield after each token to allow message processing
 
+            # Keep failed_requests for retrying in phase 2 - don't move to failed_tokens yet
+            if self.failed_requests:
+                self.context.logger.info(
+                    f"Phase 1 complete: {len(self.failed_requests)} tokens rate limited, will retry in phase 2"
+                )
+
             self.async_requests_submitted = True
             self.total_expected_responses = len(self.pending_http_requests)
-            self.context.logger.info(f"Phase 1 complete: Submitted {self.total_expected_responses} async requests")
+            total_initial_requests = self.total_expected_responses
+            rate_limited_count = len(self.failed_requests)
+            self.context.logger.info(
+                f"Phase 1 complete: Submitted {total_initial_requests} async requests, {rate_limited_count} rate limited for retry"
+            )
             yield
 
-        # Phase 2: Wait for and process all responses
-        self.context.logger.info("Phase 2: Waiting for async responses")
+        # Phase 2: Wait for and process all responses, including retries
+        self.context.logger.info("Phase 2: Waiting for async responses and handling retries")
         yield from self._wait_for_async_responses()
 
         # All tokens processed successfully
-        self.context.logger.info("All async data collection completed successfully")
+        total_completed = len(self.completed_tokens)
+        total_failed = len(self.failed_tokens)
+        total_tokens = len(ALLOWED_ASSETS["base"])
+        self.context.logger.info(
+            f"All async data collection completed: {total_completed}/{total_tokens} tokens successful, "
+            f"{total_failed} failed"
+        )
         return True
 
     def _collect_token_data(self, token_info: dict[str, str]) -> None:
@@ -999,18 +989,26 @@ class DataCollectionRound(BaseState):
         # Submit async request
         # ohlc_request_id = self.context.coingecko.submit_coin_ohlc_request(path_params, query_params)
         # volume_request_id = self.context.coingecko.submit_coin_historical_chart_request(path_params, query_params)
-        ohlc_request_id = self._submit_with_rate_limit_check(
-            "coingecko",
-            self.context.coingecko.submit_coin_ohlc_request,
-            path_params,
-            query_params,
+        # Submit async request with rate limit handling
+        ohlc_request_id, ohlc_wait_until = self.context.coingecko.submit_coin_ohlc_request(path_params, query_params)
+        volume_request_id, volume_wait_until = self.context.coingecko.submit_coin_historical_chart_request(
+            path_params, query_params
         )
-        volume_request_id = self._submit_with_rate_limit_check(
-            "coingecko",
-            self.context.coingecko.submit_coin_historical_chart_request,
-            path_params,
-            query_params,
-        )
+
+        # Check if we need to wait for rate limits
+        if ohlc_wait_until is not None or volume_wait_until is not None:
+            wait_until = max(ohlc_wait_until or 0, volume_wait_until or 0)
+            self.context.logger.info(
+                f"Rate limited for {symbol}, will retry at {datetime.fromtimestamp(wait_until).strftime('%H:%M:%S')}"
+            )
+            # Store the token for retry later
+            self.failed_requests[symbol] = {
+                "token_info": token_info,
+                "retry_after": wait_until,
+                "request_type": "ohlcv",
+                "retry_count": 0,
+            }
+            raise RateLimitError(f"Rate limited for {symbol}, retry after {wait_until}", wait_until=wait_until)
 
         # Track requests for identification
         self.pending_http_requests[ohlc_request_id] = {
@@ -1087,13 +1085,25 @@ class DataCollectionRound(BaseState):
         # trends_request_id = self.context.trendmoon.submit_coin_trends_request(
         #     symbol=symbol, time_interval="1h", date_interval=30
         # )
-        trends_request_id = self._submit_with_rate_limit_check(
-            "trendmoon",
-            self.context.trendmoon.submit_coin_trends_request,
-            symbol=symbol,
-            time_interval="1h",
-            date_interval=30,
+        trends_request_id, wait_until = self.context.trendmoon.submit_coin_trends_request(
+            symbol=symbol, time_interval="1h", date_interval=30
         )
+
+        # Check if we need to wait for rate limits
+        if wait_until is not None:
+            self.context.logger.info(
+                f"Rate limited for {symbol} social data, will retry at {datetime.fromtimestamp(wait_until).strftime('%H:%M:%S')}"
+            )
+            # Store the token for retry later
+            self.failed_requests[symbol] = {
+                "token_info": token_info,
+                "retry_after": wait_until,
+                "request_type": "social",
+                "retry_count": 0,
+            }
+            raise RateLimitError(
+                f"Rate limited for {symbol} social data, retry after {wait_until}", wait_until=wait_until
+            )
 
         # Track request for identification
         self.pending_http_requests[trends_request_id] = {"request_type": "social", "token_symbol": symbol}
@@ -1125,11 +1135,23 @@ class DataCollectionRound(BaseState):
         }
 
         # price_request_id = self.context.coingecko.submit_coin_price_request(query_params)
-        price_request_id = self._submit_with_rate_limit_check(
-            "coingecko",
-            self.context.coingecko.submit_coin_price_request,
-            query_params,
-        )
+        price_request_id, wait_until = self.context.coingecko.submit_coin_price_request(query_params)
+
+        # Check if we need to wait for rate limits
+        if wait_until is not None:
+            self.context.logger.info(
+                f"Rate limited for {symbol} price data, will retry at {datetime.fromtimestamp(wait_until).strftime('%H:%M:%S')}"
+            )
+            # Store the token for retry later
+            self.failed_requests[symbol] = {
+                "token_info": token_info,
+                "retry_after": wait_until,
+                "request_type": "price",
+                "retry_count": 0,
+            }
+            raise RateLimitError(
+                f"Rate limited for {symbol} price data, retry after {wait_until}", wait_until=wait_until
+            )
 
         # Track request for identification
         self.pending_http_requests[price_request_id] = {
@@ -1239,58 +1261,134 @@ class DataCollectionRound(BaseState):
 
     def _wait_for_async_responses(self) -> Generator:
         """Wait for all async HTTP responses to be received."""
-        if not self.pending_http_requests:
+        if not self.pending_http_requests and not self.failed_requests:
             return
 
         self.context.logger.info(f"Waiting for {len(self.pending_http_requests)} async HTTP responses...")
-        timeout_seconds = 30
+        timeout_seconds = 120
         start_time = datetime.now(UTC)
+        last_retry_check = 0  # Track when we last checked for retries to reduce logging
 
-        while len(self.received_responses) < self.total_expected_responses:
+        # Recalculate expected responses based on what was actually submitted
+        expected_from_requests = len(self.pending_http_requests)
+        expected_from_retries = 0  # Will be updated when retries are successful
+
+        while (len(self.received_responses) < expected_from_requests + expected_from_retries) or self.failed_requests:
             elapsed = (datetime.now(UTC) - start_time).total_seconds()
             if elapsed > timeout_seconds:
-                self.context.logger.error(
-                    f"Timeout waiting for HTTP responses. Got {len(self.received_responses)}/{self.total_expected_responses}"
+                self.context.logger.warning(
+                    f"Timeout waiting for HTTP responses. Got {len(self.received_responses)}, expected {expected_from_requests + expected_from_retries}"
                 )
                 break
 
-            # Check for failed requests that can be retried
-            if self.failed_requests and self._can_retry_failed_requests():
-                yield from self._retry_failed_requests()
-            
+            # Check for failed requests that can be retried (but not too frequently)
+            current_time = time.time()
+            if self.failed_requests and (current_time - last_retry_check) > 10:  # Check every 10 seconds
+                if self._can_retry_failed_requests():
+                    retry_count = len([req for req in self.failed_requests.values() if req.get("retry_count", 0) < 3])
+                    self.context.logger.info(f"Retrying {retry_count} failed requests...")
+                    initial_pending_count = len(self.pending_http_requests)
+                    yield from self._retry_failed_requests()
+                    # Update expected count based on successful retries
+                    new_pending_count = len(self.pending_http_requests)
+                    if new_pending_count > initial_pending_count:
+                        expected_from_retries += new_pending_count - initial_pending_count
+                last_retry_check = current_time
+
+            # Break if no more progress can be made
+            if not self.pending_http_requests and not self.failed_requests:
+                break
+
             yield
 
         self.context.logger.info(f"Received {len(self.received_responses)} responses")
         self._process_all_responses()
 
+        # After processing responses, move any remaining failed requests to failed_tokens
+        if self.failed_requests:
+            self.context.logger.info(f"Moving {len(self.failed_requests)} remaining failed requests to failed tokens")
+            for symbol, request_info in self.failed_requests.items():
+                token_info = request_info["token_info"]
+                if token_info not in self.failed_tokens:
+                    self.failed_tokens.append(token_info)
+            # Clear failed_requests as they are now in failed_tokens
+            self.failed_requests.clear()
+
     def _can_retry_failed_requests(self) -> bool:
         """Check if any failed requests can be retried."""
+        current_time = time.time()
         for symbol, request_info in self.failed_requests.items():
-            retry_count = request_info['retry_count']
+            retry_count = request_info.get("retry_count", 0)
+            retry_after = request_info.get("retry_after")
             max_retries = 3
-            if retry_count < max_retries:
+
+            # Check if we haven't exceeded max retries and the wait time has passed
+            if retry_count < max_retries and (retry_after is None or current_time >= retry_after):
                 return True
         return False
 
     def _retry_failed_requests(self) -> Generator:
         """Retry failed requests."""
+        current_time = time.time()
+        retry_attempted = 0
+
         for symbol, request_info in list(self.failed_requests.items()):
-            retry_count = request_info['retry_count']
+            retry_count = request_info.get("retry_count", 0)
+            retry_after = request_info.get("retry_after")
             max_retries = 3
+
+            # Skip if we haven't waited long enough
+            if retry_after is not None and current_time < retry_after:
+                continue
+
             if retry_count < max_retries:
-                token_info = request_info['token_info']
+                token_info = request_info["token_info"]
                 try:
+                    # Reset the token's update needs if retrying
+                    symbol_name = token_info["symbol"]
+                    request_type = request_info.get("request_type", "unknown")
+
+                    # Re-add to the appropriate update set based on request type
+                    if request_type == "ohlcv":
+                        self.tokens_needing_ohlcv_update.add(symbol_name)
+                    elif request_type == "social":
+                        self.tokens_needing_social_update.add(symbol_name)
+
+                    self.context.logger.info(
+                        f"Retrying {request_type} request for {symbol} (attempt {retry_count + 1})"
+                    )
                     self._collect_token_data(token_info)
                     del self.failed_requests[symbol]
-                    self.context.logger.info(f"Retried failed request for {symbol}")
+                    if token_info not in self.completed_tokens:
+                        self.completed_tokens.append(token_info)
+                    retry_attempted += 1
+                    self.context.logger.info(f"Successfully retried {request_type} request for {symbol}")
+
+                except RateLimitError as e:
+                    # Still rate limited, increment retry count and update retry time if provided
+                    self.rate_limiting_occurred = True
+                    self.context.logger.info(f"Still rate limited for {symbol}, will retry again later")
+                    request_info["retry_count"] = retry_count + 1
+                    # Update retry_after time if new wait_until is provided
+                    if e.wait_until is not None:
+                        request_info["retry_after"] = e.wait_until
+
                 except Exception as e:
                     self.context.logger.warning(f"Failed to retry request for {symbol}: {e}")
-                    request_info['retry_count'] += 1
-                    if request_info['retry_count'] >= max_retries:
-                        self.context.logger.error(f"Max retries reached for {symbol}, giving up")
-                        del self.failed_requests[symbol]
+                    request_info["retry_count"] = retry_count + 1
+
+                # Check if max retries reached
+                if request_info.get("retry_count", 0) >= max_retries:
+                    self.context.logger.error(f"Max retries reached for {symbol}, giving up")
+                    del self.failed_requests[symbol]
+                    token_info = request_info["token_info"]
+                    if token_info not in self.failed_tokens:
                         self.failed_tokens.append(token_info)
+
             yield
+
+        if retry_attempted > 0:
+            self.context.logger.info(f"Attempted to retry {retry_attempted} failed requests")
 
     def _log_collection_summary(self) -> None:
         """Log enhanced collection summary."""
@@ -1353,21 +1451,39 @@ class DataCollectionRound(BaseState):
         """Check if collected data is sufficient for analysis."""
         # Consider all tokens, not just completed ones
         all_tokens = self.completed_tokens + self.failed_tokens
-        min_required = max(1, len(ALLOWED_ASSETS["base"]) * self.context.params.data_sufficiency_threshold)
+        total_tokens = len(ALLOWED_ASSETS["base"])
+        min_required = max(1, int(total_tokens * self.context.params.data_sufficiency_threshold))
 
+        # Count tokens with any usable data (not requiring both technical and social)
+        tokens_with_technical = 0
+        tokens_with_social = 0
         tokens_with_both_data = 0
+
         for token in all_tokens:
             symbol = token["symbol"]
             has_technical = symbol in self.collected_data["ohlcv"] and symbol in self.collected_data["current_prices"]
             has_social = symbol in self.collected_data["social_data"]
 
+            if has_technical:
+                tokens_with_technical += 1
+            if has_social:
+                tokens_with_social += 1
             if has_technical and has_social:
                 tokens_with_both_data += 1
 
-        is_sufficient = tokens_with_both_data >= min_required
+        # More lenient sufficiency check - if we encountered rate limiting, accept partial data
+        if self.rate_limiting_occurred:
+            # If rate limited during this round, accept if we have technical data for sufficient tokens
+            is_sufficient = tokens_with_technical >= min_required
+            reason = f"rate limited during collection, using technical data threshold"
+        else:
+            # Normal case - prefer both data types
+            is_sufficient = tokens_with_both_data >= min_required
+            reason = "normal collection, using both data types threshold"
+
         self.context.logger.info(
-            f"Data sufficiency: {tokens_with_both_data}/{min_required} tokens have both data types. "
-            f"Sufficient: {is_sufficient}"
+            f"Data sufficiency ({reason}): {tokens_with_technical} technical, {tokens_with_social} social, "
+            f"{tokens_with_both_data} both, {min_required} required. Sufficient: {is_sufficient}"
         )
 
         return is_sufficient

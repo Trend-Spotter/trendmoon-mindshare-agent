@@ -201,7 +201,7 @@ class HttpHandler(Handler):
         # rather than this handler which is designed for incoming HTTP requests (healthcheck)
 
         if http_msg.status_code == 429:
-            self._handle_rate_limit_response(http_msg)
+            self._handle_rate_limit_response(http_msg, http_dialogue)
             return
 
         self.context.logger.debug(f"Routing HTTP response to behavior system: {http_msg.performative}")
@@ -216,16 +216,12 @@ class HttpHandler(Handler):
         else:
             self.context.logger.warning("Cannot route HTTP response - main behavior not found")
 
-    def _handle_rate_limit_response(self, http_msg: HttpMessage) -> None:
+    def _handle_rate_limit_response(self, http_msg: HttpMessage, http_dialogue: HttpDialogue) -> None:
         """Handle rate limit responses from APIs."""
         # Determine which API was rate limited based on the request URL
         self.context.logger.info(f"Handling rate limit response: {http_msg}")
 
-        dialogue = cast("HttpDialogue", self.context.http_dialogues.get_dialogue(http_msg))
-        if dialogue is None:
-            self.context.logger.warning("Cannot find dialogue for rate limit response")
-            return
-        request_message = dialogue.get_message_by_id(http_msg.target)
+        request_message = http_dialogue.get_message_by_id(http_msg.target)
         if request_message is None:
             self.context.logger.warning("Cannot find request message for rate limit response")
             return
