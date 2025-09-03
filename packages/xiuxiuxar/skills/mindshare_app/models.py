@@ -32,7 +32,7 @@ from packages.eightballer.connections.http_client.connection import PUBLIC_ID as
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from packages.xiuxiuxar.skills.mindshare_app.behaviours import (
+    from packages.xiuxiuxar.skills.mindshare_app.behaviours.round_behaviour import (
         MindshareabciappFsmBehaviour,
     )
 
