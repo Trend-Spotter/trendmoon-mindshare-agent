@@ -416,40 +416,16 @@ class TradeConstructionRound(BaseState):
     def _validate_price_sanity(self, symbol: str, ticker_price: float) -> bool:
         """Validate ticker price against CoinGecko reference price with sanity checks."""
         try:
-            # Load the latest price data from collected_data.json
-            if not self.context.store_path:
-                self.context.logger.warning("No store path available for price validation")
-                return True  # Skip validation if we can't access data
+            # Check prerequisites and load data
+            validation_data = self._load_price_validation_data(symbol)
+            if not validation_data:
+                return True  # Skip validation if data unavailable
 
-            data_file = self.context.store_path / "collected_data.json"
-            if not data_file.exists():
-                self.context.logger.warning(f"Data file does not exist for price validation: {data_file}")
-                return True  # Skip validation if data file doesn't exist
-
-        with open(data_file, encoding=DEFAULT_ENCODING) as f:
-            collected_data = json.load(f)
-
-            # Get current prices from collected data
-            current_prices = collected_data.get("current_prices", {})
-            if symbol not in current_prices:
-                self.context.logger.warning(f"No CoinGecko price data found for {symbol}")
-                return True  # Skip validation if no reference data
-
-            coingecko_price_data = current_prices[symbol]
-            coingecko_usd_price = coingecko_price_data.get("usd")
-
-            if not coingecko_usd_price:
-                self.context.logger.warning(f"No USD price found in CoinGecko data for {symbol}")
-                return True  # Skip validation if no USD price
-
-            # Convert ticker price (OLAS/USDC) to USD equivalent
-            # Assuming USDC is pegged to USD (1 USDC ≈ 1 USD)
+            coingecko_usd_price = validation_data["coingecko_usd_price"]
             ticker_price_usd = ticker_price
 
             # Calculate price deviation percentage
             price_deviation = abs(ticker_price_usd - coingecko_usd_price) / coingecko_usd_price
-
-            # Define sanity check thresholds
 
             # Log price comparison for debugging
             self.context.logger.info(
@@ -461,27 +437,9 @@ class TradeConstructionRound(BaseState):
 
             # Check for extreme deviations (error condition)
             if price_deviation > MAX_DEVIATION:
-                error_msg = (
-                    f"Price sanity check failed for {symbol}: "
-                    f"Ticker price ${ticker_price:.6f} deviates {price_deviation:.2%} "
-                    f"from CoinGecko reference ${coingecko_usd_price:.6f}"
+                self._handle_price_validation_failure(
+                    symbol, ticker_price, coingecko_usd_price, price_deviation
                 )
-
-                self.context.logger.error(error_msg)
-
-                self.context.error_context = {
-                    "error_type": "price_sanity_check_failed",
-                    "error_message": error_msg,
-                    "error_data": {
-                        "symbol": symbol,
-                        "ticker_price_usdc": ticker_price,
-                        "coingecko_price_usd": coingecko_usd_price,
-                        "price_deviation": price_deviation,
-                        "max_allowed_deviation": MAX_DEVIATION,
-                        "validation_timestamp": datetime.now(UTC).isoformat(),
-                    },
-                }
-
                 return False
 
             # Log warning for significant deviations
@@ -497,6 +455,60 @@ class TradeConstructionRound(BaseState):
             self.context.logger.exception(f"Error during price sanity check for {symbol}: {e}")
             # Don't fail the trade on validation errors, just log them
             return True
+
+    def _load_price_validation_data(self, symbol: str) -> dict | None:
+        """Load and validate price data prerequisites."""
+        if not self.context.store_path:
+            self.context.logger.warning("No store path available for price validation")
+            return None
+
+        data_file = self.context.store_path / "collected_data.json"
+        if not data_file.exists():
+            self.context.logger.warning(f"Data file does not exist for price validation: {data_file}")
+            return None
+
+        with open(data_file, encoding=DEFAULT_ENCODING) as f:
+            collected_data = json.load(f)
+
+        # Get current prices from collected data
+        current_prices = collected_data.get("current_prices", {})
+        if symbol not in current_prices:
+            self.context.logger.warning(f"No CoinGecko price data found for {symbol}")
+            return None
+
+        coingecko_price_data = current_prices[symbol]
+        coingecko_usd_price = coingecko_price_data.get("usd")
+
+        if not coingecko_usd_price:
+            self.context.logger.warning(f"No USD price found in CoinGecko data for {symbol}")
+            return None
+
+        return {"coingecko_usd_price": coingecko_usd_price}
+
+    def _handle_price_validation_failure(
+        self, symbol: str, ticker_price: float, coingecko_usd_price: float, price_deviation: float
+    ) -> None:
+        """Handle price validation failure by logging error and setting context."""
+        error_msg = (
+            f"Price sanity check failed for {symbol}: "
+            f"Ticker price ${ticker_price:.6f} deviates {price_deviation:.2%} "
+            f"from CoinGecko reference ${coingecko_usd_price:.6f}"
+        )
+
+        self.context.logger.error(error_msg)
+
+        self.context.error_context = {
+            "error_type": "price_sanity_check_failed",
+            "error_message": error_msg,
+            "error_data": {
+                "symbol": symbol,
+                "ticker_price_usdc": ticker_price,
+                "coingecko_price_usd": coingecko_usd_price,
+                "price_deviation": price_deviation,
+                "max_allowed_deviation": MAX_DEVIATION,
+                "validation_timestamp": datetime.now(UTC).isoformat(),
+            },
+        }
 
     def _construct_trade_parameters(self) -> bool:
         """Construct complete trade parameters using DCXT pricing."""

@@ -316,6 +316,83 @@ class PositionMonitoringRound(BaseState):
 
         return position
 
+    def _get_current_rsi(self, symbol: str) -> float | None:
+        """Get current RSI for a symbol from analysis results with freshness check."""
+        try:
+            analysis_data = self._load_analysis_data()
+            if not analysis_data:
+                return None
+
+            rsi_value = self._extract_rsi_value(analysis_data, symbol)
+            if rsi_value is None:
+                return None
+
+            if not self._is_analysis_data_fresh(analysis_data, symbol):
+                return None
+
+            self.context.logger.debug(f"Retrieved current RSI for {symbol}: {rsi_value:.2f}")
+            return float(rsi_value)
+
+        except Exception as e:
+            self.context.logger.exception(f"Unexpected error getting RSI for {symbol}: {e}")
+            return None
+
+    def _load_analysis_data(self) -> dict | None:
+        """Load analysis data from persistent storage."""
+        if not self.context.store_path:
+            self.context.logger.warning("No store path available for RSI data")
+            return None
+
+        analysis_file = self.context.store_path / "analysis_results.json"
+        if not analysis_file.exists():
+            self.context.logger.warning("No analysis results file found for RSI data")
+            return None
+
+        try:
+            with open(analysis_file, encoding=DEFAULT_ENCODING) as f:
+                return json.load(f)
+        except (FileNotFoundError, PermissionError, OSError, json.JSONDecodeError) as e:
+            self.context.logger.warning(f"Failed to load analysis data: {e}")
+            return None
+
+    def _extract_rsi_value(self, analysis_data: dict, symbol: str) -> float | None:
+        """Extract RSI value for a specific symbol from analysis data."""
+        technical_scores = analysis_data.get("technical_scores", {})
+        symbol_data = technical_scores.get(symbol)
+        if not symbol_data:
+            self.context.logger.warning(f"No technical scores found for {symbol}")
+            return None
+
+        rsi_value = symbol_data.get("rsi")
+        if rsi_value is None:
+            self.context.logger.warning(f"No RSI value found for {symbol}")
+            return None
+
+        return rsi_value
+
+    def _is_analysis_data_fresh(self, analysis_data: dict, symbol: str) -> bool:
+        """Check if analysis data is fresh (within 4 hours)."""
+        analysis_timestamp = analysis_data.get("timestamp")
+        if not analysis_timestamp:
+            return True  # No timestamp means we can't validate, assume fresh
+
+        try:
+            analysis_time = datetime.fromisoformat(analysis_timestamp)
+            current_time = datetime.now(UTC)
+            time_diff = current_time - analysis_time
+
+            # Consider data stale if older than 4 hours (4h candle updates)
+            if time_diff > timedelta(hours=4):
+                self.context.logger.warning(
+                    f"RSI data for {symbol} is stale ({time_diff.total_seconds() / 3600:.1f} hours old)"
+                )
+                return False
+
+            return True
+        except (ValueError, TypeError) as e:
+            self.context.logger.warning(f"Failed to parse analysis timestamp: {e}")
+            return True  # If we can't parse, assume fresh
+
     def _update_positions_storage(self, updated_positions: list[dict[str, Any]]) -> None:
         """Update positions in persistent storage."""
         if not self.context.store_path:

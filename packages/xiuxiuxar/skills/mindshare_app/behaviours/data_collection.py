@@ -452,17 +452,7 @@ class DataCollectionRound(BaseState):
         # Check if we need to wait for rate limits
         if ohlc_wait_until is not None or volume_wait_until is not None:
             wait_until = max(ohlc_wait_until or 0, volume_wait_until or 0)
-            self.context.logger.info(
-                f"Rate limited for {symbol}, will retry at {datetime.fromtimestamp(wait_until).strftime('%H:%M:%S')}"
-            )
-            # Store the token for retry later
-            self.failed_requests[symbol] = {
-                "token_info": token_info,
-                "retry_after": wait_until,
-                "request_type": "ohlcv",
-                "retry_count": 0,
-            }
-            raise RateLimitError(f"Rate limited for {symbol}, retry after {wait_until}", wait_until=wait_until)
+            self._handle_rate_limit(symbol, token_info, "ohlcv", wait_until)
 
         # Track requests for identification
         self.pending_http_requests[ohlc_request_id] = {
@@ -477,6 +467,22 @@ class DataCollectionRound(BaseState):
         }
 
         self.collected_data["api_calls"] += 2
+
+    def _handle_rate_limit(self, symbol: str, token_info: dict[str, str], request_type: str, wait_until: float) -> None:
+        """Handle rate limiting by storing request for retry and raising RateLimitError."""
+        self.context.logger.info(
+            f"Rate limited for {symbol} {request_type}, will retry at "
+            f"{datetime.fromtimestamp(wait_until, tz=UTC).strftime('%H:%M:%S')}"
+        )
+        # Store the token for retry later
+        self.failed_requests[symbol] = {
+            "token_info": token_info,
+            "retry_after": wait_until,
+            "request_type": request_type,
+            "retry_count": 0,
+        }
+        msg = f"Rate limited for {symbol} {request_type}, retry after {wait_until}"
+        raise RateLimitError(msg, wait_until=wait_until)
 
     def _process_ohlcv_response(self, token_symbol: str, ohlc_data: list, volume_data: dict) -> None:
         """Process OHLCV response data."""
@@ -541,19 +547,7 @@ class DataCollectionRound(BaseState):
 
         # Check if we need to wait for rate limits
         if wait_until is not None:
-            self.context.logger.info(
-                f"Rate limited for {symbol} social data, will retry at {datetime.fromtimestamp(wait_until).strftime('%H:%M:%S')}"
-            )
-            # Store the token for retry later
-            self.failed_requests[symbol] = {
-                "token_info": token_info,
-                "retry_after": wait_until,
-                "request_type": "social",
-                "retry_count": 0,
-            }
-            raise RateLimitError(
-                f"Rate limited for {symbol} social data, retry after {wait_until}", wait_until=wait_until
-            )
+            self._handle_rate_limit(symbol, token_info, "social", wait_until)
 
         # Track request for identification
         self.pending_http_requests[trends_request_id] = {"request_type": "social", "token_symbol": symbol}
@@ -588,19 +582,7 @@ class DataCollectionRound(BaseState):
 
         # Check if we need to wait for rate limits
         if wait_until is not None:
-            self.context.logger.info(
-                f"Rate limited for {symbol} price data, will retry at {datetime.fromtimestamp(wait_until).strftime('%H:%M:%S')}"
-            )
-            # Store the token for retry later
-            self.failed_requests[symbol] = {
-                "token_info": token_info,
-                "retry_after": wait_until,
-                "request_type": "price",
-                "retry_count": 0,
-            }
-            raise RateLimitError(
-                f"Rate limited for {symbol} price data, retry after {wait_until}", wait_until=wait_until
-            )
+            self._handle_rate_limit(symbol, token_info, "price", wait_until)
 
         # Track request for identification
         self.pending_http_requests[price_request_id] = {
@@ -779,64 +761,86 @@ class DataCollectionRound(BaseState):
                 return True
         return False
 
+    def _should_retry_request(self, request_info: dict, current_time: float) -> bool:
+        """Check if a request should be retried based on timing and count."""
+        retry_count = request_info.get("retry_count", 0)
+        retry_after = request_info.get("retry_after")
+
+        # Skip if we haven't waited long enough
+        if retry_after is not None and current_time < retry_after:
+            return False
+
+        return retry_count < MAX_RETRIES
+
+    def _prepare_request_for_retry(self, token_info: dict[str, str], request_type: str) -> None:
+        """Prepare a token's data requirements for retry based on request type."""
+        symbol_name = token_info["symbol"]
+
+        # Re-add to the appropriate update set based on request type
+        if request_type == "ohlcv":
+            self.tokens_needing_ohlcv_update.add(symbol_name)
+        elif request_type == "social":
+            self.tokens_needing_social_update.add(symbol_name)
+
+    def _handle_retry_success(self, symbol: str, token_info: dict[str, str], request_type: str) -> None:
+        """Handle successful retry of a failed request."""
+        del self.failed_requests[symbol]
+        if token_info not in self.completed_tokens:
+            self.completed_tokens.append(token_info)
+        self.context.logger.info(f"Successfully retried {request_type} request for {symbol}")
+
+    def _handle_retry_failure(self, symbol: str, request_info: dict, error: Exception) -> None:
+        """Handle failed retry attempt."""
+        retry_count = request_info.get("retry_count", 0)
+
+        if isinstance(error, RateLimitError):
+            self.rate_limiting_occurred = True
+            self.context.logger.info(f"Still rate limited for {symbol}, will retry again later")
+            request_info["retry_count"] = retry_count + 1
+            if error.wait_until is not None:
+                request_info["retry_after"] = error.wait_until
+        else:
+            self.context.logger.warning(f"Failed to retry request for {symbol}: {error}")
+            request_info["retry_count"] = retry_count + 1
+
+    def _cleanup_max_retries_reached(self, symbol: str, request_info: dict) -> None:
+        """Clean up requests that have reached maximum retry attempts."""
+        if request_info.get("retry_count", 0) >= MAX_RETRIES:
+            self.context.logger.error(f"Max retries reached for {symbol}, giving up")
+            del self.failed_requests[symbol]
+            token_info = request_info["token_info"]
+            if token_info not in self.failed_tokens:
+                self.failed_tokens.append(token_info)
+
     def _retry_failed_requests(self) -> Generator:
         """Retry failed requests."""
         current_time = time.time()
         retry_attempted = 0
 
         for symbol, request_info in list(self.failed_requests.items()):
-            retry_count = request_info.get("retry_count", 0)
-            retry_after = request_info.get("retry_after")
-            max_retries = 3
-
-            # Skip if we haven't waited long enough
-            if retry_after is not None and current_time < retry_after:
+            if not self._should_retry_request(request_info, current_time):
                 continue
 
-            if retry_count < max_retries:
-                token_info = request_info["token_info"]
-                try:
-                    # Reset the token's update needs if retrying
-                    symbol_name = token_info["symbol"]
-                    request_type = request_info.get("request_type", "unknown")
+            token_info = request_info["token_info"]
+            request_type = request_info.get("request_type", "unknown")
+            retry_count = request_info.get("retry_count", 0)
 
-                    # Re-add to the appropriate update set based on request type
-                    if request_type == "ohlcv":
-                        self.tokens_needing_ohlcv_update.add(symbol_name)
-                    elif request_type == "social":
-                        self.tokens_needing_social_update.add(symbol_name)
+            try:
+                self._prepare_request_for_retry(token_info, request_type)
 
-                    self.context.logger.info(
-                        f"Retrying {request_type} request for {symbol} (attempt {retry_count + 1})"
-                    )
-                    self._collect_token_data(token_info)
-                    del self.failed_requests[symbol]
-                    if token_info not in self.completed_tokens:
-                        self.completed_tokens.append(token_info)
-                    retry_attempted += 1
-                    self.context.logger.info(f"Successfully retried {request_type} request for {symbol}")
+                self.context.logger.info(
+                    f"Retrying {request_type} request for {symbol} (attempt {retry_count + 1})"
+                )
 
-                except RateLimitError as e:
-                    # Still rate limited, increment retry count and update retry time if provided
-                    self.rate_limiting_occurred = True
-                    self.context.logger.info(f"Still rate limited for {symbol}, will retry again later")
-                    request_info["retry_count"] = retry_count + 1
-                    # Update retry_after time if new wait_until is provided
-                    if e.wait_until is not None:
-                        request_info["retry_after"] = e.wait_until
+                self._collect_token_data(token_info)
+                self._handle_retry_success(symbol, token_info, request_type)
+                retry_attempted += 1
 
-                except Exception as e:
-                    self.context.logger.warning(f"Failed to retry request for {symbol}: {e}")
-                    request_info["retry_count"] = retry_count + 1
+            except (RateLimitError, ValueError, TypeError, OSError, ConnectionError) as e:
+                self._handle_retry_failure(symbol, request_info, e)
 
-                # Check if max retries reached
-                if request_info.get("retry_count", 0) >= max_retries:
-                    self.context.logger.error(f"Max retries reached for {symbol}, giving up")
-                    del self.failed_requests[symbol]
-                    token_info = request_info["token_info"]
-                    if token_info not in self.failed_tokens:
-                        self.failed_tokens.append(token_info)
-
+            # Clean up requests that have reached max retries
+            self._cleanup_max_retries_reached(symbol, request_info)
             yield
 
         if retry_attempted > 0:
@@ -900,22 +904,24 @@ class DataCollectionRound(BaseState):
         except Exception as e:
             self.context.logger.exception(f"Failed to store collected data: {e}")
 
-    def _is_data_sufficient(self) -> bool:
-        """Check if collected data is sufficient for analysis."""
-        # Consider all tokens, not just completed ones
-        all_tokens = self.completed_tokens + self.failed_tokens
-        total_tokens = len(ALLOWED_ASSETS["base"])
-        min_required = max(1, int(total_tokens * self.context.params.data_sufficiency_threshold))
+    def _has_technical_data(self, symbol: str) -> bool:
+        """Check if a token has technical data (OHLCV and current price)."""
+        return symbol in self.collected_data["ohlcv"] and symbol in self.collected_data["current_prices"]
 
-        # Count tokens with any usable data (not requiring both technical and social)
+    def _has_social_data(self, symbol: str) -> bool:
+        """Check if a token has social data."""
+        return symbol in self.collected_data["social_data"]
+
+    def _count_data_availability(self, all_tokens: list[dict[str, str]]) -> tuple[int, int, int]:
+        """Count tokens with technical, social, and both types of data."""
         tokens_with_technical = 0
         tokens_with_social = 0
         tokens_with_both_data = 0
 
         for token in all_tokens:
             symbol = token["symbol"]
-            has_technical = symbol in self.collected_data["ohlcv"] and symbol in self.collected_data["current_prices"]
-            has_social = symbol in self.collected_data["social_data"]
+            has_technical = self._has_technical_data(symbol)
+            has_social = self._has_social_data(symbol)
 
             if has_technical:
                 tokens_with_technical += 1
@@ -924,15 +930,37 @@ class DataCollectionRound(BaseState):
             if has_technical and has_social:
                 tokens_with_both_data += 1
 
-        # More lenient sufficiency check - if we encountered rate limiting, accept partial data
+        return tokens_with_technical, tokens_with_social, tokens_with_both_data
+
+    def _determine_sufficiency_threshold(
+        self, tokens_with_technical: int, tokens_with_both: int, min_required: int
+    ) -> tuple[bool, str]:
+        """Determine if data is sufficient based on rate limiting context."""
         if self.rate_limiting_occurred:
             # If rate limited during this round, accept if we have technical data for sufficient tokens
             is_sufficient = tokens_with_technical >= min_required
-            reason = f"rate limited during collection, using technical data threshold"
+            reason = "rate limited during collection, using technical data threshold"
         else:
             # Normal case - prefer both data types
-            is_sufficient = tokens_with_both_data >= min_required
+            is_sufficient = tokens_with_both >= min_required
             reason = "normal collection, using both data types threshold"
+
+        return is_sufficient, reason
+
+    def _is_data_sufficient(self) -> bool:
+        """Check if collected data is sufficient for analysis."""
+        # Consider all tokens, not just completed ones
+        all_tokens = self.completed_tokens + self.failed_tokens
+        total_tokens = len(ALLOWED_ASSETS["base"])
+        min_required = max(1, int(total_tokens * self.context.params.data_sufficiency_threshold))
+
+        # Count tokens with different types of data availability
+        tokens_with_technical, tokens_with_social, tokens_with_both = self._count_data_availability(all_tokens)
+
+        # Determine sufficiency based on rate limiting context
+        is_sufficient, reason = self._determine_sufficiency_threshold(
+            tokens_with_technical, tokens_with_both, min_required
+        )
 
         self.context.logger.info(
             f"Data sufficiency ({reason}): {tokens_with_technical} technical, {tokens_with_social} social, "
