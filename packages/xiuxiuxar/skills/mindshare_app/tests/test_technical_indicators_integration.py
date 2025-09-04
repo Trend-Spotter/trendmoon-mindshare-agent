@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from aea.test_tools.test_skill import BaseSkillTestCase
 
-from packages.xiuxiuxar.skills.mindshare_app.behaviours import DataCollectionRound
+from packages.xiuxiuxar.skills.mindshare_app.behaviours.data_collection import DataCollectionRound
 
 
 MOVING_AVERAGE_LENGTH = 20
