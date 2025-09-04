@@ -584,9 +584,7 @@ class BaseState(State, ABC):
         orders = message.orders.orders
         monitored_order_ids = getattr(dialogue, "monitored_order_ids", [])
 
-        self.context.logger.info(
-            f"Checking {len(monitored_order_ids)} orders against {len(orders)} returned orders"
-        )
+        self.context.logger.info(f"Checking {len(monitored_order_ids)} orders against {len(orders)} returned orders")
 
         order_updates = {}
         for target_order_id in monitored_order_ids:
@@ -606,15 +604,11 @@ class BaseState(State, ABC):
     def _determine_order_status(self, target_order_id: str, target_order) -> dict[str, Any]:
         """Determine the status of an order and log accordingly."""
         if target_order is None:
-            self.context.logger.info(
-                f"CoW order {target_order_id} no longer in open orders - assuming filled"
-            )
+            self.context.logger.info(f"CoW order {target_order_id} no longer in open orders - assuming filled")
             return {"status": "filled", "order": None}
 
         if target_order.status in {OrderStatus.FILLED, OrderStatus.PARTIALLY_FILLED}:
-            self.context.logger.info(
-                f"CoW order {target_order_id} executed with status: {target_order.status}"
-            )
+            self.context.logger.info(f"CoW order {target_order_id} executed with status: {target_order.status}")
             return {"status": "filled", "order": target_order}
 
         if target_order.status in {OrderStatus.CANCELLED, OrderStatus.EXPIRED}:
@@ -622,9 +616,7 @@ class BaseState(State, ABC):
             self.context.logger.warning(f"CoW order {target_order_id} was {status_name}")
             return {"status": status_name, "order": target_order}
 
-        self.context.logger.info(
-            f"CoW order {target_order_id} still open with status: {target_order.status}"
-        )
+        self.context.logger.info(f"CoW order {target_order_id} still open with status: {target_order.status}")
         return {"status": "open", "order": target_order}
 
     def _process_order_updates(self, order_updates: dict[str, dict[str, Any]]) -> None:
