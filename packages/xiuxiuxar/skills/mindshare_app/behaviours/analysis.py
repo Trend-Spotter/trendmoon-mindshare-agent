@@ -506,17 +506,17 @@ class AnalysisRound(BaseState):
                     indicators = analysis["technical_indicators"]
                     if isinstance(indicators, list):
                         # Convert list of tuples to DataFrame
-                        df = pd.DataFrame(indicators, columns=["indicator", "value"])
-                        df["symbol"] = symbol
-                        df["timestamp"] = analysis.get("timestamp")
-                        technical_data.append(df)
+                        indicators_df = pd.DataFrame(indicators, columns=["indicator", "value"])
+                        indicators_df["symbol"] = symbol
+                        indicators_df["timestamp"] = analysis.get("timestamp")
+                        technical_data.append(indicators_df)
 
             if technical_data:
                 combined_df = pd.concat(technical_data, ignore_index=True)
                 combined_df.to_parquet(filepath, index=False)
                 self.context.logger.info(f"Technical data stored to {filepath}")
 
-        except Exception as e:
+        except (ValueError, TypeError) as e:
             self.context.logger.warning(f"Failed to store technical data: {e}")
 
     def _get_technical_data(self, ohlcv_data: list[list[Any]]) -> list:
@@ -642,45 +642,50 @@ class AnalysisRound(BaseState):
         if cmf is not None and not cmf.empty:
             data["CMF"] = cmf
 
+    def _extract_value(self, latest_data: pd.Series, column: str):
+        """Extract and normalize value from pandas Series."""
+        value = latest_data[column]
+        if hasattr(value, "item"):
+            value = value.item()
+        return value
+
+    def _add_basic_indicators(self, latest_data: pd.Series, data: pd.DataFrame, result: list):
+        """Add basic single-value indicators to result."""
+        for indicator in ["SMA", "EMA", "RSI", "ADX"]:
+            if indicator in data.columns:
+                value = self._extract_value(latest_data, indicator)
+                result.append((indicator, value))
+
+    def _add_macd_indicators(self, latest_data: pd.Series, data: pd.DataFrame, result: list):
+        """Add MACD composite indicators to result."""
+        macd_columns = ["MACD", "MACDh", "MACDs"]
+        if all(col in data.columns for col in macd_columns):
+            macd_data = {col: self._extract_value(latest_data, col) for col in macd_columns}
+            result.append(("MACD", macd_data))
+
+    def _add_bollinger_bands(self, latest_data: pd.Series, data: pd.DataFrame, result: list):
+        """Add Bollinger Bands composite indicators to result."""
+        bb_columns = ["BBL", "BBM", "BBU"]
+        bb_keys = ["Lower", "Middle", "Upper"]
+        if all(col in data.columns for col in bb_columns):
+            bb_data = {key: self._extract_value(latest_data, col) for col, key in zip(bb_columns, bb_keys, strict=True)}
+            result.append(("BB", bb_data))
+
+    def _add_volume_indicators(self, latest_data: pd.Series, data: pd.DataFrame, result: list):
+        """Add volume indicators to result."""
+        for indicator in ["OBV", "CMF"]:
+            if indicator in data.columns:
+                value = self._extract_value(latest_data, indicator)
+                result.append((indicator, value))
+
     def _build_technical_result(self, data: pd.DataFrame) -> list:
         """Build the final result list from calculated indicators."""
         latest_data = data.iloc[-1]
         result = []
 
-        # Add basic indicators
-        for indicator in ["SMA", "EMA", "RSI", "ADX"]:
-            if indicator in data.columns:
-                value = latest_data[indicator]
-                if hasattr(value, "item"):
-                    value = value.item()
-                result.append((indicator, value))
-
-        # Add MACD (only if all components are available)
-        if all(col in data.columns for col in ["MACD", "MACDh", "MACDs"]):
-            macd_data = {}
-            for col in ["MACD", "MACDh", "MACDs"]:
-                value = latest_data[col]
-                if hasattr(value, "item"):
-                    value = value.item()
-                macd_data[col] = value
-            result.append(("MACD", macd_data))
-
-        # Add Bollinger Bands (only if all components are available)
-        if all(col in data.columns for col in ["BBL", "BBM", "BBU"]):
-            bb_data = {}
-            for col, bb_key in [("BBL", "Lower"), ("BBM", "Middle"), ("BBU", "Upper")]:
-                value = latest_data[col]
-                if hasattr(value, "item"):
-                    value = value.item()
-                bb_data[bb_key] = value
-            result.append(("BB", bb_data))
-
-        # Add volume indicators
-        for indicator in ["OBV", "CMF"]:
-            if indicator in data.columns:
-                value = latest_data[indicator]
-                if hasattr(value, "item"):
-                    value = value.item()
-                result.append((indicator, value))
+        self._add_basic_indicators(latest_data, data, result)
+        self._add_macd_indicators(latest_data, data, result)
+        self._add_bollinger_bands(latest_data, data, result)
+        self._add_volume_indicators(latest_data, data, result)
 
         return result

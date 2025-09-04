@@ -402,7 +402,7 @@ class DataCollectionRound(BaseState):
             f"All async data collection completed: {total_completed}/{total_tokens} tokens successful, "
             f"{total_failed} failed"
         )
-        return True
+        return True  # noqa: B901  # Intentional PEP 380-style generator return
 
     def _collect_token_data(self, token_info: dict[str, str]) -> None:
         """Submit async requests for a single token."""
@@ -717,10 +717,9 @@ class DataCollectionRound(BaseState):
             current_time = time.time()
             if self.failed_requests and (current_time - last_retry_check) > RETRY_CHECK_INTERVAL:
                 if self._can_retry_failed_requests():
-                    retry_count = len([
-                        req for req in self.failed_requests.values()
-                        if req.get("retry_count", 0) < MAX_RETRIES
-                    ])
+                    retry_count = len(
+                        [req for req in self.failed_requests.values() if req.get("retry_count", 0) < MAX_RETRIES]
+                    )
                     self.context.logger.info(f"Retrying {retry_count} failed requests...")
                     initial_pending_count = len(self.pending_http_requests)
                     yield from self._retry_failed_requests()
@@ -828,9 +827,7 @@ class DataCollectionRound(BaseState):
             try:
                 self._prepare_request_for_retry(token_info, request_type)
 
-                self.context.logger.info(
-                    f"Retrying {request_type} request for {symbol} (attempt {retry_count + 1})"
-                )
+                self.context.logger.info(f"Retrying {request_type} request for {symbol} (attempt {retry_count + 1})")
 
                 self._collect_token_data(token_info)
                 self._handle_retry_success(symbol, token_info, request_type)

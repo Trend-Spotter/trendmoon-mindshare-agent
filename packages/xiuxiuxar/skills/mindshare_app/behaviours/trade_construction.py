@@ -18,7 +18,6 @@
 
 """This module contains the implementation of the behaviours of Mindshare App skill."""
 
-
 import json
 from typing import TYPE_CHECKING, Any
 from datetime import UTC, datetime, timedelta
@@ -437,9 +436,7 @@ class TradeConstructionRound(BaseState):
 
             # Check for extreme deviations (error condition)
             if price_deviation > MAX_DEVIATION:
-                self._handle_price_validation_failure(
-                    symbol, ticker_price, coingecko_usd_price, price_deviation
-                )
+                self._handle_price_validation_failure(symbol, ticker_price, coingecko_usd_price, price_deviation)
                 return False
 
             # Log warning for significant deviations

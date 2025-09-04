@@ -18,7 +18,6 @@
 
 """This module contains the implementation of the behaviours of Mindshare App skill."""
 
-
 import json
 from typing import Any
 from datetime import UTC, datetime
@@ -535,7 +534,7 @@ class CheckStakingKPIRound(BaseState):
             self.context.logger.exception(f"Error checking vanity tx responses: {e}")
             self.vanity_tx_prepared = True
 
-    def _finalize_vanity_tx(self, safe_tx_hash: str, tx_data: bytes) -> None:
+    def _finalize_vanity_tx(self, safe_tx_hash: str, _tx_data: bytes) -> None:
         """Finalize vanity transaction by creating the final hash."""
         try:
             # Remove '0x' prefix if present
@@ -751,7 +750,7 @@ class CheckStakingKPIRound(BaseState):
 
         self.context.logger.info("Broadcasting vanity transaction to chain")
 
-    def _validate_vanity_broadcast_response(self, message: LedgerApiMessage, dialogue) -> bool:
+    def _validate_vanity_broadcast_response(self, message: LedgerApiMessage, _dialogue) -> bool:
         """Process vanity transaction broadcast response."""
         try:
             if message.performative == LedgerApiMessage.Performative.TRANSACTION_DIGEST:

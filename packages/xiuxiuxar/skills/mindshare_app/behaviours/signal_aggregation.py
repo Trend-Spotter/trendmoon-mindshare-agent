@@ -18,7 +18,6 @@
 
 """This module contains the implementation of the behaviours of Mindshare App skill."""
 
-
 import json
 import operator
 from typing import Any
@@ -258,12 +257,7 @@ class SignalAggregationRound(BaseState):
 
     def _classify_signal_strength(self, score: float) -> str:
         """Classify signal strength based on score."""
-        thresholds = {
-            0.85: "very_strong",
-            0.75: "strong",
-            0.65: "moderate",
-            0.55: "weak"
-        }
+        thresholds = {0.85: "very_strong", 0.75: "strong", 0.65: "moderate", 0.55: "weak"}
 
         for threshold, classification in thresholds.items():
             if score >= threshold:

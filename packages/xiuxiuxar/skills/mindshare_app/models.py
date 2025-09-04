@@ -20,8 +20,8 @@
 
 import json
 import time
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
+from pathlib import Path
 from datetime import UTC, datetime
 
 import requests
@@ -290,7 +290,8 @@ class APIRateLimiter:
     def check_and_burn_with_wait(self) -> tuple[bool, float | None]:
         """Check whether we can perform a new request. If rate limited, return wait time instead of blocking.
 
-        Returns:
+        Returns
+        -------
             tuple: (can_proceed, wait_until_timestamp)
             - can_proceed: True if request can proceed, False if rate limited
             - wait_until_timestamp: None if no wait needed, future timestamp if should wait until then
@@ -522,7 +523,8 @@ class Trendmoon(Model):
     def submit_trendmoon_request(self, endpoint: str, query_params: dict[str, str]) -> tuple[str, float | None]:
         """Submit request to TrendMoon API using HTTP dialogue system.
 
-        Returns:
+        Returns
+        -------
             tuple: (request_id, wait_until_timestamp)
             - request_id: The dialogue reference for tracking, or empty string if rate limited
             - wait_until_timestamp: Unix timestamp to wait until, or None if no wait needed

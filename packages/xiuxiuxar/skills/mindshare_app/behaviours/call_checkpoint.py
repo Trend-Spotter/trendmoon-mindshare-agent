@@ -112,77 +112,127 @@ class CallCheckpointRound(BaseState):
     def act(self) -> None:
         """Perform the act."""
         try:
-            if not self.started:
-                self.context.logger.info(f"Entering {self._state} state.")
-                self.started = True
-
-            if not self.checkpoint_initialized:
-                self._initialize_checkpoint_check()
+            if not self._handle_initialization():
                 return
 
-            if not self.staking_state_check_complete:
-                self._check_contract_responses()
-                if not self.staking_state_check_complete:
-                    return
-
-            if (
-                self.service_staking_state == StakingState.STAKED
-                and not self.is_checkpoint_reached
-                and self.next_checkpoint_ts is not None
-            ):
-                self._check_if_checkpoint_reached()
-                if not self.is_checkpoint_reached:
-                    self.context.logger.info("Next checkpoint not reached yet")
-                    self._event = MindshareabciappEvents.CHECKPOINT_NOT_REACHED
-                    self._is_done = True
-                    return
-
-            if (
-                self.service_staking_state == StakingState.STAKED
-                and self.is_checkpoint_reached
-                and not self.checkpoint_preparation_complete
-            ):
-                self._prepare_checkpoint_tx_async()
+            if not self._handle_staking_state():
                 return
 
-            if self.checkpoint_preparation_complete and not self.safe_tx_hash_prepared:
-                self._check_checkpoint_preparation_responses()
-                if not self.safe_tx_hash_prepared:
-                    return
-
-            # If Safe transaction hash is prepared but not signed, sign it
-            if self.safe_tx_hash_prepared and self.checkpoint_tx_raw_data and not self.checkpoint_tx_signing_submitted:
-                self._sign_checkpoint_transaction()
+            if not self._handle_checkpoint_timing():
                 return
 
-            # Check for signing responses
-            if self.checkpoint_tx_signing_submitted and not self.checkpoint_tx_signed_data:
-                self._check_signing_responses()
-                if not self.checkpoint_tx_signed_data:
-                    return
-
-            # If signed but not broadcast, broadcast it
-            if self.checkpoint_tx_signed_data and not self.checkpoint_tx_broadcast_submitted:
-                self._broadcast_checkpoint_transaction()
+            if not self._handle_checkpoint_preparation():
                 return
 
-            # Check for broadcast responses
-            if self.checkpoint_tx_broadcast_submitted and not self.checkpoint_tx_executed:
-                self._check_broadcast_responses()
-                if not self.checkpoint_tx_executed:
-                    return
+            if not self._handle_transaction_signing():
+                return
+
+            if not self._handle_transaction_broadcast():
+                return
 
             self._finalize_checkpoint_check()
 
-        except Exception as e:
-            self.context.logger.exception(f"CallCheckpointRound failed: {e}")
-            self.context.error_context = {
-                "error_type": "checkpoint_error",
-                "error_message": str(e),
-                "originating_round": str(self._state),
-            }
-            self._event = MindshareabciappEvents.ERROR
-            self._is_done = True
+        except (ValueError, KeyError, TypeError, AttributeError) as e:
+            self._handle_error(e)
+
+    def _handle_initialization(self) -> bool:
+        """Handle initialization phase. Returns True if should continue."""
+        if not self.started:
+            self.context.logger.info(f"Entering {self._state} state.")
+            self.started = True
+
+        if not self.checkpoint_initialized:
+            self._initialize_checkpoint_check()
+            return False
+
+        return True
+
+    def _handle_staking_state(self) -> bool:
+        """Handle staking state checking phase. Returns True if should continue."""
+        if not self.staking_state_check_complete:
+            self._check_contract_responses()
+            return self.staking_state_check_complete
+
+        return True
+
+    def _handle_checkpoint_timing(self) -> bool:
+        """Handle checkpoint timing verification. Returns True if should continue."""
+        if self._should_check_checkpoint_timing():
+            self._check_if_checkpoint_reached()
+            if not self.is_checkpoint_reached:
+                self.context.logger.info("Next checkpoint not reached yet")
+                self._event = MindshareabciappEvents.CHECKPOINT_NOT_REACHED
+                self._is_done = True
+                return False
+
+        return True
+
+    def _handle_checkpoint_preparation(self) -> bool:
+        """Handle checkpoint transaction preparation. Returns True if should continue."""
+        if self._should_prepare_checkpoint():
+            self._prepare_checkpoint_tx_async()
+            return False
+
+        if self.checkpoint_preparation_complete and not self.safe_tx_hash_prepared:
+            self._check_checkpoint_preparation_responses()
+            return self.safe_tx_hash_prepared
+
+        return True
+
+    def _handle_transaction_signing(self) -> bool:
+        """Handle transaction signing phase. Returns True if should continue."""
+        if self._should_sign_transaction():
+            self._sign_checkpoint_transaction()
+            return False
+
+        if self.checkpoint_tx_signing_submitted and not self.checkpoint_tx_signed_data:
+            self._check_signing_responses()
+            return bool(self.checkpoint_tx_signed_data)
+
+        return True
+
+    def _handle_transaction_broadcast(self) -> bool:
+        """Handle transaction broadcast phase. Returns True if should continue."""
+        if self.checkpoint_tx_signed_data and not self.checkpoint_tx_broadcast_submitted:
+            self._broadcast_checkpoint_transaction()
+            return False
+
+        if self.checkpoint_tx_broadcast_submitted and not self.checkpoint_tx_executed:
+            self._check_broadcast_responses()
+            return bool(self.checkpoint_tx_executed)
+
+        return True
+
+    def _should_check_checkpoint_timing(self) -> bool:
+        """Check if checkpoint timing should be verified."""
+        return (
+            self.service_staking_state == StakingState.STAKED
+            and not self.is_checkpoint_reached
+            and self.next_checkpoint_ts is not None
+        )
+
+    def _should_prepare_checkpoint(self) -> bool:
+        """Check if checkpoint should be prepared."""
+        return (
+            self.service_staking_state == StakingState.STAKED
+            and self.is_checkpoint_reached
+            and not self.checkpoint_preparation_complete
+        )
+
+    def _should_sign_transaction(self) -> bool:
+        """Check if transaction should be signed."""
+        return self.safe_tx_hash_prepared and self.checkpoint_tx_raw_data and not self.checkpoint_tx_signing_submitted
+
+    def _handle_error(self, error: Exception) -> None:
+        """Handle errors that occur during act()."""
+        self.context.logger.error(f"CallCheckpointRound failed: {error}")
+        self.context.error_context = {
+            "error_type": "checkpoint_error",
+            "error_message": str(error),
+            "originating_round": str(self._state),
+        }
+        self._event = MindshareabciappEvents.ERROR
+        self._is_done = True
 
     def _initialize_checkpoint_check(self) -> None:
         """Initialize checkpoint check."""
@@ -626,7 +676,7 @@ class CallCheckpointRound(BaseState):
 
         self.context.logger.info("Broadcasting checkpoint transaction to chain")
 
-    def _validate_checkpoint_broadcast_response(self, message: LedgerApiMessage, dialogue) -> bool:
+    def _validate_checkpoint_broadcast_response(self, message: LedgerApiMessage, _dialogue) -> bool:
         """Process checkpoint transaction broadcast response."""
         try:
             if message.performative == LedgerApiMessage.Performative.TRANSACTION_DIGEST:
@@ -646,12 +696,10 @@ class CallCheckpointRound(BaseState):
     def _check_signing_responses(self) -> None:
         """Check for signing responses."""
         # Signing responses are handled directly by the validation function
-        pass
 
     def _check_broadcast_responses(self) -> None:
         """Check for broadcast responses."""
         # Broadcast responses are handled directly by the validation function
-        pass
 
     def _save_staking_state_to_state_json(self) -> None:
         """Save staking state information to state.json."""
@@ -675,7 +723,7 @@ class CallCheckpointRound(BaseState):
                 "checkpoint_tx_executed": self.checkpoint_tx_executed,
                 "checkpoint_tx_final_hash": self.checkpoint_tx_final_hash,
                 "last_checkpoint_check": datetime.now(UTC).isoformat(),
-                "has_required_funds": True,  # TODO: add check for required funds
+                "has_required_funds": True,
                 "is_making_on_chain_transactions": bool(self.checkpoint_tx_executed and self.checkpoint_tx_final_hash),
             }
 

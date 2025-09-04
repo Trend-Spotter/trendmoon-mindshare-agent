@@ -354,7 +354,7 @@ class ExecutionRound(BaseState):
 
         dialogue = self.submit_msg(
             performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,
-            connection_id="valory/ledger:0.19.0",
+            connection_id=LEDGER_API_ADDRESS,
             contract_address=order.asset_b,
             contract_id=str(ERC20.contract_id),
             ledger_id="ethereum",
@@ -467,7 +467,7 @@ class ExecutionRound(BaseState):
 
         dialogue = self.submit_msg(
             performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,
-            connection_id="valory/ledger:0.19.0",
+            connection_id=LEDGER_API_ADDRESS,
             contract_address=token_address,
             contract_id=str(ERC20.contract_id),
             ledger_id="ethereum",
@@ -698,7 +698,7 @@ class ExecutionRound(BaseState):
 
         dialogue = self.submit_msg(
             performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,
-            connection_id="valory/ledger:0.19.0",
+            connection_id=LEDGER_API_ADDRESS,
             contract_address=MULTISEND_ADDRESS,
             contract_id=str(MultiSendContract.contract_id),
             ledger_id="ethereum",
@@ -745,7 +745,7 @@ class ExecutionRound(BaseState):
 
             dialogue = self.submit_msg(
                 performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,
-                connection_id="valory/ledger:0.19.0",
+                connection_id=LEDGER_API_ADDRESS,
                 contract_address=safe_address,
                 contract_id=str(GnosisSafeContract.contract_id),
                 callable="get_raw_safe_transaction_hash",
@@ -769,7 +769,7 @@ class ExecutionRound(BaseState):
 
             dialogue = self.submit_msg(
                 performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,
-                connection_id="valory/ledger:0.19.0",
+                connection_id=LEDGER_API_ADDRESS,
                 contract_address=safe_address,
                 contract_id=str(GnosisSafeContract.contract_id),
                 callable="get_raw_safe_transaction_hash",
@@ -832,7 +832,7 @@ class ExecutionRound(BaseState):
 
         dialogue = self.submit_msg(
             performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,
-            connection_id="valory/ledger:0.19.0",
+            connection_id=LEDGER_API_ADDRESS,
             contract_address=safe_address,
             contract_id=str(GnosisSafeContract.contract_id),
             callable="get_raw_safe_transaction",
@@ -1513,3 +1513,25 @@ class ExecutionRound(BaseState):
         }
 
         self._complete(MindshareabciappEvents.FAILED)
+
+    def _find_position_by_id(self, position_id: str) -> dict[str, Any] | None:
+        """Find a position by its ID from persistent storage."""
+        if not self.context.store_path:
+            return None
+
+        positions_file = self.context.store_path / "positions.json"
+        if not positions_file.exists():
+            return None
+
+        try:
+            with open(positions_file, encoding=DEFAULT_ENCODING) as f:
+                data = json.load(f)
+
+            for position in data.get("positions", []):
+                if position.get("position_id") == position_id:
+                    return position
+
+            return None
+        except Exception as e:
+            self.context.logger.exception(f"Failed to find position {position_id}: {e}")
+            return None
