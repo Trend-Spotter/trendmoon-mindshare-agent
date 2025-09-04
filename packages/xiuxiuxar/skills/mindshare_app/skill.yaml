@@ -128,10 +128,22 @@ models:
       reset_pause_duration: 300
       safe_contract_addresses: '{"ethereum":"0x0000000000000000000000000000000000000000","arbitrum":"0x0000000000000000000000000000000000000000","base":"0x0000000000000000000000000000000000000000","optimism":"0x0000000000000000000000000000000000000000","mode":"0x0000000000000000000000000000000000000000"}'
       stop_loss_atr_multiplier: 1.5
+      stop_loss_pct: 0.84
       store_path: ./persistent_data
       take_profit_risk_ratio: 2.0
       trading_strategy: balanced
+      trailing_stop_loss_activation_level: 1.25
+      trailing_stop_loss_pct: 0.97
       moving_average_length: 20
+      rsi_period_length: 14
+      rsi_lower_limit: 39
+      rsi_upper_limit: 66
+      rsi_overbought_limit: 79
+      macd_fast_period: 12
+      macd_slow_period: 26
+      macd_signal_period: 9
+      adx_period_length: 14
+      adx_threshold: 41
     class_name: Params
 dependencies:
   pandas:

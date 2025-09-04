@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, cast
 
 from aea.skills.base import Handler
 from aea.protocols.base import Message
+from autonomy.deploy.constants import DEFAULT_ENCODING
 from aea.configurations.data_types import PublicId
 
 from packages.open_aea.protocols.signing import SigningMessage
@@ -96,6 +97,7 @@ class HttpHandler(Handler):
 
         # Build complete health check response
         data = {
+            "is_healthy": fsm_status["is_transitioning_fast"],
             "seconds_since_last_transition": fsm_status["seconds_since_last_transition"],
             "is_tm_healthy": True,
             "period": fsm_status["period_count"],
@@ -126,7 +128,7 @@ class HttpHandler(Handler):
             status_code=200,
             status_text="Success",
             headers=headers,
-            body=json.dumps(data, indent=2).encode("utf-8"),
+            body=json.dumps(data, indent=2).encode(DEFAULT_ENCODING),
         )
         self.context.logger.info(f"responding with healthcheck: {http_response}")
         self.context.outbox.put_message(message=http_response)
@@ -176,7 +178,7 @@ class HttpHandler(Handler):
             status_code=200,
             status_text="Success",
             headers=headers,
-            body=json.dumps(self.context.shared_state).encode("utf-8"),
+            body=json.dumps(self.context.shared_state).encode(DEFAULT_ENCODING),
         )
         self.context.logger.info(f"responding with: {http_response}")
         self.context.outbox.put_message(message=http_response)
@@ -201,7 +203,7 @@ class HttpHandler(Handler):
         # rather than this handler which is designed for incoming HTTP requests (healthcheck)
 
         if http_msg.status_code == 429:
-            self._handle_rate_limit_response(http_msg)
+            self._handle_rate_limit_response(http_msg, http_dialogue)
             return
 
         self.context.logger.debug(f"Routing HTTP response to behavior system: {http_msg.performative}")
@@ -216,16 +218,12 @@ class HttpHandler(Handler):
         else:
             self.context.logger.warning("Cannot route HTTP response - main behavior not found")
 
-    def _handle_rate_limit_response(self, http_msg: HttpMessage) -> None:
+    def _handle_rate_limit_response(self, http_msg: HttpMessage, http_dialogue: HttpDialogue) -> None:
         """Handle rate limit responses from APIs."""
         # Determine which API was rate limited based on the request URL
         self.context.logger.info(f"Handling rate limit response: {http_msg}")
 
-        dialogue = cast("HttpDialogue", self.context.http_dialogues.get_dialogue(http_msg))
-        if dialogue is None:
-            self.context.logger.warning("Cannot find dialogue for rate limit response")
-            return
-        request_message = dialogue.get_message_by_id(http_msg.target)
+        request_message = http_dialogue.get_message_by_id(http_msg.target)
         if request_message is None:
             self.context.logger.warning("Cannot find request message for rate limit response")
             return
@@ -407,6 +405,7 @@ class OrdersHandler(Handler):
     allowed_response_performatives = frozenset(
         {
             OrdersMessage.Performative.ORDER,
+            OrdersMessage.Performative.ORDERS,
             OrdersMessage.Performative.ORDER_CREATED,
             OrdersMessage.Performative.ERROR,
         }
