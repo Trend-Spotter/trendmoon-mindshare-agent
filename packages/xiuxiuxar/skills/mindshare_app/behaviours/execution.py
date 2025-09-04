@@ -1312,7 +1312,6 @@ class ExecutionRound(BaseState):
             del self.pending_dialogues[ref]
             self.context.logger.debug(f"cleared dialogue: {ref}")
 
-
     def _calculate_approval_amount(self, order: Order) -> int | None:
         """Calculate ERC20 approval amount in wei."""
         if order.side == OrderSide.BUY:

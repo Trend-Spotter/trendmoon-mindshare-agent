@@ -22,17 +22,18 @@ import json
 from abc import ABC
 from enum import Enum
 from typing import TYPE_CHECKING, Any, cast
-from dataclasses import dataclass
 from datetime import UTC, datetime
+from dataclasses import dataclass
 
 from eth_utils import to_bytes
 from aea.protocols.base import Message
 from aea.skills.behaviours import State
 from aea.configurations.base import PublicId
-from aea.protocols.dialogue.base import Dialogue as BaseDialogue
 from autonomy.deploy.constants import DEFAULT_ENCODING
+from aea.protocols.dialogue.base import Dialogue as BaseDialogue
 
 from packages.valory.protocols.ledger_api import LedgerApiMessage
+from packages.eightballer.connections.dcxt import PUBLIC_ID as DCXT_PUBLIC_ID
 from packages.eightballer.protocols.orders import OrdersMessage
 from packages.valory.protocols.contract_api import ContractApiMessage
 from packages.open_aea.protocols.signing.message import SigningMessage
@@ -40,7 +41,6 @@ from packages.valory.connections.ledger.connection import (
     PUBLIC_ID as LEDGER_CONNECTION_PUBLIC_ID,
 )
 from packages.eightballer.protocols.tickers.message import TickersMessage
-from packages.eightballer.connections.dcxt import PUBLIC_ID as DCXT_PUBLIC_ID
 from packages.eightballer.protocols.orders.custom_types import OrderStatus
 
 
@@ -540,7 +540,7 @@ class BaseState(State, ABC):
 
             return None
 
-        except Exception as e:
+        except json.JSONDecodeError as e:
             self.context.logger.warning(f"Failed to find position {position_id}: {e}")
             return None
 
@@ -567,35 +567,7 @@ class BaseState(State, ABC):
         """Validate CoWSwap order monitoring response."""
         try:
             if message.performative == OrdersMessage.Performative.ORDERS:
-                orders = message.orders.orders
-                monitored_order_ids = getattr(dialogue, "monitored_order_ids", [])
-
-                self.context.logger.info(f"Checking {len(monitored_order_ids)} orders against {len(orders)} returned orders")
-
-                order_updates = {}
-                for target_order_id in monitored_order_ids:
-                    target_order = None
-                    for order in orders:
-                        if str(order.id) == str(target_order_id):
-                            target_order = order
-                            break
-
-                    if target_order is None:
-                        order_updates[target_order_id] = {"status": "filled", "order": None}
-                        self.context.logger.info(f"CoW order {target_order_id} no longer in open orders - assuming filled")
-                    elif target_order.status in {OrderStatus.FILLED, OrderStatus.PARTIALLY_FILLED}:
-                        order_updates[target_order_id] = {"status": "filled", "order": target_order}
-                        self.context.logger.info(f"CoW order {target_order_id} executed with status: {target_order.status}")
-                    elif target_order.status in {OrderStatus.CANCELLED, OrderStatus.EXPIRED}:
-                        status_name = "cancelled" if target_order.status == OrderStatus.CANCELLED else "expired"
-                        order_updates[target_order_id] = {"status": status_name, "order": target_order}
-                        self.context.logger.warning(f"CoW order {target_order_id} was {status_name}")
-                    else:
-                        order_updates[target_order_id] = {"status": "open", "order": target_order}
-                        self.context.logger.info(f"CoW order {target_order_id} still open with status: {target_order.status}")
-
-                self._process_order_updates(order_updates)
-                return True
+                return self._process_orders_response(message, dialogue)
 
             if message.performative == OrdersMessage.Performative.ERROR:
                 self.context.logger.error(f"Error monitoring CoW orders: {message.error_msg}")
@@ -606,6 +578,54 @@ class BaseState(State, ABC):
         except Exception as e:
             self.context.logger.exception(f"Error validating CoW monitoring response: {e}")
             return False
+
+    def _process_orders_response(self, message: OrdersMessage, dialogue: BaseDialogue) -> bool:
+        """Process orders response from CoWSwap monitoring."""
+        orders = message.orders.orders
+        monitored_order_ids = getattr(dialogue, "monitored_order_ids", [])
+
+        self.context.logger.info(
+            f"Checking {len(monitored_order_ids)} orders against {len(orders)} returned orders"
+        )
+
+        order_updates = {}
+        for target_order_id in monitored_order_ids:
+            target_order = self._find_order_by_id(orders, target_order_id)
+            order_updates[target_order_id] = self._determine_order_status(target_order_id, target_order)
+
+        self._process_order_updates(order_updates)
+        return True
+
+    def _find_order_by_id(self, orders: list, target_order_id: str):
+        """Find order by ID in the orders list."""
+        for order in orders:
+            if str(order.id) == str(target_order_id):
+                return order
+        return None
+
+    def _determine_order_status(self, target_order_id: str, target_order) -> dict[str, Any]:
+        """Determine the status of an order and log accordingly."""
+        if target_order is None:
+            self.context.logger.info(
+                f"CoW order {target_order_id} no longer in open orders - assuming filled"
+            )
+            return {"status": "filled", "order": None}
+
+        if target_order.status in {OrderStatus.FILLED, OrderStatus.PARTIALLY_FILLED}:
+            self.context.logger.info(
+                f"CoW order {target_order_id} executed with status: {target_order.status}"
+            )
+            return {"status": "filled", "order": target_order}
+
+        if target_order.status in {OrderStatus.CANCELLED, OrderStatus.EXPIRED}:
+            status_name = "cancelled" if target_order.status == OrderStatus.CANCELLED else "expired"
+            self.context.logger.warning(f"CoW order {target_order_id} was {status_name}")
+            return {"status": status_name, "order": target_order}
+
+        self.context.logger.info(
+            f"CoW order {target_order_id} still open with status: {target_order.status}"
+        )
+        return {"status": "open", "order": target_order}
 
     def _process_order_updates(self, order_updates: dict[str, dict[str, Any]]) -> None:
         """Process order updates - to be implemented by subclasses."""
