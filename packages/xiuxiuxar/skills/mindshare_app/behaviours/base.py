@@ -18,16 +18,19 @@
 
 """This module contains the implementation of the behaviours of Mindshare App skill."""
 
+import json
 from abc import ABC
 from enum import Enum
 from typing import TYPE_CHECKING, Any, cast
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 from eth_utils import to_bytes
 from aea.protocols.base import Message
 from aea.skills.behaviours import State
 from aea.configurations.base import PublicId
 from aea.protocols.dialogue.base import Dialogue as BaseDialogue
+from autonomy.deploy.constants import DEFAULT_ENCODING
 
 from packages.valory.protocols.ledger_api import LedgerApiMessage
 from packages.eightballer.protocols.orders import OrdersMessage
@@ -37,6 +40,8 @@ from packages.valory.connections.ledger.connection import (
     PUBLIC_ID as LEDGER_CONNECTION_PUBLIC_ID,
 )
 from packages.eightballer.protocols.tickers.message import TickersMessage
+from packages.eightballer.connections.dcxt import PUBLIC_ID as DCXT_PUBLIC_ID
+from packages.eightballer.protocols.orders.custom_types import OrderStatus
 
 
 if TYPE_CHECKING:
@@ -460,3 +465,147 @@ class BaseState(State, ABC):
         v_bytes = to_bytes(1)  # Single byte with value 1
 
         return (r_bytes + s_bytes + v_bytes).hex()
+
+    def _get_safe_address(self) -> str | None:
+        """Get the Safe address for Base chain."""
+        safe_addresses = self.context.params.safe_contract_addresses
+
+        if isinstance(safe_addresses, str):
+            try:
+                safe_dict = json.loads(safe_addresses)
+                return safe_dict.get("base")
+            except json.JSONDecodeError:
+                return None
+        elif isinstance(safe_addresses, dict):
+            return safe_addresses.get("base")
+
+        return None
+
+    def _load_pending_trades(self) -> list[dict[str, Any]]:
+        """Load pending trades from storage."""
+        if not self.context.store_path:
+            return []
+
+        trades_file = self.context.store_path / "pending_trades.json"
+        if not trades_file.exists():
+            return []
+
+        try:
+            with open(trades_file, encoding=DEFAULT_ENCODING) as f:
+                data = json.load(f)
+                return data.get("trades", [])
+        except (FileNotFoundError, PermissionError, OSError, json.JSONDecodeError) as e:
+            self.context.logger.warning(f"Failed to load pending trades: {e}")
+            return []
+
+    def _update_pending_trades(self, trades: list[dict[str, Any]]) -> None:
+        """Update pending trades in storage."""
+        if not self.context.store_path:
+            return
+
+        try:
+            trades_file = self.context.store_path / "pending_trades.json"
+
+            updated_data = {
+                "trades": trades,
+                "last_updated": datetime.now(UTC).isoformat(),
+                "total_pending": len(trades),
+            }
+
+            with open(trades_file, "w", encoding=DEFAULT_ENCODING) as f:
+                json.dump(updated_data, f, indent=2)
+
+            self.context.logger.info(f"Updated pending trades: {len(trades)} trades")
+
+        except Exception as e:
+            self.context.logger.exception(f"Failed to update pending trades: {e}")
+
+    def _find_position_by_id(self, position_id: str) -> dict[str, Any] | None:
+        """Find position by ID in storage."""
+        if not self.context.store_path:
+            return None
+
+        positions_file = self.context.store_path / "positions.json"
+        if not positions_file.exists():
+            return None
+
+        try:
+            with open(positions_file, encoding=DEFAULT_ENCODING) as f:
+                data = json.load(f)
+                positions = data.get("positions", [])
+
+            for position in positions:
+                if position.get("position_id") == position_id:
+                    return position
+
+            return None
+
+        except Exception as e:
+            self.context.logger.warning(f"Failed to find position {position_id}: {e}")
+            return None
+
+    def monitor_cowswap_orders(self, order_ids: list[str]) -> None:
+        """Monitor multiple CoWSwap orders."""
+        if not order_ids:
+            return
+
+        self.context.logger.info(f"Monitoring CoWSwap orders: {order_ids}")
+
+        safe_address = self._get_safe_address()
+        dialogue = self.submit_msg(
+            performative=OrdersMessage.Performative.GET_ORDERS,
+            connection_id=str(DCXT_PUBLIC_ID),
+            exchange_id="cowswap",
+            ledger_id="base",
+            account=safe_address or self.context.agent_address,
+        )
+
+        dialogue.validation_func = self._validate_cowswap_monitoring_response
+        dialogue.monitored_order_ids = order_ids
+
+    def _validate_cowswap_monitoring_response(self, message: OrdersMessage, dialogue: BaseDialogue) -> bool:
+        """Validate CoWSwap order monitoring response."""
+        try:
+            if message.performative == OrdersMessage.Performative.ORDERS:
+                orders = message.orders.orders
+                monitored_order_ids = getattr(dialogue, "monitored_order_ids", [])
+
+                self.context.logger.info(f"Checking {len(monitored_order_ids)} orders against {len(orders)} returned orders")
+
+                order_updates = {}
+                for target_order_id in monitored_order_ids:
+                    target_order = None
+                    for order in orders:
+                        if str(order.id) == str(target_order_id):
+                            target_order = order
+                            break
+
+                    if target_order is None:
+                        order_updates[target_order_id] = {"status": "filled", "order": None}
+                        self.context.logger.info(f"CoW order {target_order_id} no longer in open orders - assuming filled")
+                    elif target_order.status in {OrderStatus.FILLED, OrderStatus.PARTIALLY_FILLED}:
+                        order_updates[target_order_id] = {"status": "filled", "order": target_order}
+                        self.context.logger.info(f"CoW order {target_order_id} executed with status: {target_order.status}")
+                    elif target_order.status in {OrderStatus.CANCELLED, OrderStatus.EXPIRED}:
+                        status_name = "cancelled" if target_order.status == OrderStatus.CANCELLED else "expired"
+                        order_updates[target_order_id] = {"status": status_name, "order": target_order}
+                        self.context.logger.warning(f"CoW order {target_order_id} was {status_name}")
+                    else:
+                        order_updates[target_order_id] = {"status": "open", "order": target_order}
+                        self.context.logger.info(f"CoW order {target_order_id} still open with status: {target_order.status}")
+
+                self._process_order_updates(order_updates)
+                return True
+
+            if message.performative == OrdersMessage.Performative.ERROR:
+                self.context.logger.error(f"Error monitoring CoW orders: {message.error_msg}")
+                return True
+
+            return False
+
+        except Exception as e:
+            self.context.logger.exception(f"Error validating CoW monitoring response: {e}")
+            return False
+
+    def _process_order_updates(self, order_updates: dict[str, dict[str, Any]]) -> None:
+        """Process order updates - to be implemented by subclasses."""

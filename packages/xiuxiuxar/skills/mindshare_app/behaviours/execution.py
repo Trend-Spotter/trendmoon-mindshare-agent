@@ -1312,20 +1312,6 @@ class ExecutionRound(BaseState):
             del self.pending_dialogues[ref]
             self.context.logger.debug(f"cleared dialogue: {ref}")
 
-    def _get_safe_address(self) -> str | None:
-        """Get the Safe address for Base chain."""
-        safe_addresses = self.context.params.safe_contract_addresses
-
-        if isinstance(safe_addresses, str):
-            try:
-                safe_dict = json.loads(safe_addresses)
-                return safe_dict.get("base")
-            except json.JSONDecodeError:
-                return None
-        elif isinstance(safe_addresses, dict):
-            return safe_addresses.get("base")
-
-        return None
 
     def _calculate_approval_amount(self, order: Order) -> int | None:
         """Calculate ERC20 approval amount in wei."""

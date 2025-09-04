@@ -43,6 +43,10 @@ class PositionMonitoringRound(BaseState):
         self.completed_positions: list[dict[str, Any]] = []
         self.monitoring_initialized: bool = False
 
+        # Pending orders tracking
+        self.pending_trades: list[dict[str, Any]] = []
+        self.pending_orders_checked: bool = False
+
     def setup(self) -> None:
         """Perform the setup."""
         self._is_done = False
@@ -51,6 +55,8 @@ class PositionMonitoringRound(BaseState):
         self.pending_positions = []
         self.completed_positions = []
         self.monitoring_initialized = False
+        self.pending_trades = []
+        self.pending_orders_checked = False
         super().setup()
 
     def act(self) -> None:
@@ -60,6 +66,12 @@ class PositionMonitoringRound(BaseState):
         try:
             self._initialize_monitoring()
 
+            # First, check pending orders if not done yet
+            if not self.pending_orders_checked:
+                self._check_pending_orders()
+                return
+
+            # Then monitor existing positions
             if not self.pending_positions and not self.completed_positions:
                 self.context.logger.info("No open positions to monitor")
                 self._event = MindshareabciappEvents.POSITIONS_CHECKED
@@ -442,3 +454,149 @@ class PositionMonitoringRound(BaseState):
 
         except Exception as e:
             self.context.logger.exception(f"Failed to update positions storage: {e}")
+
+    def _check_pending_orders(self) -> None:
+        """Check status of pending orders."""
+        self.pending_trades = self._load_pending_trades()
+
+        if not self.pending_trades:
+            self.context.logger.info("No pending orders to check")
+            self.pending_orders_checked = True
+            return
+
+        # Extract CoWSwap order IDs to monitor
+        cowswap_order_ids = []
+        for trade in self.pending_trades:
+            cowswap_order_id = trade.get("cowswap_order_id")
+            if cowswap_order_id:
+                cowswap_order_ids.append(cowswap_order_id)
+
+        if cowswap_order_ids:
+            self.context.logger.info(f"Checking status of {len(cowswap_order_ids)} pending CoWSwap orders")
+            self.monitor_cowswap_orders(cowswap_order_ids)
+        else:
+            self.context.logger.info("No CoWSwap order IDs found in pending trades")
+            self.pending_orders_checked = True
+
+    def _process_order_updates(self, order_updates: dict[str, dict[str, Any]]) -> None:
+        """Process order updates from CoWSwap monitoring."""
+        try:
+            updated_trades = []
+
+            for trade in self.pending_trades:
+                cowswap_order_id = trade.get("cowswap_order_id")
+                if cowswap_order_id in order_updates:
+                    update_info = order_updates[cowswap_order_id]
+                    status = update_info["status"]
+                    order = update_info["order"]
+
+                    if status == "filled":
+                        self.context.logger.info(f"Order {cowswap_order_id} filled - creating position")
+                        self._create_position_from_trade(trade, order)
+                    elif status in {"cancelled", "expired"}:
+                        self.context.logger.warning(f"Order {cowswap_order_id} {status} - removing from pending")
+                        # Don't add to updated_trades (effectively removes it)
+                    else:
+                        # Order still open, keep in pending
+                        updated_trades.append(trade)
+                        self.context.logger.info(f"Order {cowswap_order_id} still open")
+                else:
+                    # No update for this trade, keep it
+                    updated_trades.append(trade)
+
+            # Update pending trades storage
+            self._update_pending_trades(updated_trades)
+
+            self.pending_orders_checked = True
+            self.context.logger.info(f"Completed pending order check. {len(updated_trades)} orders still pending")
+
+        except Exception as e:
+            self.context.logger.exception(f"Failed to process order updates: {e}")
+            self.pending_orders_checked = True
+
+    def _create_position_from_trade(self, trade: dict[str, Any], _order: Any = None) -> None:
+        """Create a position from a filled trade order."""
+        try:
+            symbol = trade.get("symbol")
+            entry_price = trade.get("entry_price", 0)
+            token_quantity = trade.get("token_quantity", 0)
+            position_size_usdc = trade.get("position_size_usdc", 0)
+
+            if not symbol or entry_price <= 0 or token_quantity <= 0:
+                self.context.logger.warning(f"Invalid trade data for position creation: {trade}")
+                return
+
+            position_id = f"pos_{symbol}_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}"
+
+            new_position = {
+                "position_id": position_id,
+                "symbol": symbol,
+                "contract_address": trade.get("buy_token", ""),
+                "direction": "long",
+                "status": "open",
+                "entry_price": entry_price,
+                "entry_time": trade.get("created_at", datetime.now(UTC).isoformat()),
+                "token_quantity": token_quantity,
+                "position_size_usdc": position_size_usdc,
+                "stop_loss_price": trade.get("stop_loss_price", 0),
+                "take_profit_price": trade.get("take_profit_price", 0),
+                "current_price": entry_price,
+                "unrealized_pnl": 0.0,
+                "pnl_percentage": 0.0,
+                "order_id": trade.get("cowswap_order_id", trade.get("trade_id", "")),
+                "created_at": datetime.now(UTC).isoformat(),
+                "last_updated": datetime.now(UTC).isoformat(),
+                "trailing_stop_enabled": False,
+                "trailing_distance": 0.05,
+                "partial_fill": False,
+            }
+
+            # Add position to storage
+            self._add_position_to_storage(new_position)
+
+            self.context.logger.info(
+                f"Created new position {symbol} from filled order at ${entry_price:.6f}, "
+                f"quantity: {token_quantity:.6f}"
+            )
+
+        except Exception as e:
+            self.context.logger.exception(f"Failed to create position from trade: {e}")
+
+    def _add_position_to_storage(self, position: dict[str, Any]) -> None:
+        """Add a new position to persistent storage."""
+        if not self.context.store_path:
+            return
+
+        try:
+            positions_file = self.context.store_path / "positions.json"
+
+            # Load existing data
+            existing_data = {"positions": []}
+            if positions_file.exists():
+                with open(positions_file, encoding=DEFAULT_ENCODING) as f:
+                    existing_data = json.load(f)
+
+            # Add new position
+            positions = existing_data.get("positions", [])
+            positions.append(position)
+
+            # Calculate summary statistics
+            open_positions = [pos for pos in positions if pos.get("status") == "open"]
+            total_portfolio_value = sum(pos.get("position_size_usdc", 0) for pos in open_positions)
+
+            # Save updated data
+            updated_data = {
+                "positions": positions,
+                "last_updated": datetime.now(UTC).isoformat(),
+                "total_positions": len(positions),
+                "open_positions": len(open_positions),
+                "total_portfolio_value": round(total_portfolio_value, 2),
+            }
+
+            with open(positions_file, "w", encoding=DEFAULT_ENCODING) as f:
+                json.dump(updated_data, f, indent=2)
+
+            self.context.logger.info(f"Added new position {position['position_id']} to storage")
+
+        except Exception as e:
+            self.context.logger.exception(f"Failed to add position to storage: {e}")
