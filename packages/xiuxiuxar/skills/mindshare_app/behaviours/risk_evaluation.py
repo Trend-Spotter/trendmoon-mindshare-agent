@@ -22,6 +22,8 @@ import json
 from typing import Any
 from datetime import UTC, datetime
 
+from autonomy.deploy.constants import DEFAULT_ENCODING
+
 from packages.xiuxiuxar.skills.mindshare_app.behaviours.base import (
     BaseState,
     MindshareabciappEvents,
@@ -73,7 +75,6 @@ class RiskEvaluationRound(BaseState):
                 (self._check_trading_pair_duplication, "Failed trading pair duplication check"),
                 (self._calculate_volatility_metrics, "Failed to calculate volatility metrics"),
                 (self._apply_risk_vetoes, "Failed to apply risk vetoes"),
-                # (self._determine_position_size, "Failed to determine position size"),
                 (self._calculate_risk_levels, "Failed to calculate risk levels"),
                 (self._validate_risk_parameters, "Failed to validate risk parameters"),
             ]
@@ -111,7 +112,6 @@ class RiskEvaluationRound(BaseState):
             "volatility_tier": "unknown",
             "onchain_risk_score": 0.0,
             "risk_vetoes": [],
-            "position_size_usdc": 0.0,
             "stop_loss_distance": 0.0,
             "take_profit_distance": 0.0,
             "risk_reward_ratio": 0.0,
@@ -128,7 +128,7 @@ class RiskEvaluationRound(BaseState):
 
             positions_file = self.context.store_path / "positions.json"
             if positions_file.exists():
-                with open(positions_file, encoding="utf-8") as f:
+                with open(positions_file, encoding=DEFAULT_ENCODING) as f:
                     positions_data = json.load(f)
 
                 self.open_positions = [
@@ -166,10 +166,9 @@ class RiskEvaluationRound(BaseState):
                 base_symbol = pos_symbol.split("/")[0]
                 if base_symbol == target_symbol:
                     existing_positions.append(pos)
-            elif "/" not in pos_symbol and pos_symbol:
+            elif "/" not in pos_symbol and pos_symbol and pos_symbol == target_symbol:
                 # Assume USDC quote for single symbols
-                if pos_symbol == target_symbol:
-                    existing_positions.append(pos)
+                existing_positions.append(pos)
 
         if existing_positions:
             self.context.logger.warning(
@@ -188,28 +187,6 @@ class RiskEvaluationRound(BaseState):
 
         self.context.logger.info(f"Trading pair duplication check: PASSED - no existing {target_symbol} positions")
         return True
-
-    def _get_trading_pair_from_position(self, position: dict) -> str:
-        """Extract standardized trading pair identifier from position."""
-        symbol = position.get("symbol", "").upper()
-
-        if "/" in symbol:
-            return symbol  # Already in pair format like "OLAS/USDC"
-        if symbol:
-            return f"{symbol}/USDC"  # Assume USDC quote
-        return "UNKNOWN/USDC"
-
-    def _check_conflicting_positions(self, target_symbol: str) -> list[dict]:
-        """Get list of positions that would conflict with the target trading pair."""
-        conflicting_positions = []
-        target_pair = f"{target_symbol.upper()}/USDC"
-
-        for pos in self.open_positions:
-            pos_pair = self._get_trading_pair_from_position(pos)
-            if pos_pair == target_pair:
-                conflicting_positions.append(pos)
-
-        return conflicting_positions
 
     def _load_trade_signal(self) -> bool:
         """Load the trade signal from the previous round."""
@@ -230,7 +207,7 @@ class RiskEvaluationRound(BaseState):
                 self.context.logger.warning("No signals file found")
                 return False
 
-            with open(signals_file, encoding="utf-8") as f:
+            with open(signals_file, encoding=DEFAULT_ENCODING) as f:
                 signals_data = json.load(f)
 
             latest_signal = signals_data.get("last_signal")
@@ -341,50 +318,6 @@ class RiskEvaluationRound(BaseState):
             self.context.logger.exception(f"Failed to apply risk vetoes: {e}")
             return False
 
-    def _determine_position_size(self) -> bool:
-        """Determine the position size based on risk assessment."""
-        try:
-            available_capital = getattr(self.context, "available_trading_capital", None)
-            if available_capital is None:
-                self.context.logger.warning("No available trading capital found, using fallback")
-                available_capital = 1000.0
-
-            strategy = self.context.params.trading_stategy
-            volatility_tier = self.risk_assessment.get("volatility_tier")
-            signal_strength = self.trade_signal.get("p_trade", 0.5)
-
-            base_position_pct = self._get_base_position_percentage(strategy)
-
-            volatility_multiplier = self._get_volatility_multiplier(volatility_tier)
-
-            signal_multiplier = min(signal_strength * 2.0, 1.5)
-
-            final_position_pct = base_position_pct * volatility_multiplier * signal_multiplier
-
-            min_position_pct = 0.02
-            max_position_pct = 0.20
-            final_position_pct = max(min_position_pct, min(final_position_pct, max_position_pct))
-
-            position_size_usdc = available_capital * final_position_pct
-
-            min_position_size = self.context.params.min_position_size_usdc
-            max_position_size = self.context.params.max_position_size_usdc
-            position_size_usdc = max(min_position_size, min(position_size_usdc, max_position_size))
-
-            self.risk_assessment["position_size_usdc"] = position_size_usdc
-            self.risk_assessment["position_percentage"] = (position_size_usdc / available_capital) * 100
-
-            self.context.logger.info(
-                f"Position sizing: {position_size_usdc:.2f} USDC "
-                f"({(position_size_usdc / available_capital) * 100:.1f}% of capital)"
-            )
-
-            return True
-
-        except Exception as e:
-            self.context.logger.exception(f"Failed to determine position size: {e}")
-            return False
-
     def _calculate_risk_levels(self) -> bool:
         """Calculate the risk levels based on position size and volatility."""
         try:
@@ -428,12 +361,6 @@ class RiskEvaluationRound(BaseState):
     def _validate_risk_parameters(self) -> bool:
         """Validate the risk parameters."""
         try:
-            # # Check position size is reasonable
-            # position_size = self.risk_assessment["position_size_usdc"]
-            # if position_size <= 0:
-            #     self.context.logger.error("Position size is zero or negative")
-            #     return False
-
             # Check max loss percentage is acceptable
             max_loss_pct = self.risk_assessment["max_loss_percentage"]
             max_acceptable_loss = 10.0  # 10% maximum loss per trade
@@ -471,7 +398,6 @@ class RiskEvaluationRound(BaseState):
             "symbol": self.trade_signal.get("symbol"),
             "direction": self.trade_signal.get("direction"),
             "entry_price": self.risk_assessment["current_price"],
-            # "position_size_usdc": self.risk_assessment["position_size_usdc"],
             "stop_loss_price": self.risk_assessment["stop_loss_price"],
             "take_profit_price": self.risk_assessment["take_profit_price"],
             "risk_assessment": self.risk_assessment.copy(),
@@ -493,7 +419,7 @@ class RiskEvaluationRound(BaseState):
                 # Load existing signals
                 signals_data = {"signals": [], "last_signal": None}
                 if signals_file.exists():
-                    with open(signals_file, encoding="utf-8") as f:
+                    with open(signals_file, encoding=DEFAULT_ENCODING) as f:
                         signals_data = json.load(f)
 
                 # Update the last signal with approval
@@ -501,7 +427,7 @@ class RiskEvaluationRound(BaseState):
                 signals_data["last_updated"] = datetime.now(UTC).isoformat()
 
                 # Save updated signals
-                with open(signals_file, "w", encoding="utf-8") as f:
+                with open(signals_file, "w", encoding=DEFAULT_ENCODING) as f:
                     json.dump(signals_data, f, indent=2)
 
                 self.context.logger.info("Stored approved trade proposal")
@@ -521,7 +447,7 @@ class RiskEvaluationRound(BaseState):
             if not data_file.exists():
                 return None
 
-            with open(data_file, encoding="utf-8") as f:
+            with open(data_file, encoding=DEFAULT_ENCODING) as f:
                 collected_data = json.load(f)
 
             current_prices = collected_data.get("current_prices", {})
@@ -545,7 +471,7 @@ class RiskEvaluationRound(BaseState):
             if not data_file.exists():
                 return None
 
-            with open(data_file, encoding="utf-8") as f:
+            with open(data_file, encoding=DEFAULT_ENCODING) as f:
                 collected_data = json.load(f)
 
             ohlcv_data = collected_data.get("ohlcv", {})
@@ -582,22 +508,3 @@ class RiskEvaluationRound(BaseState):
         except Exception as e:
             self.context.logger.exception(f"Failed to calculate ATR: {e}")
             return 0.0
-
-    def _get_base_position_percentage(self, strategy: str) -> float:
-        """Get base position percentage based on strategy."""
-        strategy_percentages = {
-            "aggressive": 0.15,  # 15% of capital
-            "balanced": 0.10,  # 10% of capital
-            "conservative": 0.05,  # 5% of capital
-        }
-        return strategy_percentages.get(strategy, 0.10)
-
-    def _get_volatility_multiplier(self, volatility_tier: str) -> float:
-        """Get position size multiplier based on volatility."""
-        multipliers = {
-            "low": 1.2,  # Larger positions for low volatility
-            "medium": 1.0,  # Base size for medium volatility
-            "high": 0.7,  # Smaller positions for high volatility
-            "very_high": 0.5,  # Much smaller positions for very high volatility
-        }
-        return multipliers.get(volatility_tier, 0.8)

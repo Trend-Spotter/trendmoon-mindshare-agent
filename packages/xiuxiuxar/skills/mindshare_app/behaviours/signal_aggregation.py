@@ -24,6 +24,8 @@ import operator
 from typing import Any
 from datetime import UTC, datetime
 
+from autonomy.deploy.constants import DEFAULT_ENCODING
+
 from packages.xiuxiuxar.skills.mindshare_app.behaviours.base import (
     BaseState,
     TradingStrategy,
@@ -147,7 +149,7 @@ class SignalAggregationRound(BaseState):
             self.context.logger.warning("No analysis results file found")
             return False
 
-        with open(analysis_file, encoding="utf-8") as f:
+        with open(analysis_file, encoding=DEFAULT_ENCODING) as f:
             self.analysis_results = json.load(f)
 
         self._load_collected_data()
@@ -158,7 +160,7 @@ class SignalAggregationRound(BaseState):
         """Load collected data from storage if available."""
         data_file = self.context.store_path / "collected_data.json"
         if data_file.exists():
-            with open(data_file, encoding="utf-8") as f:
+            with open(data_file, encoding=DEFAULT_ENCODING) as f:
                 self.collected_data = json.load(f)
             self.context.logger.debug("Loaded collected data from storage")
         else:
@@ -308,7 +310,7 @@ class SignalAggregationRound(BaseState):
                 # Load existing signals
                 signals_data = {"signals": [], "last_signal": None}
                 if signals_file.exists():
-                    with open(signals_file, encoding="utf-8") as f:
+                    with open(signals_file, encoding=DEFAULT_ENCODING) as f:
                         signals_data = json.load(f)
 
                 # Add new signal
@@ -321,7 +323,7 @@ class SignalAggregationRound(BaseState):
                     signals_data["signals"] = signals_data["signals"][-100:]
 
                 # Save updated signals
-                with open(signals_file, "w", encoding="utf-8") as f:
+                with open(signals_file, "w", encoding=DEFAULT_ENCODING) as f:
                     json.dump(signals_data, f, indent=2)
 
                 self.context.logger.info(f"Stored aggregated signal for {self.aggregated_signal['symbol']}")

@@ -20,7 +20,9 @@
 
 import json
 from typing import Any
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+
+from autonomy.deploy.constants import DEFAULT_ENCODING
 
 from packages.xiuxiuxar.skills.mindshare_app.behaviours.base import (
     BaseState,
@@ -40,7 +42,6 @@ class PositionMonitoringRound(BaseState):
         self.pending_positions: list[dict[str, Any]] = []
         self.completed_positions: list[dict[str, Any]] = []
         self.monitoring_initialized: bool = False
-        self.started_data: datetime | None = None
 
     def setup(self) -> None:
         """Perform the setup."""
@@ -50,7 +51,6 @@ class PositionMonitoringRound(BaseState):
         self.pending_positions = []
         self.completed_positions = []
         self.monitoring_initialized = False
-        self.started_data = None
         super().setup()
 
     def act(self) -> None:
@@ -173,7 +173,7 @@ class PositionMonitoringRound(BaseState):
             return []
 
         try:
-            with open(positions_file, encoding="utf-8") as f:
+            with open(positions_file, encoding=DEFAULT_ENCODING) as f:
                 data = json.load(f)
                 return [pos for pos in data.get("positions", []) if pos.get("status") == "open"]
         except (FileNotFoundError, PermissionError, OSError) as e:
@@ -217,8 +217,8 @@ class PositionMonitoringRound(BaseState):
             "exit_reason": None,
         }
 
-        # Exit if RSI > 79
-        if rsi and rsi > 79:
+        # Exit if RSI > overbought limit
+        if rsi and rsi > self.context.params.rsi_overbought_limit:
             updated_position.update(
                 {
                     "exit_signal": True,
@@ -276,7 +276,7 @@ class PositionMonitoringRound(BaseState):
             if not data_file.exists():
                 return price
 
-            with open(data_file, encoding="utf-8") as f:
+            with open(data_file, encoding=DEFAULT_ENCODING) as f:
                 collected_data = json.load(f)
 
             # Get current price from collected price data
@@ -327,7 +327,7 @@ class PositionMonitoringRound(BaseState):
             # Load existing data
             existing_data = {"positions": [], "last_updated": None}
             if positions_file.exists():
-                with open(positions_file, encoding="utf-8") as f:
+                with open(positions_file, encoding=DEFAULT_ENCODING) as f:
                     existing_data = json.load(f)
 
             # Update positions with new data
@@ -354,7 +354,7 @@ class PositionMonitoringRound(BaseState):
                 "total_portfolio_value": round(total_portfolio_value, 2),
             }
 
-            with open(positions_file, "w", encoding="utf-8") as f:
+            with open(positions_file, "w", encoding=DEFAULT_ENCODING) as f:
                 json.dump(updated_data, f, indent=2)
 
             self.context.logger.info(

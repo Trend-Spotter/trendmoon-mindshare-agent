@@ -23,6 +23,7 @@ from typing import Any
 from datetime import UTC, datetime
 
 from aea.protocols.base import Message
+from autonomy.deploy.constants import DEFAULT_ENCODING
 from aea.protocols.dialogue.base import Dialogue as BaseDialogue
 
 from packages.valory.protocols.ledger_api import LedgerApiMessage
@@ -89,13 +90,11 @@ class ExecutionRound(BaseState):
         self.execution_initialized: bool = False
         self.execution_started_at: datetime | None = None
 
-        # Multisend operation tracking
+        # Operation tracking
         self.active_operation: dict[str, Any] | None = None
-        self.operation_queue: list[dict[str, Any]] = []
 
-        # Transaction tracking
+        # Dialogue tracking
         self.pending_dialogues: dict[str, str] = {}
-        self.dialogue_responses: dict[str, dict] = {}
 
     def setup(self) -> None:
         """Setup the execution round."""
@@ -115,9 +114,7 @@ class ExecutionRound(BaseState):
         self.failed_orders = []
 
         self.active_operation = None
-        self.operation_queue = []
         self.pending_dialogues = {}
-        self.dialogue_responses = {}
 
         for protocol in self.supported_protocols:
             self.supported_protocols[protocol] = []
@@ -580,7 +577,7 @@ class ExecutionRound(BaseState):
                 return
 
             # Load existing pending trades
-            with open(trades_file, encoding="utf-8") as f:
+            with open(trades_file, encoding=DEFAULT_ENCODING) as f:
                 pending_trades = json.load(f)
 
             # Find the trade with matching original order ID and add CoWSwap order ID
@@ -597,7 +594,7 @@ class ExecutionRound(BaseState):
                 # Update timestamp and save
                 pending_trades["last_updated"] = datetime.now(UTC).isoformat()
 
-                with open(trades_file, "w", encoding="utf-8") as f:
+                with open(trades_file, "w", encoding=DEFAULT_ENCODING) as f:
                     json.dump(pending_trades, f, indent=2)
 
                 self.context.logger.info("Updated pending_trades.json with CoWSwap order ID")
@@ -654,28 +651,20 @@ class ExecutionRound(BaseState):
                     # Order not found in open orders - it has been filled or cancelled
                     self.context.logger.info(f"CoW order {target_order_id} no longer in open orders - assuming filled")
                     self._finalize_cow_order()
-                    return True
-
-                # Order still exists - check its status
-                if target_order.status in {OrderStatus.FILLED, OrderStatus.PARTIALLY_FILLED}:
+                elif target_order.status in {OrderStatus.FILLED, OrderStatus.PARTIALLY_FILLED}:
                     self.context.logger.info(f"CoW order {target_order_id} executed with status: {target_order.status}")
                     self.active_operation["order"] = target_order  # Update with latest status
                     self._finalize_cow_order()
-                    return True
-
-                if target_order.status == OrderStatus.CANCELLED:
-                    self.context.logger.warning(f"CoW order {target_order_id} was cancelled")
+                elif target_order.status in {OrderStatus.CANCELLED, OrderStatus.EXPIRED}:
+                    status_msg = "cancelled" if target_order.status == OrderStatus.CANCELLED else "expired"
+                    self.context.logger.warning(f"CoW order {target_order_id} was {status_msg}")
                     self.active_operation["state"] = "failed"
-                    return True
-
-                if target_order.status == OrderStatus.EXPIRED:
-                    self.context.logger.warning(f"CoW order {target_order_id} expired")
-                    self.active_operation["state"] = "failed"
-                    return True
-
-                # Order still open, transition to next round with ORDER_PLACED event
-                self.context.logger.info(f"CoW order {target_order_id} still open with status: {target_order.status}")
-                self._complete(MindshareabciappEvents.ORDER_PLACED)
+                else:
+                    # Order still open, transition to next round with ORDER_PLACED event
+                    self.context.logger.info(
+                        f"CoW order {target_order_id} still open with status: {target_order.status}"
+                    )
+                    self._complete(MindshareabciappEvents.ORDER_PLACED)
                 return True
 
             if message.performative == OrdersMessage.Performative.ERROR:
@@ -1230,7 +1219,7 @@ class ExecutionRound(BaseState):
             # Load existing data
             existing_data = {"positions": []}
             if positions_file.exists():
-                with open(positions_file, encoding="utf-8") as f:
+                with open(positions_file, encoding=DEFAULT_ENCODING) as f:
                     existing_data = json.load(f)
 
             # Add new position
@@ -1250,7 +1239,7 @@ class ExecutionRound(BaseState):
                 "total_portfolio_value": round(total_portfolio_value, 2),
             }
 
-            with open(positions_file, "w", encoding="utf-8") as f:
+            with open(positions_file, "w", encoding=DEFAULT_ENCODING) as f:
                 json.dump(updated_data, f, indent=2)
 
             self.context.logger.info(f"Added new position {position['position_id']} to storage")
@@ -1269,7 +1258,7 @@ class ExecutionRound(BaseState):
             # Load existing data
             existing_data = {"positions": []}
             if positions_file.exists():
-                with open(positions_file, encoding="utf-8") as f:
+                with open(positions_file, encoding=DEFAULT_ENCODING) as f:
                     existing_data = json.load(f)
 
             # Update the specific position
@@ -1291,7 +1280,7 @@ class ExecutionRound(BaseState):
             existing_data["positions"] = positions
             existing_data["last_updated"] = datetime.now(UTC).isoformat()
 
-            with open(positions_file, "w", encoding="utf-8") as f:
+            with open(positions_file, "w", encoding=DEFAULT_ENCODING) as f:
                 json.dump(existing_data, f, indent=2)
 
             self.context.logger.info(f"Updated position {position_id} in storage")
@@ -1455,7 +1444,7 @@ class ExecutionRound(BaseState):
             # Load existing history
             history = {"executions": []}
             if summary_file.exists():
-                with open(summary_file, encoding="utf-8") as f:
+                with open(summary_file, encoding=DEFAULT_ENCODING) as f:
                     history = json.load(f)
 
             # Create execution summary
@@ -1495,7 +1484,7 @@ class ExecutionRound(BaseState):
             history["last_updated"] = datetime.now(UTC).isoformat()
 
             # Save updated history
-            with open(summary_file, "w", encoding="utf-8") as f:
+            with open(summary_file, "w", encoding=DEFAULT_ENCODING) as f:
                 json.dump(history, f, indent=2)
 
         except Exception as e:

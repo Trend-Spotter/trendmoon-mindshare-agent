@@ -115,6 +115,7 @@ models:
       rsi_period_length: ${int:14}
       rsi_lower_limit: ${int:39}
       rsi_upper_limit: ${int:66}
+      rsi_overbought_limit: ${int:79}
       macd_fast_period: ${int:12}
       macd_slow_period: ${int:26}
       macd_signal_period: ${int:9}

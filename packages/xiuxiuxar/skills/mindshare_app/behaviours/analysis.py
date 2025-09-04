@@ -26,6 +26,7 @@ from datetime import UTC, datetime
 
 import pandas as pd
 import pandas_ta as ta
+from autonomy.deploy.constants import DEFAULT_ENCODING
 
 from packages.xiuxiuxar.skills.mindshare_app.behaviours.base import (
     ALLOWED_ASSETS,
@@ -133,7 +134,7 @@ class AnalysisRound(BaseState):
                 self.context.logger.warning("No collected data file found")
                 return False
 
-            with open(data_file, encoding="utf-8") as f:
+            with open(data_file, encoding=DEFAULT_ENCODING) as f:
                 self.collected_data = json.load(f)
 
             self.context.logger.info("Successfully loaded collected data")
@@ -448,7 +449,7 @@ class AnalysisRound(BaseState):
         try:
             summary_file = self.context.store_path / "analysis_results.json"
             summary_results = self._extract_summary_results()
-            with open(summary_file, "w", encoding="utf-8") as f:
+            with open(summary_file, "w", encoding=DEFAULT_ENCODING) as f:
                 json.dump(summary_results, f, indent=2)
 
             if self._has_detailed_technical_data():

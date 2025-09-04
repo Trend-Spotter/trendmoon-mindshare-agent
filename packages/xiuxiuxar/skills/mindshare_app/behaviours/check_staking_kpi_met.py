@@ -25,6 +25,7 @@ from datetime import UTC, datetime
 
 from eth_utils import to_bytes
 from aea.protocols.base import Message
+from autonomy.deploy.constants import DEFAULT_ENCODING
 
 from packages.valory.protocols.ledger_api import LedgerApiMessage
 from packages.valory.protocols.contract_api import ContractApiMessage
@@ -340,7 +341,7 @@ class CheckStakingKPIRound(BaseState):
             return {}
 
         try:
-            with open(kpi_state_file, encoding="utf-8") as f:
+            with open(kpi_state_file, encoding=DEFAULT_ENCODING) as f:
                 return json.load(f)
         except (FileNotFoundError, PermissionError, OSError, json.JSONDecodeError) as e:
             self.context.logger.warning(f"Failed to load KPI state: {e}")
@@ -354,7 +355,7 @@ class CheckStakingKPIRound(BaseState):
 
         kpi_state_file = self.context.store_path / "kpi_state.json"
         try:
-            with open(kpi_state_file, "w", encoding="utf-8") as f:
+            with open(kpi_state_file, "w", encoding=DEFAULT_ENCODING) as f:
                 json.dump(kpi_state, f, indent=2)
             self.context.logger.debug(f"Saved KPI state: {kpi_state}")
         except (PermissionError, OSError) as e:

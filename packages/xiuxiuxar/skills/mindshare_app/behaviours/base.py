@@ -43,7 +43,6 @@ if TYPE_CHECKING:
     from packages.xiuxiuxar.skills.mindshare_app.models import Coingecko, Trendmoon
 
 LEDGER_API_ADDRESS = str(LEDGER_CONNECTION_PUBLIC_ID)
-DEFAULT_ENCODING = "utf-8"
 ETHER_VALUE = 0
 NULL_ADDRESS = "0x" + "0" * 40
 SAFE_TX_GAS = 300_000  # Non-zero value to prevent Safe revert during gas estimation
@@ -130,6 +129,7 @@ ALLOWED_ASSETS: dict[str, list[dict[str, str]]] = {
     ]
 }
 
+
 @dataclass
 class TradingStrategy:
     """Consolidated trading strategy for buy signal generation."""
@@ -212,7 +212,7 @@ class TradingStrategy:
         macd = technical_scores.get("macd")
         macd_signal = technical_scores.get("macd_signal")
         adx = technical_scores.get("adx")
-        p_social = social_scores.get("p_social", 0.5)
+        _p_social = social_scores.get("p_social", 0.5)
 
         # 1. Price above 20MA
         conditions_met["price_above_ma"] = {

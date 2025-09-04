@@ -799,6 +799,7 @@ class Params(Model):
         self.rsi_period_length = kwargs.pop("rsi_period_length", 14)
         self.rsi_lower_limit = kwargs.pop("rsi_lower_limit", 39)
         self.rsi_upper_limit = kwargs.pop("rsi_upper_limit", 66)
+        self.rsi_overbought_limit = kwargs.pop("rsi_overbought_limit", 79)
         self.macd_fast_period = kwargs.pop("macd_fast_period", 12)
         self.macd_slow_period = kwargs.pop("macd_slow_period", 26)
         self.macd_signal_period = kwargs.pop("macd_signal_period", 9)

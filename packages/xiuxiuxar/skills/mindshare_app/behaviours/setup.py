@@ -22,6 +22,8 @@ import json
 from typing import Any
 from pathlib import Path
 
+from autonomy.deploy.constants import DEFAULT_ENCODING
+
 from packages.xiuxiuxar.skills.mindshare_app.behaviours.base import (
     BaseState,
     MindshareabciappEvents,
@@ -68,7 +70,7 @@ class SetupRound(BaseState):
         for filename, default_content in files_to_initialize.items():
             file_path = store_path / filename
             if not file_path.exists():
-                with open(file_path, "w", encoding="utf-8") as f:
+                with open(file_path, "w", encoding=DEFAULT_ENCODING) as f:
                     json.dump(default_content, f, indent=2)
 
         self.context.store_path = store_path

@@ -22,6 +22,7 @@ import json
 from typing import Any
 
 from aea.protocols.base import Message
+from autonomy.deploy.constants import DEFAULT_ENCODING
 
 from packages.valory.protocols.contract_api import ContractApiMessage
 from packages.eightballer.contracts.erc_20.contract import Erc20
@@ -156,7 +157,7 @@ class PortfolioValidationRound(BaseState):
 
             positions_file = self.context.store_path / "positions.json"
             if positions_file.exists():
-                with open(positions_file, encoding="utf-8") as f:
+                with open(positions_file, encoding=DEFAULT_ENCODING) as f:
                     positions_data = json.load(f)
 
                 self.open_positions = [

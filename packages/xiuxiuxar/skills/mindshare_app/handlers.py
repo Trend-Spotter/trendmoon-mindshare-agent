@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, cast
 
 from aea.skills.base import Handler
 from aea.protocols.base import Message
+from autonomy.deploy.constants import DEFAULT_ENCODING
 from aea.configurations.data_types import PublicId
 
 from packages.open_aea.protocols.signing import SigningMessage
@@ -126,7 +127,7 @@ class HttpHandler(Handler):
             status_code=200,
             status_text="Success",
             headers=headers,
-            body=json.dumps(data, indent=2).encode("utf-8"),
+            body=json.dumps(data, indent=2).encode(DEFAULT_ENCODING),
         )
         self.context.logger.info(f"responding with healthcheck: {http_response}")
         self.context.outbox.put_message(message=http_response)
@@ -176,7 +177,7 @@ class HttpHandler(Handler):
             status_code=200,
             status_text="Success",
             headers=headers,
-            body=json.dumps(self.context.shared_state).encode("utf-8"),
+            body=json.dumps(self.context.shared_state).encode(DEFAULT_ENCODING),
         )
         self.context.logger.info(f"responding with: {http_response}")
         self.context.outbox.put_message(message=http_response)

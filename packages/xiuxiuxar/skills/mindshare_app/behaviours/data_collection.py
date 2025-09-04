@@ -25,6 +25,8 @@ from typing import Any
 from datetime import UTC, datetime, timedelta
 from collections.abc import Generator
 
+from autonomy.deploy.constants import DEFAULT_ENCODING
+
 from packages.eightballer.protocols.http.message import HttpMessage
 from packages.xiuxiuxar.skills.mindshare_app.behaviours.base import (
     ALLOWED_ASSETS,
@@ -34,10 +36,21 @@ from packages.xiuxiuxar.skills.mindshare_app.behaviours.base import (
 )
 
 
+MAX_COLLECTION_TIME = 300  # 5 minutes
+TIMEOUT_SECONDS = 120  # HTTP response timeout
+RETRY_CHECK_INTERVAL = 10  # seconds between retry checks
+MAX_RETRIES = 3
+OHLCV_DATA_DAYS = 30
+OHLCV_MAX_AGE_HOURS = 4
+OHLCV_MAX_AGE_BUFFER_MINUTES = 30
+SOCIAL_UPDATE_THRESHOLD_HOURS = 1
+DEFAULT_RATE_LIMIT_WAIT_TIME = 60
+
+
 class RateLimitError(Exception):
     """Exception raised when API rate limit is exceeded."""
 
-    def __init__(self, message: str, wait_until: float | None = None, wait_time: int = 60):
+    def __init__(self, message: str, wait_until: float | None = None, wait_time: int = DEFAULT_RATE_LIMIT_WAIT_TIME):
         super().__init__(message)
         self.wait_time = wait_time
         self.wait_until = wait_until
@@ -113,8 +126,7 @@ class DataCollectionRound(BaseState):
             # Check for timeout to prevent indefinite execution
             if hasattr(self, "started_at") and self.started_at:
                 elapsed_time = (datetime.now(UTC) - self.started_at).total_seconds()
-                max_collection_time = 300  # 5 minutes max
-                if elapsed_time > max_collection_time:
+                if elapsed_time > MAX_COLLECTION_TIME:
                     self.context.logger.warning(
                         f"Data collection timeout after {elapsed_time:.1f}s, proceeding with collected data"
                     )
@@ -228,7 +240,7 @@ class DataCollectionRound(BaseState):
                 self.context.logger.info(f"Data file does not exist: {data_file}")
                 return None
 
-            with open(data_file, encoding="utf-8") as f:
+            with open(data_file, encoding=DEFAULT_ENCODING) as f:
                 existing_data = json.load(f)
 
             # Ensure tracking fields exist
@@ -276,7 +288,7 @@ class DataCollectionRound(BaseState):
 
             # CoinGecko provides 4-hour candles, check if we're missing recent candles
             time_since_latest = current_time - latest_candle_time
-            expected_max_age = timedelta(hours=4, minutes=30)
+            expected_max_age = timedelta(hours=OHLCV_MAX_AGE_HOURS, minutes=OHLCV_MAX_AGE_BUFFER_MINUTES)
 
             needs_update = time_since_latest > expected_max_age
 
@@ -310,7 +322,7 @@ class DataCollectionRound(BaseState):
                 last_update = last_update.replace(tzinfo=UTC)
 
             time_since_update = current_time - last_update
-            update_threshold = timedelta(hours=1)
+            update_threshold = timedelta(hours=SOCIAL_UPDATE_THRESHOLD_HOURS)
 
             needs_update = time_since_update > update_threshold
 
@@ -338,7 +350,8 @@ class DataCollectionRound(BaseState):
             self.context.logger.info("Phase 1: Submitting async requests for all tokens")
             for token_info in self.pending_tokens:
                 self.context.logger.info(
-                    f"Submitting requests for {token_info['symbol']} ({self.current_token_index + 1}/{len(self.pending_tokens)})"
+                    f"Submitting requests for {token_info['symbol']} "
+                    f"({self.current_token_index + 1}/{len(self.pending_tokens)})"
                 )
 
                 try:
@@ -346,12 +359,12 @@ class DataCollectionRound(BaseState):
                     self._collect_token_data(token_info)
                     self.completed_tokens.append(token_info)
 
-                except RateLimitError as e:
+                except RateLimitError:
                     self.rate_limiting_occurred = True
                     self.context.logger.info(f"Rate limited for {token_info['symbol']}, will retry in phase 2")
                     # Token is already added to failed_requests by _collect_token_data
                     continue
-                except Exception as e:
+                except (ValueError, TypeError, OSError, ConnectionError) as e:
                     self.context.logger.warning(f"Failed to submit requests for {token_info['symbol']}: {e}")
                     self.failed_tokens.append(token_info)
                     self.collected_data["errors"].append(
@@ -372,7 +385,8 @@ class DataCollectionRound(BaseState):
             total_initial_requests = self.total_expected_responses
             rate_limited_count = len(self.failed_requests)
             self.context.logger.info(
-                f"Phase 1 complete: Submitted {total_initial_requests} async requests, {rate_limited_count} rate limited for retry"
+                f"Phase 1 complete: Submitted {total_initial_requests} async requests, "
+                f"{rate_limited_count} rate limited for retry"
             )
             yield
 
@@ -428,12 +442,8 @@ class DataCollectionRound(BaseState):
         self.context.logger.info(f"Submitting async OHLCV request for {symbol}")
 
         path_params = {"id": coingecko_id}
-        query_params = {"vs_currency": "usd", "days": 30}
+        query_params = {"vs_currency": "usd", "days": OHLCV_DATA_DAYS}
 
-        # Submit async request
-        # ohlc_request_id = self.context.coingecko.submit_coin_ohlc_request(path_params, query_params)
-        # volume_request_id = self.context.coingecko.submit_coin_historical_chart_request(path_params, query_params)
-        # Submit async request with rate limit handling
         ohlc_request_id, ohlc_wait_until = self.context.coingecko.submit_coin_ohlc_request(path_params, query_params)
         volume_request_id, volume_wait_until = self.context.coingecko.submit_coin_historical_chart_request(
             path_params, query_params
@@ -482,7 +492,7 @@ class DataCollectionRound(BaseState):
             ohlc_timestamp = ohlc[0]
             closest_volume_entry = min(total_volumes, key=lambda x: abs(x[0] - ohlc_timestamp))
             volume = closest_volume_entry[1]
-            ohlcv_entry = [ohlc_timestamp] + ohlc[1:] + [volume]
+            ohlcv_entry = [ohlc_timestamp, *ohlc[1:], volume]
             ohlcv_data.append(ohlcv_entry)
 
         # Merge with existing data if any
@@ -525,10 +535,6 @@ class DataCollectionRound(BaseState):
 
         self.context.logger.info(f"Submitting async social data request for {symbol}")
 
-        # Submit TrendMoon request
-        # trends_request_id = self.context.trendmoon.submit_coin_trends_request(
-        #     symbol=symbol, time_interval="1h", date_interval=30
-        # )
         trends_request_id, wait_until = self.context.trendmoon.submit_coin_trends_request(
             symbol=symbol, time_interval="1h", date_interval=30
         )
@@ -578,7 +584,6 @@ class DataCollectionRound(BaseState):
             "include_24hr_change": "true",
         }
 
-        # price_request_id = self.context.coingecko.submit_coin_price_request(query_params)
         price_request_id, wait_until = self.context.coingecko.submit_coin_price_request(query_params)
 
         # Check if we need to wait for rate limits
@@ -631,7 +636,7 @@ class DataCollectionRound(BaseState):
 
         # Parse response
         if message.status_code >= 400:
-            response_text = message.body.decode("utf-8") if message.body else "No response body"
+            response_text = message.body.decode(DEFAULT_ENCODING) if message.body else "No response body"
             self.context.logger.error(
                 f"HTTP error for {request_info['request_type']}: {message.status_code} - {response_text}"
             )
@@ -648,7 +653,8 @@ class DataCollectionRound(BaseState):
                 }
             )
             self.context.logger.info(
-                f"Successfully received {request_info['request_type']} response for {request_info.get('token_symbol', 'unknown')}"
+                f"Successfully received {request_info['request_type']} response "
+                f"for {request_info.get('token_symbol', 'unknown')}"
             )
             self.context.logger.debug(f"Response data size: {len(response_data) if response_data else 0} items")
 
@@ -661,7 +667,7 @@ class DataCollectionRound(BaseState):
         """Parse HTTP response body as JSON."""
         if body:
             try:
-                return json.loads(body.decode("utf-8"))
+                return json.loads(body.decode(DEFAULT_ENCODING))
             except json.JSONDecodeError:
                 self.context.logger.exception("Failed to parse JSON response")
                 return None
@@ -709,7 +715,6 @@ class DataCollectionRound(BaseState):
             return
 
         self.context.logger.info(f"Waiting for {len(self.pending_http_requests)} async HTTP responses...")
-        timeout_seconds = 120
         start_time = datetime.now(UTC)
         last_retry_check = 0  # Track when we last checked for retries to reduce logging
 
@@ -719,17 +724,21 @@ class DataCollectionRound(BaseState):
 
         while (len(self.received_responses) < expected_from_requests + expected_from_retries) or self.failed_requests:
             elapsed = (datetime.now(UTC) - start_time).total_seconds()
-            if elapsed > timeout_seconds:
+            if elapsed > TIMEOUT_SECONDS:
                 self.context.logger.warning(
-                    f"Timeout waiting for HTTP responses. Got {len(self.received_responses)}, expected {expected_from_requests + expected_from_retries}"
+                    f"Timeout waiting for HTTP responses. Got {len(self.received_responses)}, "
+                    f"expected {expected_from_requests + expected_from_retries}"
                 )
                 break
 
             # Check for failed requests that can be retried (but not too frequently)
             current_time = time.time()
-            if self.failed_requests and (current_time - last_retry_check) > 10:  # Check every 10 seconds
+            if self.failed_requests and (current_time - last_retry_check) > RETRY_CHECK_INTERVAL:
                 if self._can_retry_failed_requests():
-                    retry_count = len([req for req in self.failed_requests.values() if req.get("retry_count", 0) < 3])
+                    retry_count = len([
+                        req for req in self.failed_requests.values()
+                        if req.get("retry_count", 0) < MAX_RETRIES
+                    ])
                     self.context.logger.info(f"Retrying {retry_count} failed requests...")
                     initial_pending_count = len(self.pending_http_requests)
                     yield from self._retry_failed_requests()
@@ -751,7 +760,7 @@ class DataCollectionRound(BaseState):
         # After processing responses, move any remaining failed requests to failed_tokens
         if self.failed_requests:
             self.context.logger.info(f"Moving {len(self.failed_requests)} remaining failed requests to failed tokens")
-            for symbol, request_info in self.failed_requests.items():
+            for request_info in self.failed_requests.values():
                 token_info = request_info["token_info"]
                 if token_info not in self.failed_tokens:
                     self.failed_tokens.append(token_info)
@@ -761,13 +770,12 @@ class DataCollectionRound(BaseState):
     def _can_retry_failed_requests(self) -> bool:
         """Check if any failed requests can be retried."""
         current_time = time.time()
-        for symbol, request_info in self.failed_requests.items():
+        for request_info in self.failed_requests.values():
             retry_count = request_info.get("retry_count", 0)
             retry_after = request_info.get("retry_after")
-            max_retries = 3
 
             # Check if we haven't exceeded max retries and the wait time has passed
-            if retry_count < max_retries and (retry_after is None or current_time >= retry_after):
+            if retry_count < MAX_RETRIES and (retry_after is None or current_time >= retry_after):
                 return True
         return False
 
@@ -867,7 +875,8 @@ class DataCollectionRound(BaseState):
             f"OHLCV updates: {len([t for t in self.pending_tokens if t['symbol'] in self.tokens_needing_ohlcv_update])}"
         )
         self.context.logger.info(
-            f"Social updates: {len([t for t in self.pending_tokens if t['symbol'] in self.tokens_needing_social_update])}"
+            f"Social updates: "
+            f"{len([t for t in self.pending_tokens if t['symbol'] in self.tokens_needing_social_update])}"
         )
         self.context.logger.info("=" * 60)
 
@@ -881,7 +890,7 @@ class DataCollectionRound(BaseState):
             self.context.store_path.mkdir(parents=True, exist_ok=True)
 
             data_file = self.context.store_path / "collected_data.json"
-            with open(data_file, "w", encoding="utf-8") as f:
+            with open(data_file, "w", encoding=DEFAULT_ENCODING) as f:
                 json.dump(self.collected_data, f, indent=2)
             self.context.logger.info(f"Collected data stored to {data_file}")
 
@@ -927,7 +936,7 @@ class DataCollectionRound(BaseState):
 
         self.context.logger.info(
             f"Data sufficiency ({reason}): {tokens_with_technical} technical, {tokens_with_social} social, "
-            f"{tokens_with_both_data} both, {min_required} required. Sufficient: {is_sufficient}"
+            f"{tokens_with_both} both, {min_required} required. Sufficient: {is_sufficient}"
         )
 
         return is_sufficient
@@ -940,70 +949,3 @@ class DataCollectionRound(BaseState):
 
         self._store_collected_data()
         self._log_collection_summary()
-
-    def _fetch_trendmoon_social_data(self, token_info: dict[str, str]) -> dict | None:
-        """Fetch social data from TrendMoon API."""
-        symbol = token_info["symbol"]
-
-        try:
-            social_metrics = self.context.trendmoon.get_coin_trends(
-                symbol=symbol,
-                date_interval=30,
-                time_interval="1h",
-            )
-
-            if not social_metrics:
-                self.context.logger.warning(f"No social metrics found for {symbol}")
-                return None
-
-            trend_data = social_metrics.get("trend_market_data")
-
-            return {
-                "trend_data": [
-                    {
-                        "timestamp": data_point.get("date"),
-                        "social_mentions": data_point.get("social_mentions"),
-                        "social_dominance": data_point.get("social_dominance"),
-                        "lc_sentiment": data_point.get("lc_sentiment"),
-                        "lc_social_dominance": data_point.get("lc_social_dominance"),
-                    }
-                    for data_point in trend_data
-                ],
-                "metadata": {
-                    "coin_id": social_metrics.get("coin_id"),
-                    "name": social_metrics.get("name"),
-                    "symbol": social_metrics.get("symbol"),
-                    "contract_address": social_metrics.get("contract_address"),
-                    "market_cap_rank": social_metrics.get("market_cap_rank"),
-                    "data_points_count": len(trend_data),
-                    "collection_timestamp": datetime.now(UTC).isoformat(),
-                },
-            }
-
-        except Exception as e:
-            self.context.logger.warning(f"TrendMoon API error for {symbol}: {e}")
-            return None
-
-    def _get_current_price_data(self, coingecko_id: str) -> dict | None:
-        """Get current price and market data for a token."""
-        query_params = {
-            "ids": coingecko_id,
-            "vs_currencies": "usd",
-            "include_market_cap": "true",
-            "include_24hr_vol": "true",
-            "include_24hr_change": "true",
-        }
-
-        price_data = self.context.coingecko.coin_price_by_id(query_params)
-
-        if price_data:
-            return price_data[coingecko_id]
-
-        return None
-
-    def _get_historical_ohlcv_data(self, coingecko_id: str) -> list[list[Any]] | None:
-        """Get historical OHLCV data for a token."""
-        path_params = {"id": coingecko_id}
-        query_params = {"vs_currency": "usd", "days": 30}
-
-        return self.context.coingecko.get_ohlcv_data(path_params, query_params)

@@ -25,13 +25,13 @@ from datetime import UTC, datetime, timedelta
 from dataclasses import dataclass
 from collections.abc import Generator
 
+from autonomy.deploy.constants import DEFAULT_ENCODING
 from aea.protocols.dialogue.base import Dialogue as BaseDialogue
 
 from packages.eightballer.connections.dcxt import PUBLIC_ID as DCXT_PUBLIC_ID
 from packages.eightballer.protocols.tickers.message import TickersMessage
 from packages.xiuxiuxar.skills.mindshare_app.behaviours.base import (
     ALLOWED_ASSETS,
-    DEFAULT_ENCODING,
     BaseState,
     MindshareabciappEvents,
     MindshareabciappStates,
@@ -124,7 +124,7 @@ class TradeConstructionRound(BaseState):
             return []
 
         try:
-            with open(positions_file, encoding="utf-8") as f:
+            with open(positions_file, encoding=DEFAULT_ENCODING) as f:
                 data = json.load(f)
                 return [pos for pos in data.get("positions", []) if pos.get("status") == "open"]
         except (FileNotFoundError, PermissionError, OSError) as e:
@@ -223,7 +223,7 @@ class TradeConstructionRound(BaseState):
                 self.context.logger.warning("No signals file found")
                 return False
 
-            with open(signals_file, encoding="utf-8") as f:
+            with open(signals_file, encoding=DEFAULT_ENCODING) as f:
                 signals_data = json.load(f)
 
             latest_signal = signals_data.get("last_signal")
@@ -277,11 +277,6 @@ class TradeConstructionRound(BaseState):
             symbol = token_info.get("symbol")
 
             trading_pair = f"{symbol}/USDC"
-            params = []
-
-            # def encode_dict(d: dict) -> bytes:
-            #     """Encode a dictionary to a hex string."""
-            #     return json.dumps(d).encode(DEFAULT_ENCODING)
 
             min_position = self.context.params.min_position_size_usdc
             max_position = self.context.params.max_position_size_usdc
@@ -289,10 +284,6 @@ class TradeConstructionRound(BaseState):
             # Use a placeholder amount for ticker requests since we need price to calculate position size
             ticker_amount = max(estimated_position_size, 100.0)  # Use 1 USDC as standard amount for price discovery
 
-            # params.append({"symbol": trading_pair, "params": encode_dict({"amount": ticker_amount})})
-            # self.context.logger.info(f"Ticker request params: symbol={trading_pair}, amount={ticker_amount}, params={params}")
-
-            # for param in params:
             ticker_dialogue = self.submit_msg(
                 TickersMessage.Performative.GET_TICKER,
                 connection_id=str(DCXT_PUBLIC_ID),
@@ -435,8 +426,8 @@ class TradeConstructionRound(BaseState):
                 self.context.logger.warning(f"Data file does not exist for price validation: {data_file}")
                 return True  # Skip validation if data file doesn't exist
 
-            with open(data_file, encoding="utf-8") as f:
-                collected_data = json.load(f)
+        with open(data_file, encoding=DEFAULT_ENCODING) as f:
+            collected_data = json.load(f)
 
             # Get current prices from collected data
             current_prices = collected_data.get("current_prices", {})
@@ -598,7 +589,7 @@ class TradeConstructionRound(BaseState):
             self.context.logger.exception(f"Failed to construct trade parameters: {e}")
             return False
 
-    def _calculate_position_size(self, signal_strength: float) -> float:
+    def _calculate_position_size(self, _signal_strength: float) -> float:
         """Calculate position size based on signal strength and risk parameters."""
         try:
             # Get available trading capital from portfolio validation
@@ -820,7 +811,7 @@ class TradeConstructionRound(BaseState):
                 # Load existing pending trades
                 pending_trades = {"trades": []}
                 if trades_file.exists():
-                    with open(trades_file, encoding="utf-8") as f:
+                    with open(trades_file, encoding=DEFAULT_ENCODING) as f:
                         pending_trades = json.load(f)
 
                 # Add new trade
@@ -828,7 +819,7 @@ class TradeConstructionRound(BaseState):
                 pending_trades["last_updated"] = datetime.now(UTC).isoformat()
 
                 # Save updated trades
-                with open(trades_file, "w", encoding="utf-8") as f:
+                with open(trades_file, "w", encoding=DEFAULT_ENCODING) as f:
                     json.dump(pending_trades, f, indent=2)
 
                 self.context.logger.info(f"Stored constructed trade: {self.constructed_trade['trade_id']}")
