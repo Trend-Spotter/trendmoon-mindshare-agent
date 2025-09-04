@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, cast
 
 from aea.skills.base import Handler
 from aea.protocols.base import Message
+from autonomy.deploy.constants import DEFAULT_ENCODING
 from aea.configurations.data_types import PublicId
 
 from packages.open_aea.protocols.signing import SigningMessage
@@ -81,6 +82,8 @@ class HttpHandler(Handler):
         # handle message
         if http_msg.performative == HttpMessage.Performative.REQUEST:
             self._handle_request(http_msg, http_dialogue)
+        elif http_msg.performative == HttpMessage.Performative.RESPONSE:
+            self._handle_response(http_msg, http_dialogue)
         else:
             self._handle_invalid(http_msg, http_dialogue)
 
@@ -94,10 +97,11 @@ class HttpHandler(Handler):
 
         # Build complete health check response
         data = {
+            "is_healthy": fsm_status["is_transitioning_fast"],
             "seconds_since_last_transition": fsm_status["seconds_since_last_transition"],
             "is_tm_healthy": True,
             "period": fsm_status["period_count"],
-            "reset_pause_duration": health_service.reset_pause_duration,
+            "reset_pause_duration": self.context.params.reset_pause_duration,
             "rounds": fsm_status["rounds"],
             "is_transitioning_fast": fsm_status["is_transitioning_fast"],
             "agent_health": health_service.get_agent_health(),
@@ -124,7 +128,7 @@ class HttpHandler(Handler):
             status_code=200,
             status_text="Success",
             headers=headers,
-            body=json.dumps(data, indent=2).encode("utf-8"),
+            body=json.dumps(data, indent=2).encode(DEFAULT_ENCODING),
         )
         self.context.logger.info(f"responding with healthcheck: {http_response}")
         self.context.outbox.put_message(message=http_response)
@@ -174,7 +178,7 @@ class HttpHandler(Handler):
             status_code=200,
             status_text="Success",
             headers=headers,
-            body=json.dumps(self.context.shared_state).encode("utf-8"),
+            body=json.dumps(self.context.shared_state).encode(DEFAULT_ENCODING),
         )
         self.context.logger.info(f"responding with: {http_response}")
         self.context.outbox.put_message(message=http_response)
@@ -192,6 +196,51 @@ class HttpHandler(Handler):
         )
         self.context.logger.info(f"responding with: {http_response}")
         self.context.outbox.put_message(message=http_response)
+
+    def _handle_response(self, http_msg: HttpMessage, http_dialogue: HttpDialogue) -> None:
+        """Handle HTTP response messages by routing them to the FSM behavior."""
+        # HTTP responses (API responses from CoinGecko/TrendMoon) should be handled by the FSM behavior
+        # rather than this handler which is designed for incoming HTTP requests (healthcheck)
+
+        if http_msg.status_code == 429:
+            self._handle_rate_limit_response(http_msg, http_dialogue)
+            return
+
+        self.context.logger.debug(f"Routing HTTP response to behavior system: {http_msg.performative}")
+
+        # Get the main FSM behavior
+        if hasattr(self.context, "behaviours") and hasattr(self.context.behaviours, "main"):
+            main_behavior = self.context.behaviours.main
+            if hasattr(main_behavior, "handle_message"):
+                main_behavior.handle_message(http_msg)
+            else:
+                self.context.logger.warning("Main behavior does not have handle_message method")
+        else:
+            self.context.logger.warning("Cannot route HTTP response - main behavior not found")
+
+    def _handle_rate_limit_response(self, http_msg: HttpMessage, http_dialogue: HttpDialogue) -> None:
+        """Handle rate limit responses from APIs."""
+        # Determine which API was rate limited based on the request URL
+        self.context.logger.info(f"Handling rate limit response: {http_msg}")
+
+        request_message = http_dialogue.get_message_by_id(http_msg.target)
+        if request_message is None:
+            self.context.logger.warning("Cannot find request message for rate limit response")
+            return
+
+        request_url = request_message.url if hasattr(request_message, "url") else ""
+
+        if "coingecko.com" in request_url:
+            self.context.logger.warning("CoinGecko API rate limit detected")
+            if hasattr(self.context, "coingecko"):
+                self.context.coingecko.handle_rate_limit_response()
+        elif "trendmoon.ai" in request_url:
+            self.context.logger.warning("TrendMoon API rate limit detected")
+            if hasattr(self.context, "trendmoon"):
+                self.context.trendmoon.handle_rate_limit_response()
+
+        # Send rate limit response to the skill
+        self.context.logger.error(f"Rate limited by API: {request_url}")
 
     def _handle_invalid(self, http_msg: HttpMessage, http_dialogue: HttpDialogue) -> None:
         """Handle an invalid http message."""
@@ -356,6 +405,7 @@ class OrdersHandler(Handler):
     allowed_response_performatives = frozenset(
         {
             OrdersMessage.Performative.ORDER,
+            OrdersMessage.Performative.ORDERS,
             OrdersMessage.Performative.ORDER_CREATED,
             OrdersMessage.Performative.ERROR,
         }

@@ -1,17 +1,14 @@
 """Integration tests for technical indicators calculation."""
 
-import os
 from pathlib import Path
 
 import pytest
-from dotenv import load_dotenv
 from aea.test_tools.test_skill import BaseSkillTestCase
 
-from packages.xiuxiuxar.skills.mindshare_app.behaviours import DataCollectionRound
+from packages.xiuxiuxar.skills.mindshare_app.behaviours.data_collection import DataCollectionRound
 
 
-load_dotenv()
-MOVING_AVERAGE_LENGTH = int(os.environ.get("SKILL_MINDSHARE_APP_MOVING_AVERAGE_LENGTH"))
+MOVING_AVERAGE_LENGTH = 20
 
 
 @pytest.mark.integration
