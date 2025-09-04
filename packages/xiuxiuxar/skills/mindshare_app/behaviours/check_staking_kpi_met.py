@@ -332,34 +332,77 @@ class CheckStakingKPIRound(BaseState):
             self.staking_kpi_check_complete = True
 
     def _load_kpi_state(self) -> dict[str, Any]:
-        """Load KPI state from persistent storage."""
+        """Load KPI state from state.json."""
         if not self.context.store_path:
             return {}
 
-        kpi_state_file = self.context.store_path / "kpi_state.json"
-        if not kpi_state_file.exists():
+        state_file = self.context.store_path / "state.json"
+        if not state_file.exists():
             return {}
 
         try:
-            with open(kpi_state_file, encoding=DEFAULT_ENCODING) as f:
-                return json.load(f)
+            with open(state_file, encoding=DEFAULT_ENCODING) as f:
+                state_data = json.load(f)
+                # Extract relevant KPI fields
+                return {
+                    "period_count": state_data.get("period_count", 0),
+                    "period_number_at_last_cp": state_data.get("period_number_at_last_cp", 0),
+                    "last_checkpoint_nonce": state_data.get("last_checkpoint_nonce", 0),
+                    "current_nonce": state_data.get("current_nonce", 0),
+                    "last_evaluation": state_data.get("last_evaluation"),
+                    "is_staking_kpi_met": state_data.get("is_staking_kpi_met", False),
+                    "vanity_tx_prepared": state_data.get("vanity_tx_prepared", False),
+                    "vanity_tx_hash": state_data.get("vanity_tx_hash"),
+                    "vanity_tx_timestamp": state_data.get("vanity_tx_timestamp"),
+                    "vanity_tx_broadcast": state_data.get("vanity_tx_broadcast", False),
+                    "vanity_tx_final_hash": state_data.get("vanity_tx_final_hash"),
+                    "vanity_tx_broadcast_timestamp": state_data.get("vanity_tx_broadcast_timestamp"),
+                }
         except (FileNotFoundError, PermissionError, OSError, json.JSONDecodeError) as e:
             self.context.logger.warning(f"Failed to load KPI state: {e}")
             return {}
 
-    def _save_kpi_state(self, kpi_state: dict[str, Any]) -> None:
-        """Save KPI state to persistent storage."""
+    def _save_kpi_state(self, kmp_data: dict[str, Any]) -> None:
+        """Save KPI state to state.json."""
         if not self.context.store_path:
             self.context.logger.warning("No store path available, cannot save KPI state")
             return
 
-        kpi_state_file = self.context.store_path / "kpi_state.json"
+        state_file = self.context.store_path / "state.json"
         try:
-            with open(kpi_state_file, "w", encoding=DEFAULT_ENCODING) as f:
-                json.dump(kpi_state, f, indent=2)
-            self.context.logger.debug(f"Saved KPI state: {kpi_state}")
-        except (PermissionError, OSError) as e:
-            self.context.logger.warning(f"Failed to save KPI state: {e}")
+            # Load existing state
+            state_data = {}
+            if state_file.exists():
+                with open(state_file, encoding=DEFAULT_ENCODING) as f:
+                    state_data = json.load(f)
+
+            # Update KPI data in state
+            kpi_state = {
+                "is_staking_kpi_met": kmp_data.get("is_staking_kpi_met", False),
+                "has_required_funds": self._check_agent_balance_threshold(),
+                "period_count": kmp_data.get("period_count", 0),
+                "period_number_at_last_cp": kmp_data.get("period_number_at_last_cp", 0),
+                "last_checkpoint_nonce": kmp_data.get("last_checkpoint_nonce", 0),
+                "current_nonce": kmp_data.get("current_nonce", 0),
+                "last_evaluation": kmp_data.get("last_evaluation"),
+                "vanity_tx_prepared": kmp_data.get("vanity_tx_prepared", False),
+                "vanity_tx_hash": kmp_data.get("vanity_tx_hash"),
+                "vanity_tx_timestamp": kmp_data.get("vanity_tx_timestamp"),
+                "vanity_tx_broadcast": kmp_data.get("vanity_tx_broadcast", False),
+                "vanity_tx_final_hash": kmp_data.get("vanity_tx_final_hash"),
+                "vanity_tx_broadcast_timestamp": kmp_data.get("vanity_tx_broadcast_timestamp"),
+            }
+
+            state_data.update(kpi_state)
+
+            # Save updated state
+            with open(state_file, "w", encoding=DEFAULT_ENCODING) as f:
+                json.dump(state_data, f, indent=2)
+
+            self.context.logger.debug(f"Saved KPI state to state.json: {kpi_state}")
+
+        except (PermissionError, OSError, json.JSONDecodeError) as e:
+            self.context.logger.warning(f"Failed to save KPI state to state.json: {e}")
 
     def _should_prepare_vanity_tx(self) -> bool:
         """Determine if we should prepare a vanity transaction."""
@@ -373,9 +416,7 @@ class CheckStakingKPIRound(BaseState):
         period_count = kpi_state.get("period_count", 0)
         period_number_at_last_cp = kpi_state.get("period_number_at_last_cp", 0)
 
-        is_period_threshold_exceeded = period_count - period_number_at_last_cp >= staking_threshold_period
-
-        return is_period_threshold_exceeded
+        return period_count - period_number_at_last_cp >= staking_threshold_period
 
     def _prepare_vanity_tx_async(self) -> None:
         """Prepare vanity transaction asynchronously."""

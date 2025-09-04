@@ -97,6 +97,7 @@ class HttpHandler(Handler):
 
         # Build complete health check response
         data = {
+            "is_healthy": fsm_status["is_transitioning_fast"],
             "seconds_since_last_transition": fsm_status["seconds_since_last_transition"],
             "is_tm_healthy": True,
             "period": fsm_status["period_count"],

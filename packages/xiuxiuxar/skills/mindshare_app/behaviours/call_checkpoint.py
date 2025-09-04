@@ -21,9 +21,11 @@
 import json
 from enum import Enum
 from typing import Any
+from pathlib import Path
 from datetime import UTC, datetime
 
 from aea.protocols.base import Message
+from autonomy.deploy.constants import DEFAULT_ENCODING
 
 from packages.valory.protocols.ledger_api import LedgerApiMessage
 from packages.valory.protocols.contract_api import ContractApiMessage
@@ -651,9 +653,49 @@ class CallCheckpointRound(BaseState):
         # Broadcast responses are handled directly by the validation function
         pass
 
+    def _save_staking_state_to_state_json(self) -> None:
+        """Save staking state information to state.json."""
+        if not self.context.store_path:
+            self.context.logger.warning("No store path available, cannot save staking state")
+            return
+
+        state_file = Path(self.context.store_path) / "state.json"
+        try:
+            # Load existing state
+            state_data = {}
+            if state_file.exists():
+                with open(state_file, encoding=DEFAULT_ENCODING) as f:
+                    state_data = json.load(f)
+
+            # Update staking information
+            staking_data = {
+                "staking_status": self.service_staking_state.name if self.service_staking_state else "UNSTAKED",
+                "next_checkpoint_ts": self.next_checkpoint_ts,
+                "is_checkpoint_reached": self.is_checkpoint_reached,
+                "checkpoint_tx_executed": self.checkpoint_tx_executed,
+                "checkpoint_tx_final_hash": self.checkpoint_tx_final_hash,
+                "last_checkpoint_check": datetime.now(UTC).isoformat(),
+                "has_required_funds": True,  # TODO: add check for required funds
+                "is_making_on_chain_transactions": bool(self.checkpoint_tx_executed and self.checkpoint_tx_final_hash),
+            }
+
+            state_data.update(staking_data)
+
+            # Save updated state
+            with open(state_file, "w", encoding=DEFAULT_ENCODING) as f:
+                json.dump(state_data, f, indent=2)
+
+            self.context.logger.debug(f"Saved staking state to state.json: {staking_data}")
+
+        except (PermissionError, OSError, json.JSONDecodeError) as e:
+            self.context.logger.warning(f"Failed to save staking state to state.json: {e}")
+
     def _finalize_checkpoint_check(self) -> None:
         """Finalize checkpoint check and determine transition."""
         self.context.logger.info("Finalizing checkpoint check...")
+
+        # Save staking state to state.json
+        self._save_staking_state_to_state_json()
 
         if self.service_staking_state == StakingState.UNSTAKED:
             self.context.logger.info("Service is not staked")

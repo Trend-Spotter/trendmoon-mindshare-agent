@@ -18,12 +18,15 @@
 
 """This module contains the model for the Mindshare app."""
 
+import json
 import time
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 from datetime import UTC, datetime
 
 import requests
 from aea.skills.base import Model
+from autonomy.deploy.constants import DEFAULT_ENCODING
 
 from packages.eightballer.protocols.http.message import HttpMessage
 from packages.eightballer.connections.http_client.connection import PUBLIC_ID as HTTP_CLIENT_PUBLIC_ID
@@ -738,13 +741,38 @@ class HealthCheckService(Model):
         return rounds_info
 
     def get_agent_health(self) -> dict[str, Any]:
-        """Get agent health information."""
-        return {
+        """Get agent health information from state.json."""
+        default_health = {
             "is_making_on_chain_transactions": False,
-            "is_staking_kpi_met": True,
+            "is_staking_kpi_met": False,
             "has_required_funds": True,
-            "staking_status": "active",
+            "staking_status": "UNSTAKED",
         }
+
+        try:
+            # Check if store_path is available
+            if not hasattr(self.context.params, "store_path") or not self.context.params.store_path:
+                self.context.logger.warning("No store path available, returning default health status")
+                return default_health
+
+            state_file = Path(self.context.params.store_path) / "state.json"
+            if not state_file.exists():
+                self.context.logger.info("State file doesn't exist yet, returning default health status")
+                return default_health
+
+            with open(state_file, encoding=DEFAULT_ENCODING) as f:
+                state_data = json.load(f)
+
+            return {
+                "is_making_on_chain_transactions": state_data.get("is_making_on_chain_transactions", False),
+                "is_staking_kpi_met": state_data.get("is_staking_kpi_met", False),
+                "has_required_funds": state_data.get("has_required_funds", True),
+                "staking_status": state_data.get("staking_status", "UNSTAKED"),
+            }
+
+        except (FileNotFoundError, PermissionError, OSError, json.JSONDecodeError) as e:
+            self.context.logger.warning(f"Failed to load agent health from state.json: {e}")
+            return default_health
 
     def get_env_var_status(self) -> dict[str, Any]:
         """Get environment variable status."""
