@@ -26,7 +26,7 @@ open-autonomy = "==0.19.11"
 autonomy-dev = {extras = ["all"], version = "^0.2.157"}
 click = "==8.1.8"
 eth-account = "^0.13.5"
-cowdao-cowpy = "1.0.0rc5"
+cowdao-cowpy = "1.0.1"
 open-balpy = {path = "third_party/forks/balpy"}
 protobuf = ">=4.21.6,<4.25.0"
 pydantic = "^2.11.3"
