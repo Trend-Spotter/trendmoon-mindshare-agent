@@ -32,7 +32,7 @@ protocols:
 - valory/ledger_api:1.0.0:bafybeihmqzcbj6t7vxz2aehd5726ofnzsfjs5cwlf42ro4tn6i34cbfrc4
 skills:
 - eightballer/prometheus:0.1.0:bafybeid4ssotxk7ajsesyzh5p7vpbclsviwj2tqxo46qgkoel2h5fzepze
-- xiuxiuxar/mindshare_app:0.1.0:bafybeieanb76lpqj5eufvuhdaxhrf7s4kpeqvd6ilirft3rt7jqyaexjwq
+- xiuxiuxar/mindshare_app:0.1.0:bafybeig4pxo4gqruy2motky6u725w2gq2ftqhjlscrotpposuwou55v76m
 customs: []
 default_ledger: ethereum
 required_ledgers:
@@ -66,8 +66,8 @@ logging_config:
 dependencies:
   pandas:
     version: ==2.3.1
-  pandas-ta:
-    version: ==0.3.14b0
+  pandas-ta-classic:
+    version: ==0.3.14b2
   open-aea-ledger-cosmos: {}
   open-aea-ledger-ethereum: {}
   rich: {}

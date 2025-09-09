@@ -163,7 +163,7 @@ models:
 dependencies:
   pandas:
     version: '>=2.3.1'
-  pandas-ta:
-    version: '>=0.3.14b0'
+  pandas-ta-classic:
+    version: '>=0.3.14b2'
 is_abstract: false
 customs: []
