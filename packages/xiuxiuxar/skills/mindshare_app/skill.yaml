@@ -9,22 +9,37 @@ aea_version: '>=1.0.0, <2.0.0'
 fingerprint:
   README.md: bafybeiesl5jlvvu4enydib32bpyfqphlkdulxy3oqid3t32cjxya5qykci
   __init__.py: bafybeifhcjbfwkkjfaq57azgh24ufuo4pvjm4vguozhbg3qsrn4tw5ukge
-  behaviours.py: bafybeiher42ujn44fueb3mesva25djxp4yqg7qest7kcdtte6tttsfxegq
+  behaviours/__init__.py: bafybeih2dnrparrlxp2i4km2sozarcl7zzlzqoezmogasfcug52bq7tvpm
+  behaviours/analysis.py: bafybeifxfovshef6wl25oucoli2i3c54cnozhcsqt4d3x5lzb5jvu47p6q
+  behaviours/base.py: bafybeiafrdv4w7dez7kqm63rt2keopomrj4c3euybmxrh7l6uj7n6nfetm
+  behaviours/call_checkpoint.py: bafybeiajlzqi4le3gbzadabbr6mzff5mcoaz6445a52einetvlehn6gakm
+  behaviours/check_staking_kpi_met.py: bafybeif3iikp7hvjvirgtm33kbiusuyx7x7uawtsh4qc4bu7bjkehiwq7m
+  behaviours/data_collection.py: bafybeigrlvoyefgwd6ele77vqwajakbbdblxucarpyci4pwsnccgfqg5qy
+  behaviours/error.py: bafybeibg3oabttq34n3ltv7hv7wwfbcxdazzlr5zup2w4rcht2qm5n6d44
+  behaviours/execution.py: bafybeict7oc2aguwq4bp2ir34uwlihhjteyvjuvnle5x6ujoaledjeqpgm
+  behaviours/pause.py: bafybeifzn3vqxbjj6lqiwmcclejoukr3oyhdevdkalqymtwfkdni3aoke4
+  behaviours/portfolio_validation.py: bafybeigr5q472z6ddv4keoek3xept3777y2ghkiv7hzxrm3tuunuehulty
+  behaviours/position_monitor.py: bafybeieptxlmk4ffgliaryh2ebqszshafturnq3oi5677z5kp5jh6jcwxy
+  behaviours/risk_evaluation.py: bafybeigxaezxhlrb3jx37pa35djvsu5lrkrmu6lh34uef3577z2fe4su2m
+  behaviours/round_behaviour.py: bafybeibeqsu6a5okv24qy6kjlwpz2h4yh54gte5rbmdar76ocgydzeapya
+  behaviours/setup.py: bafybeiejamrqsfrjpfc2knjxocorfla6bb5lneez55jvk5j45msutzdpla
+  behaviours/signal_aggregation.py: bafybeidlukwyfptwig55c6yrh6wlfydeyw46uz45rxlugcgg3gupuvgyje
+  behaviours/trade_construction.py: bafybeihhqdfcxnqdd4enxn3rxbyvv36cpsl43pcpkhwbbspdek2an3ttdq
   dialogues.py: bafybeiexxmjsjczvf2bxad7qbecllm3srjhlqkejigerkbldtdtzzuyuke
-  handlers.py: bafybeigttlsxa5rkevzxdtf5w6ox7ywem5ev3br7ur6h3etiqgvs2og7vq
-  models.py: bafybeigrytdwuu4cge3p3aixklzl6nquasy5wlgjl2axpalgu2tiis2wee
+  handlers.py: bafybeia42myerpm5nf3dkyvgblwtc5zgxs622utgtjtb6tat2wkycvqkoa
+  models.py: bafybeihnisubm3c72q3gym2g5g4o6ayxhsfy6sygmdnusco2jyaud5xpqq
   tests/__init__.py: bafybeigb2ji4vkcap3hokcedggjwsrah7te2nxjhkorwf3ibwgyaa2glma
   tests/test_coingecko_model.py: bafybeicjnqiclfi6r7sbsyjgwlzj3ugmeukii5fp23esdtsanof3lvyn6i
   tests/test_coingecko_model_integration.py: bafybeid6mzsia3wocixdedmr6tcbb2v34oq2fkjqyz2cab4mysjvqbydfi
   tests/test_metrics.py: bafybeickohfwbhq46m4c5deutqkqkeztygfyu7gpxkgme5rfa5iwujbr7i
   tests/test_metrics_dialogues.py: bafybeicaqx7bykvl3dqkvcpdpft4l5g6huxyhrljwrn2zykxavk4thqdi4
-  tests/test_technical_indicators.py: bafybeihydbmtlhz6ehvsmhfgdbizbbbu5ghhebbnwq27t56wsp4sbznpdq
-  tests/test_technical_indicators_integration.py: bafybeicxalo2jlfihsvgaygubrvw3xb2qanocaqdkbikrmlyywyqlzpyoe
+  tests/test_technical_indicators.py: bafybeicpwuyvlkdenul6x65a553icdxur4t6mnhwssjr77rbl7ppdslz4u
+  tests/test_technical_indicators_integration.py: bafybeiecoc2ubmzuva6nnow7vxkdeguixzlm2hctkr44unfpitlppw75ku
 fingerprint_ignore_patterns: []
 connections:
-- eightballer/dcxt:0.1.0:bafybeig5j6wm76brp7klcfnnd3op3i5aa7wkvqzulihy4c4fftrl6pdkda
+- eightballer/dcxt:0.1.0:bafybeifdxvim27zd77csuh5ejaxsjhzuwm5bpwaeirppnd5cidxquewgbm
 - valory/ledger:0.19.0:bafybeibdsjmy4w2eyilbqc7yzutopl65qpeyspxwz7mjvirr52twhjlf5y
-- eightballer/http_client:0.1.0:bafybeid75xhq7hfdt7sgj7yrn44yj57xrgxscaw34ir46tndfzvodioxme
+- eightballer/http_client:0.1.0:bafybeiaz5auftwxpt4czrmeeesggqlkc2kosmetq6adrebeu6g7bkhqc2u
 contracts:
 - eightballer/erc_20:0.1.0:bafybeiegd5pdj34s4cuhiaxermjdtyhnapu5usy545vcf6mi5grfazlnpa
 - valory/erc20:0.1.0:bafybeiczphtgmlot3tbsqwfstagnuffw6rlzlxpodnvafodwq573q555ye
@@ -33,10 +48,10 @@ contracts:
 - valory/staking_token:0.1.0:bafybeiclu2xkt6yzgm2d336wcjid7zrgdnvjnxinksxxw5yvfwvwiqd6ii
 protocols:
 - valory/contract_api:1.0.0:bafybeid247uig2ekykdumh7ewhp2cdq7rchaeqjj6e7urx35zfpdl5zrn4
-- eightballer/default:0.1.0:bafybeickzbjjhatxl2a5gq3qr2taczznuw7co7w7et33gtb3hagx2wlesy
+- eightballer/default:0.1.0:bafybeihx7izpxqpj42jxbi7s2q6bijtv2vcb7kz2r5bwtfxt7ixlh77s7u
 - eightballer/http:0.1.0:bafybeid75xhq7hfdt7sgj7yrn44yj57xrgxscaw34ir46tndfzvodioxme
-- eightballer/tickers:0.1.0:bafybeidyw4zdmurzeuvrdsdgv2na4wafcozefj6faosrssubolylcq3r6q
-- eightballer/orders:0.1.0:bafybeiekzeqhuos56tbvex45dd4ciqbi363dcnxv7ks54f3wrq7gqefvtu
+- eightballer/tickers:0.1.0:bafybeicpoaxh4mbzk3rn7rjzvlhrfkzo4st3otzpcs35cixeg3fdvn5dsq
+- eightballer/orders:0.1.0:bafybeicwsxnxvy5cclbwzp6kj6hm2g655j47wdvhe6co3oge7lorwlt364
 - valory/ledger_api:1.0.0:bafybeihmqzcbj6t7vxz2aehd5726ofnzsfjs5cwlf42ro4tn6i34cbfrc4
 - open_aea/signing:1.0.0:bafybeig2d36zxy65vd7fwhs7scotuktydcarm74aprmrb5nioiymr3yixm
 skills: []
@@ -110,20 +125,20 @@ models:
       staking_chain: base
       staking_threshold_period: 1
       min_num_of_safe_tx_required: 5
-      staking_token_contract_address: "0xEB5638eefE289691EcE01943f768EDBF96258a80"
+      staking_token_contract_address: '0xEB5638eefE289691EcE01943f768EDBF96258a80'
       on_chain_service_id: null
       service_id: mindshare
       cowswap_slippage_tolerance: 0.005
       cowswap_timeout_seconds: 300
       data_sufficiency_threshold: 0.5
       max_exposure_per_position: 20.0
-      max_position_size_usdc: 10000.00
+      max_position_size_usdc: 10000.0
       max_positions: 7
       max_slippage_bps: 150
       max_total_exposure: 80.0
       min_capital_buffer: 500.0
       min_position_size_usd: 100.0
-      min_position_size_usdc: 100.00
+      min_position_size_usdc: 100.0
       price_collection_timeout: 15
       reset_pause_duration: 300
       safe_contract_addresses: '{"ethereum":"0x0000000000000000000000000000000000000000","arbitrum":"0x0000000000000000000000000000000000000000","base":"0x0000000000000000000000000000000000000000","optimism":"0x0000000000000000000000000000000000000000","mode":"0x0000000000000000000000000000000000000000"}'

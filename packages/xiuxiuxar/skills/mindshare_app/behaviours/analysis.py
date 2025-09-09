@@ -25,7 +25,7 @@ from pathlib import Path
 from datetime import UTC, datetime
 
 import pandas as pd
-import pandas_ta as ta
+import pandas_ta_classic as ta
 from autonomy.deploy.constants import DEFAULT_ENCODING
 
 from packages.xiuxiuxar.skills.mindshare_app.behaviours.base import (
