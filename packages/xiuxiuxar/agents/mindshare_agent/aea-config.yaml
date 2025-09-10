@@ -6,32 +6,33 @@ description: ''
 aea_version: '>=1.55.0, <2.0.0'
 fingerprint:
   tests/__init__.py: bafybeibk76alseqt3ufreyev7rnz5zuk6dcftt7c2ob54gmhpt6xrhkg2y
-  tests/test_agent.py: bafybeigncb7n2uft2b57ps4jb6jrtntlsbq5rnxv2enm34zniou2i2qbrq
+  tests/test_agent.py: bafybeigz2b62yc6haiqcjwssmkb4blb6d64t4i7u53g56cacq4w3b3x5mq
 fingerprint_ignore_patterns: []
 connections:
 - eightballer/http_client:0.1.0:bafybeiaz5auftwxpt4czrmeeesggqlkc2kosmetq6adrebeu6g7bkhqc2u
 - eightballer/http_server:0.1.0:bafybeidrvllrr23mc6bvjxn6v3hny6oiwhfgi72n2b7w6ck5luousjfbbq
-- eightballer/prometheus:0.1.1:bafybeicy4ck2wvauo2vh6ji64xrzlgezh27powi6ztokr4yujtf3cft6wi
+- eightballer/prometheus:0.1.1:bafybeigw2unvrvt5mv3i4nay564s3p3wpiym2ftmc5qkwmxh53edncmcdq
 - valory/ledger:0.19.0:bafybeibdsjmy4w2eyilbqc7yzutopl65qpeyspxwz7mjvirr52twhjlf5y
-- eightballer/dcxt:0.1.0:bafybeig5j6wm76brp7klcfnnd3op3i5aa7wkvqzulihy4c4fftrl6pdkda
+- eightballer/dcxt:0.1.0:bafybeifdxvim27zd77csuh5ejaxsjhzuwm5bpwaeirppnd5cidxquewgbm
 contracts:
 - eightballer/erc_20:0.1.0:bafybeiegd5pdj34s4cuhiaxermjdtyhnapu5usy545vcf6mi5grfazlnpa
 - valory/erc20:0.1.0:bafybeiczphtgmlot3tbsqwfstagnuffw6rlzlxpodnvafodwq573q555ye
 - valory/multisend:0.1.0:bafybeig5byt5urg2d2bsecufxe5ql7f4mezg3mekfleeh32nmuusx66p4y
 - xiuxiuxar/gnosis_safe:0.1.0:bafybeidg4eqnaoinikb44n3erkxet2tuiurtaqdiis5iqal3ey2odf3ieu
 - valory/gnosis_safe_proxy_factory:0.1.0:bafybeiegj5zx4wrahc6gpunxvxgjkzdg4nvdojbqkk5xggv2mt56oecpoa
+- valory/staking_token:0.1.0:bafybeiclu2xkt6yzgm2d336wcjid7zrgdnvjnxinksxxw5yvfwvwiqd6ii
 protocols:
 - valory/contract_api:1.0.0:bafybeid247uig2ekykdumh7ewhp2cdq7rchaeqjj6e7urx35zfpdl5zrn4
-- eightballer/default:0.1.0:bafybeickzbjjhatxl2a5gq3qr2taczznuw7co7w7et33gtb3hagx2wlesy
+- eightballer/default:0.1.0:bafybeihx7izpxqpj42jxbi7s2q6bijtv2vcb7kz2r5bwtfxt7ixlh77s7u
 - eightballer/http:0.1.0:bafybeid75xhq7hfdt7sgj7yrn44yj57xrgxscaw34ir46tndfzvodioxme
 - eightballer/prometheus:1.0.0:bafybeidxo32tu43ru3xlk3kd5b6xlwf6vaytxvvhtjbh7ag52kexos4ke4
 - open_aea/signing:1.0.0:bafybeig2d36zxy65vd7fwhs7scotuktydcarm74aprmrb5nioiymr3yixm
-- eightballer/tickers:0.1.0:bafybeidyw4zdmurzeuvrdsdgv2na4wafcozefj6faosrssubolylcq3r6q
-- eightballer/orders:0.1.0:bafybeiekzeqhuos56tbvex45dd4ciqbi363dcnxv7ks54f3wrq7gqefvtu
+- eightballer/tickers:0.1.0:bafybeicpoaxh4mbzk3rn7rjzvlhrfkzo4st3otzpcs35cixeg3fdvn5dsq
+- eightballer/orders:0.1.0:bafybeicwsxnxvy5cclbwzp6kj6hm2g655j47wdvhe6co3oge7lorwlt364
 - valory/ledger_api:1.0.0:bafybeihmqzcbj6t7vxz2aehd5726ofnzsfjs5cwlf42ro4tn6i34cbfrc4
 skills:
-- eightballer/prometheus:0.1.0:bafybeicl5i7e467aowfarke4bbyixo2dggar276njmvyuwbsby5pxshhtu
-- xiuxiuxar/mindshare_app:0.1.0:bafybeibrqekf2ujnygtkf6qh34imq4qvsmbamom2chrlotoeu32kq5zqbu
+- eightballer/prometheus:0.1.0:bafybeid4ssotxk7ajsesyzh5p7vpbclsviwj2tqxo46qgkoel2h5fzepze
+- xiuxiuxar/mindshare_app:0.1.0:bafybeih2qcfzpxfwehepdioqct3pecl42p4ie4hgu2telyuzhhqrv7ctvq
 customs: []
 default_ledger: ethereum
 required_ledgers:
@@ -63,8 +64,12 @@ logging_config:
       propagate: false
   version: 1
 dependencies:
-  open-aea-ledger-ethereum: {}
+  pandas:
+    version: ==2.3.1
+  pandas-ta-classic:
+    version: ==0.3.14b2
   open-aea-ledger-cosmos: {}
+  open-aea-ledger-ethereum: {}
   rich: {}
 default_connection: null
 ---
@@ -81,16 +86,41 @@ models:
   params:
     args:
       coingecko_api_key: ${str:test_key}
-      data_sufficiency_threshold: ${float:0.5}
+      trendmoon_api_key: ${str:test_key}
+      coingecko_rate_limit_per_minute: ${int:25}
+      coingecko_monthly_credits: ${int:10000}
+      trendmoon_rate_limit_per_minute: ${int:25}
+      trendmoon_rate_limit_per_second: ${int:5}
+      trendmoon_monthly_credits: ${int:10000}
+      staking_chain: ${str:base}
+      staking_threshold_period: ${int:2}
+      min_num_of_safe_tx_required: ${int:1}
+      staking_token_contract_address: ${str:0xEB5638eefE289691EcE01943f768EDBF96258a80}
+      on_chain_service_id: ${int:41}
+      service_id: ${str:mindshare}
+      data_sufficiency_threshold: ${float:0.8}
       max_exposure_per_position: ${float:20.0}
-      max_positions: ${int:5}
+      max_positions: ${int:7}
       max_total_exposure: ${float:80.0}
       min_capital_buffer: ${float:500.0}
       min_position_size_usd: ${float:100.0}
-      reset_pause_duration: ${int:10}
+      reset_pause_duration: ${int:300}
       safe_contract_addresses: ${str:{"ethereum":"0x0000000000000000000000000000000000000000","base":"0x0000000000000000000000000000000000000000"}}
       store_path: ${str:./persistent_data}
+      stop_loss_pct: ${float:0.84}
       trading_strategy: ${str:balanced}
+      trailing_stop_loss_activation_level: ${float:1.25}
+      trailing_stop_loss_pct: ${float:0.97}
+      moving_average_length: ${int:20}
+      rsi_period_length: ${int:14}
+      rsi_lower_limit: ${int:39}
+      rsi_upper_limit: ${int:66}
+      rsi_overbought_limit: ${int:79}
+      macd_fast_period: ${int:12}
+      macd_slow_period: ${int:26}
+      macd_signal_period: ${int:9}
+      adx_period_length: ${int:14}
+      adx_threshold: ${int:41}
 ---
 public_id: valory/ledger:0.19.0
 type: connection
@@ -139,3 +169,15 @@ config:
     ledger_id: base
     etherscan_api_key: ${str:test_key}
     rpc_url: ${str:https://base.drpc.org}
+  - name: cowswap
+    key_path: ethereum_private_key.txt
+    wallet: null
+    ledger_id: base
+    etherscan_api_key: ${str:test_key}
+    rpc_url: ${str:https://base.drpc.org}
+---
+public_id: eightballer/http_client:0.1.0
+type: connection
+config:
+  host: ${str:api.coingecko.com}
+  port: ${int:443}

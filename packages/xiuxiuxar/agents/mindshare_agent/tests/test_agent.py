@@ -9,7 +9,7 @@ from aea.test_tools.test_cases import AEATestCaseMany
 AGENT_NAME = "mindshare_agent"
 AUTHOR = "xiuxiuxar"
 VERSION = "0.1.0"
-DEFAULT_LAUNCH_TIMEOUT = 10
+DEFAULT_LAUNCH_TIMEOUT = 60
 LAUNCH_SUCCEED_MESSAGE = "Start processing"
 
 

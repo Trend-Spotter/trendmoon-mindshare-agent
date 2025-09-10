@@ -9,7 +9,7 @@ fingerprint:
   tests/__init__.py: bafybeiausykbndof27hjfgwqg6nnmk7zw7lyytwzekih3gszwdypbtxjka
   tests/test_service.py: bafybeicplirjoql5q3l5zjl5xrgamnoxuj3year7u2vrtfnzzllzeyutuy
 fingerprint_ignore_patterns: []
-agent: xiuxiuxar/mindshare_agent:0.1.0:bafybeicn2t6aax2hmrne5qhgehnyyz467ux4dlb53qvall2sk4zyugkrmu
+agent: xiuxiuxar/mindshare_agent:0.1.0:bafybeidvtoxzxwpx42n6n6ncx46ykwuqitlc27zhdfbgbp4x4p4vu7lw2e
 number_of_agents: 1
 deployment:
   agent:
@@ -30,5 +30,6 @@ models:
     args:
       store_path: ${SKILL_MINDSHARE_APP_MAIN_ARGS_STORE_PATH:str:./persistent_data}
       safe_contract_addresses: ${str:{"ethereum":"0x0000000000000000000000000000000000000000","base":"0x0000000000000000000000000000000000000000"}}
-      coingecko_api_key: ${str:test_key}
+      coingecko_api_key: ${SKILL_MINDSHARE_APP_MODELS_PARAMS_ARGS_COINGECKO_API_KEY:str:test_key}
       reset_pause_duration: ${int:10}
+      moving_average_length: ${int:20}
