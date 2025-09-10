@@ -488,6 +488,17 @@ class AnalysisRound(BaseState):
             return obj.isoformat()
         return obj
 
+    def _validate_ohlcv_data(self, ohlcv_data: list[list[Any]]) -> None:
+        """Validate OHLCV data format."""
+        if not isinstance(ohlcv_data, list) or len(ohlcv_data) == 0:
+            msg = "ohlcv_data must be a non-empty list of lists."
+            raise ValueError(msg)
+
+        for row in ohlcv_data:
+            if not (isinstance(row, list) and len(row) >= 6):
+                msg = "Each row must be a list with at least 6 elements: timestamp, open, high, low, close, volume."
+                raise ValueError(msg)
+
     def _has_detailed_technical_data(self) -> bool:
         """Check if there is detailed technical data available."""
         return any(
@@ -522,6 +533,7 @@ class AnalysisRound(BaseState):
     def _get_technical_data(self, ohlcv_data: list[list[Any]]) -> list:
         """Calculate core technical indicators for a coin using pandas-ta with validation."""
         try:
+            self._validate_ohlcv_data(ohlcv_data)
             data = self._preprocess_ohlcv_data(ohlcv_data)
 
             # Calculate different groups of indicators

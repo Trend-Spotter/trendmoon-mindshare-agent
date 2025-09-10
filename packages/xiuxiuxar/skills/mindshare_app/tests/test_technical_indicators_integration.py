@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from aea.test_tools.test_skill import BaseSkillTestCase
 
-from packages.xiuxiuxar.skills.mindshare_app.behaviours.data_collection import DataCollectionRound
+from packages.xiuxiuxar.skills.mindshare_app.behaviours.analysis import AnalysisRound
 
 
 MOVING_AVERAGE_LENGTH = 20
@@ -22,8 +22,8 @@ class TestTechnicalIndicatorsIntegration(BaseSkillTestCase):
         """Setup the test class."""
         super().setup()
 
-        self.data_collection_round = DataCollectionRound(
-            name="data_collection_round",
+        self.analysis_round = AnalysisRound(
+            name="analysis_round",
             skill_context=self.skill.skill_context,
         )
         self.logger = self.skill.skill_context.logger
@@ -216,7 +216,7 @@ class TestTechnicalIndicatorsIntegration(BaseSkillTestCase):
 
     def test_get_technical_data_integration(self):
         """Test _get_technical_data with real OHLCV data and technical indicator calculations."""
-        result = self.data_collection_round._get_technical_data(self.valid_ohlcv_data, self.ma_length)  # noqa: SLF001
+        result = self.analysis_round._get_technical_data(self.valid_ohlcv_data)  # noqa: SLF001
 
         # Assert the result is a list of tuples (indicator_name, value)
         assert isinstance(result, list)
