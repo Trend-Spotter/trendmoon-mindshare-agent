@@ -11,10 +11,10 @@ fingerprint:
   __init__.py: bafybeifhcjbfwkkjfaq57azgh24ufuo4pvjm4vguozhbg3qsrn4tw5ukge
   behaviours/__init__.py: bafybeih2dnrparrlxp2i4km2sozarcl7zzlzqoezmogasfcug52bq7tvpm
   behaviours/analysis.py: bafybeib5w6h36ko3k7abhbrpygfkx5lzocbt7s73jc5nteazmfqnhg4wdm
-  behaviours/base.py: bafybeiafrdv4w7dez7kqm63rt2keopomrj4c3euybmxrh7l6uj7n6nfetm
+  behaviours/base.py: bafybeiamgasfngngqcxdtntg4ntbglqelgbjl63lqhxd6gun4afmrmknpe
   behaviours/call_checkpoint.py: bafybeiajlzqi4le3gbzadabbr6mzff5mcoaz6445a52einetvlehn6gakm
   behaviours/check_staking_kpi_met.py: bafybeif3iikp7hvjvirgtm33kbiusuyx7x7uawtsh4qc4bu7bjkehiwq7m
-  behaviours/data_collection.py: bafybeigrlvoyefgwd6ele77vqwajakbbdblxucarpyci4pwsnccgfqg5qy
+  behaviours/data_collection.py: bafybeiahma4wj27cunanvjaan3ddesjabxnmmmo75vrvy3sgeqjbhdkiri
   behaviours/error.py: bafybeibg3oabttq34n3ltv7hv7wwfbcxdazzlr5zup2w4rcht2qm5n6d44
   behaviours/execution.py: bafybeict7oc2aguwq4bp2ir34uwlihhjteyvjuvnle5x6ujoaledjeqpgm
   behaviours/pause.py: bafybeifzn3vqxbjj6lqiwmcclejoukr3oyhdevdkalqymtwfkdni3aoke4
@@ -37,7 +37,7 @@ fingerprint:
   tests/test_technical_indicators_integration.py: bafybeihqg4gkrope5zhfldvvulgn5ki7eresheh2ewn4ybqiosipddppxi
 fingerprint_ignore_patterns: []
 connections:
-- eightballer/dcxt:0.1.0:bafybeifdxvim27zd77csuh5ejaxsjhzuwm5bpwaeirppnd5cidxquewgbm
+- eightballer/dcxt:0.1.0:bafybeicpbjnhmxeq3kltwg46pp4xvi6z2irfmf7x3fqwwym66tvtccnyxq
 - valory/ledger:0.19.0:bafybeibdsjmy4w2eyilbqc7yzutopl65qpeyspxwz7mjvirr52twhjlf5y
 - eightballer/http_client:0.1.0:bafybeiaz5auftwxpt4czrmeeesggqlkc2kosmetq6adrebeu6g7bkhqc2u
 contracts:

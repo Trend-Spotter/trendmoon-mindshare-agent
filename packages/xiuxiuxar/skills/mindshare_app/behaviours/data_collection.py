@@ -37,7 +37,7 @@ from packages.xiuxiuxar.skills.mindshare_app.behaviours.base import (
 
 
 MAX_COLLECTION_TIME = 300  # 5 minutes
-TIMEOUT_SECONDS = 120  # HTTP response timeout
+TIMEOUT_SECONDS = 300  # HTTP response timeout
 RETRY_CHECK_INTERVAL = 10  # seconds between retry checks
 MAX_RETRIES = 3
 OHLCV_DATA_DAYS = 30

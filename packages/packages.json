@@ -1,9 +1,9 @@
 {
     "dev": {
         "contract/xiuxiuxar/gnosis_safe/0.1.0": "bafybeidg4eqnaoinikb44n3erkxet2tuiurtaqdiis5iqal3ey2odf3ieu",
-        "skill/xiuxiuxar/mindshare_app/0.1.0": "bafybeih2qcfzpxfwehepdioqct3pecl42p4ie4hgu2telyuzhhqrv7ctvq",
-        "agent/xiuxiuxar/mindshare_agent/0.1.0": "bafybeidvtoxzxwpx42n6n6ncx46ykwuqitlc27zhdfbgbp4x4p4vu7lw2e",
-        "service/xiuxiuxar/mindshare_agent/0.1.0": "bafybeicnlxcbakcn77diu4nz5ab3cl3wmyppgpw54oqkj6qfyjgda4d6pi"
+        "skill/xiuxiuxar/mindshare_app/0.1.0": "bafybeidu4buogfyx26qoveydbgfmnuryfpexshwireufwbrtcjlgaeeqim",
+        "agent/xiuxiuxar/mindshare_agent/0.1.0": "bafybeigfpsynv2cv3kchh4ngrrqgssv2m7villxb7sy3ao77uum333ggka",
+        "service/xiuxiuxar/mindshare_agent/0.1.0": "bafybeihfja2uedlpyrkttkbpl5xhhrigqs5ojt4qafrsa7wujw3cpgt6k4"
     },
     "third_party": {
         "protocol/valory/contract_api/1.0.0": "bafybeid247uig2ekykdumh7ewhp2cdq7rchaeqjj6e7urx35zfpdl5zrn4",
@@ -34,7 +34,7 @@
         "connection/eightballer/http_client/0.1.0": "bafybeiaz5auftwxpt4czrmeeesggqlkc2kosmetq6adrebeu6g7bkhqc2u",
         "connection/eightballer/http_server/0.1.0": "bafybeidrvllrr23mc6bvjxn6v3hny6oiwhfgi72n2b7w6ck5luousjfbbq",
         "connection/eightballer/prometheus/0.1.1": "bafybeigw2unvrvt5mv3i4nay564s3p3wpiym2ftmc5qkwmxh53edncmcdq",
-        "connection/eightballer/dcxt/0.1.0": "bafybeifdxvim27zd77csuh5ejaxsjhzuwm5bpwaeirppnd5cidxquewgbm",
+        "connection/eightballer/dcxt/0.1.0": "bafybeicpbjnhmxeq3kltwg46pp4xvi6z2irfmf7x3fqwwym66tvtccnyxq",
         "connection/valory/ledger/0.19.0": "bafybeibdsjmy4w2eyilbqc7yzutopl65qpeyspxwz7mjvirr52twhjlf5y",
         "connection/valory/ipfs/0.1.0": "bafybeiamz23olgtow4wqf7zpsfnfzf7pxiognrxl2mhn5kvqutlwhgukxa",
         "connection/valory/http_client/0.23.0": "bafybeid5ffvg76ejjoese7brj5ji3lx66cu7p2ixfwflpo6rgofkypfd7y",
