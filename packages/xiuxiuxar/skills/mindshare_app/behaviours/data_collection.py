@@ -36,8 +36,8 @@ from packages.xiuxiuxar.skills.mindshare_app.behaviours.base import (
 )
 
 
-MAX_COLLECTION_TIME = 300  # 5 minutes
-TIMEOUT_SECONDS = 300  # HTTP response timeout
+MAX_COLLECTION_TIME = 720  # 12 minutes
+TIMEOUT_SECONDS = 600  # HTTP response timeout
 RETRY_CHECK_INTERVAL = 10  # seconds between retry checks
 MAX_RETRIES = 3
 OHLCV_DATA_DAYS = 30
@@ -192,6 +192,7 @@ class DataCollectionRound(BaseState):
         self.completed_tokens = []
         self.failed_tokens = []
         self.current_token_index = 0
+        self.batch_price_submitted = False
 
         self.context.logger.info(
             f"Processing {len(self.pending_tokens)} tokens: {[t['symbol'] for t in self.pending_tokens]}"
@@ -345,9 +346,26 @@ class DataCollectionRound(BaseState):
             self._initialize_collection()
             yield  # Yield after initialization
 
-        # Phase 1: Submit all async requests for pending tokens
+        # Phase 1: Submit batch price request first (highest priority)
+        if not self.batch_price_submitted and self.pending_tokens:
+            self.context.logger.info("Phase 1: Submitting batch price request for all tokens")
+            try:
+                self._submit_async_batch_price_request()
+                self.batch_price_submitted = True
+                yield  # Yield after batch request submission
+            except RateLimitError:
+                self.context.logger.info("Batch price request was rate limited, will retry later")
+            except Exception as e:
+                self.context.logger.exception(f"Failed to submit batch price request: {e}")
+
+            # Wait for batch price response before proceeding
+            if self.batch_price_submitted:
+                self.context.logger.info("Phase 1a: Waiting for batch price response")
+                yield from self._wait_for_batch_price_response()
+
+        # Phase 2: Submit OHLCV and social requests for tokens that need them
         if not self.async_requests_submitted and self.pending_tokens:
-            self.context.logger.info("Phase 1: Submitting async requests for all tokens")
+            self.context.logger.info("Phase 2: Submitting OHLCV and social requests for tokens")
             for token_info in self.pending_tokens:
                 self.context.logger.info(
                     f"Submitting requests for {token_info['symbol']} "
@@ -355,14 +373,14 @@ class DataCollectionRound(BaseState):
                 )
 
                 try:
-                    # Submit async requests without blocking
-                    self._collect_token_data(token_info)
+                    # Submit only OHLCV and social requests (prices already done via batch)
+                    self._collect_token_data_non_price(token_info)
                     self.completed_tokens.append(token_info)
 
                 except RateLimitError:
                     self.rate_limiting_occurred = True
-                    self.context.logger.info(f"Rate limited for {token_info['symbol']}, will retry in phase 2")
-                    # Token is already added to failed_requests by _collect_token_data
+                    self.context.logger.info(f"Rate limited for {token_info['symbol']}, will retry in phase 3")
+                    # Token is already added to failed_requests by _collect_token_data_non_price
                     continue
                 except (ValueError, TypeError, OSError, ConnectionError) as e:
                     self.context.logger.warning(f"Failed to submit requests for {token_info['symbol']}: {e}")
@@ -374,24 +392,25 @@ class DataCollectionRound(BaseState):
                 self.current_token_index += 1
                 yield  # Yield after each token to allow message processing
 
-            # Keep failed_requests for retrying in phase 2 - don't move to failed_tokens yet
+            # Keep failed_requests for retrying in phase 3 - don't move to failed_tokens yet
             if self.failed_requests:
                 self.context.logger.info(
-                    f"Phase 1 complete: {len(self.failed_requests)} tokens rate limited, will retry in phase 2"
+                    f"Phase 2 complete: {len(self.failed_requests)} tokens rate limited, will retry in phase 3"
                 )
 
             self.async_requests_submitted = True
+            # Set total_expected_responses AFTER all requests have been submitted
             self.total_expected_responses = len(self.pending_http_requests)
             total_initial_requests = self.total_expected_responses
             rate_limited_count = len(self.failed_requests)
             self.context.logger.info(
-                f"Phase 1 complete: Submitted {total_initial_requests} async requests, "
+                f"Phase 2 complete: Submitted {total_initial_requests} async requests, "
                 f"{rate_limited_count} rate limited for retry"
             )
             yield
 
-        # Phase 2: Wait for and process all responses, including retries
-        self.context.logger.info("Phase 2: Waiting for async responses and handling retries")
+        # Phase 3: Wait for and process all remaining responses, including retries
+        self.context.logger.info("Phase 3: Waiting for async responses and handling retries")
         yield from self._wait_for_async_responses()
 
         # All tokens processed successfully
@@ -425,13 +444,39 @@ class DataCollectionRound(BaseState):
             else:
                 self.context.logger.info(f"Skipping social update for {symbol} (data is fresh)")
 
-            # Always submit async price request for current data
-            self._submit_async_price_request(token_info)
+            # Skip individual price requests - will be handled by batch request
 
             self.context.logger.debug(f"Successfully submitted async requests for {symbol}")
 
         except Exception as e:
             self.context.logger.warning(f"Failed to submit requests for {symbol}: {e}")
+            raise  # Re-raise to be handled by the generator
+
+    def _collect_token_data_non_price(self, token_info: dict[str, str]) -> None:
+        """Submit async requests for a single token (OHLCV and social only, no price)."""
+        symbol = token_info["symbol"]
+        address = token_info["address"]
+
+        self.context.logger.info(f"Processing {symbol} ({address}) - OHLCV and social only")
+
+        try:
+            # Submit async requests for data that needs updating (no price requests)
+            if symbol in self.tokens_needing_ohlcv_update:
+                self._submit_async_ohlcv_request(token_info)
+                self.tokens_needing_ohlcv_update.discard(symbol)
+            else:
+                self.context.logger.info(f"Skipping OHLCV update for {symbol} (data is fresh)")
+
+            if symbol in self.tokens_needing_social_update:
+                self._submit_async_social_request(token_info)
+                self.tokens_needing_social_update.discard(symbol)
+            else:
+                self.context.logger.info(f"Skipping social update for {symbol} (data is fresh)")
+
+            self.context.logger.debug(f"Successfully submitted non-price async requests for {symbol}")
+
+        except Exception as e:
+            self.context.logger.warning(f"Failed to submit non-price requests for {symbol}: {e}")
             raise  # Re-raise to be handled by the generator
 
     def _submit_async_ohlcv_request(self, token_info: dict[str, str]) -> None:
@@ -593,6 +638,66 @@ class DataCollectionRound(BaseState):
 
         self.collected_data["api_calls"] += 1
 
+    def _submit_async_batch_price_request(self) -> None:
+        """Submit single batch request for all token prices."""
+        if not self.pending_tokens:
+            self.context.logger.info("No tokens to submit batch price request for")
+            return
+
+        all_coin_ids = [token["coingecko_id"] for token in self.pending_tokens]
+        self.context.logger.info(f"Submitting batch price request for {len(all_coin_ids)} tokens")
+
+        # CoinGecko accepts up to 50 coin_ids - batch them if needed
+        batch_size = 50
+        for i in range(0, len(all_coin_ids), batch_size):
+            batch_ids = all_coin_ids[i : i + batch_size]
+            coin_ids_param = ",".join(batch_ids)
+
+            query_params = {
+                "ids": coin_ids_param,
+                "vs_currencies": "usd",
+                "include_market_cap": "true",
+                "include_24hr_vol": "true",
+                "include_24hr_change": "true",
+            }
+
+            batch_request_id, wait_until = self.context.coingecko.submit_coin_price_request(query_params)
+
+            # Check if we need to wait for rate limits
+            if wait_until is not None:
+                self._handle_batch_rate_limit(batch_ids, wait_until)
+
+            # Track request for identification
+            self.pending_http_requests[batch_request_id] = {
+                "request_type": "batch_price",
+                "coin_ids": batch_ids,
+                "batch_size": len(batch_ids),
+            }
+
+            self.collected_data["api_calls"] += 1
+
+    def _handle_batch_rate_limit(self, batch_coin_ids: list[str], wait_until: float) -> None:
+        """Handle rate limiting for batch price requests."""
+        self.context.logger.info(
+            f"Rate limited for batch price request with {len(batch_coin_ids)} tokens, will retry at "
+            f"{datetime.fromtimestamp(wait_until, tz=UTC).strftime('%H:%M:%S')}"
+        )
+
+        # Store all tokens in this batch for retry later
+        for coin_id in batch_coin_ids:
+            # Find the token info by coingecko_id
+            token_info = next((token for token in self.pending_tokens if token["coingecko_id"] == coin_id), None)
+            if token_info:
+                self.failed_requests[token_info["symbol"]] = {
+                    "token_info": token_info,
+                    "reason": "batch_price_rate_limit",
+                    "wait_until": wait_until,
+                }
+
+        # Raise RateLimitError to trigger handling in the calling method
+        msg = f"Rate limited for batch price request containing {len(batch_coin_ids)} tokens"
+        raise RateLimitError(msg, wait_until=wait_until)
+
     def _process_price_response(self, token_symbol: str, coingecko_id: str, price_data: dict) -> None:
         """Process current price response data."""
         if price_data and coingecko_id in price_data:
@@ -600,6 +705,36 @@ class DataCollectionRound(BaseState):
             self.context.logger.info(f"Updated price data for {token_symbol}")
         else:
             self.context.logger.warning(f"No price data available for {token_symbol}")
+
+    def _process_batch_price_response(self, coin_ids: list[str], price_data: dict) -> None:
+        """Process batch price response data and distribute to individual tokens."""
+        if not price_data:
+            self.context.logger.warning("No batch price data received")
+            return
+
+        updated_count = 0
+        failed_count = 0
+
+        for coin_id in coin_ids:
+            # Find the token symbol by coingecko_id
+            token_info = next((token for token in self.pending_tokens if token["coingecko_id"] == coin_id), None)
+
+            if not token_info:
+                self.context.logger.warning(f"Could not find token info for coingecko_id: {coin_id}")
+                failed_count += 1
+                continue
+
+            token_symbol = token_info["symbol"]
+
+            if coin_id in price_data:
+                self.collected_data["current_prices"][token_symbol] = price_data[coin_id]
+                self.context.logger.debug(f"Updated batch price data for {token_symbol}")
+                updated_count += 1
+            else:
+                self.context.logger.warning(f"No price data in batch response for {token_symbol} ({coin_id})")
+                failed_count += 1
+
+        self.context.logger.info(f"Batch price response processed: {updated_count} updated, {failed_count} failed")
 
     def handle_http_response(self, message: HttpMessage) -> bool:
         """Handle incoming HTTP response messages."""
@@ -625,19 +760,36 @@ class DataCollectionRound(BaseState):
             self.context.logger.error(f"Request was for token: {request_info.get('token_symbol', 'unknown')}")
         else:
             response_data = self._parse_response_body(message.body)
-            self.received_responses.append(
-                {
-                    "request_type": request_info["request_type"],
-                    "token_symbol": request_info.get("token_symbol", "unknown"),
-                    "coingecko_id": request_info.get("coingecko_id", None),
-                    "data": response_data,
-                    "status_code": message.status_code,
-                }
-            )
-            self.context.logger.info(
-                f"Successfully received {request_info['request_type']} response "
-                f"for {request_info.get('token_symbol', 'unknown')}"
-            )
+
+            # Handle batch price responses differently
+            if request_info["request_type"] == "batch_price":
+                self.received_responses.append(
+                    {
+                        "request_type": "batch_price",
+                        "coin_ids": request_info.get("coin_ids", []),
+                        "batch_size": request_info.get("batch_size", 0),
+                        "data": response_data,
+                        "status_code": message.status_code,
+                    }
+                )
+                self.context.logger.info(
+                    f"Successfully received batch price response for {request_info.get('batch_size', 0)} tokens"
+                )
+            else:
+                self.received_responses.append(
+                    {
+                        "request_type": request_info["request_type"],
+                        "token_symbol": request_info.get("token_symbol", "unknown"),
+                        "coingecko_id": request_info.get("coingecko_id", None),
+                        "data": response_data,
+                        "status_code": message.status_code,
+                    }
+                )
+                self.context.logger.info(
+                    f"Successfully received {request_info['request_type']} response "
+                    f"for {request_info.get('token_symbol', 'unknown')}"
+                )
+
             self.context.logger.debug(f"Response data size: {len(response_data) if response_data else 0} items")
 
         # Remove from pending requests
@@ -657,10 +809,22 @@ class DataCollectionRound(BaseState):
 
     def _process_all_responses(self) -> None:
         """Process all received HTTP responses."""
-        # Group responses by token and type
-        token_responses = {}
+        # First process batch price responses separately
+        batch_responses = [r for r in self.received_responses if r["request_type"] == "batch_price"]
+        for batch_response in batch_responses:
+            try:
+                coin_ids = batch_response["coin_ids"]
+                price_data = batch_response["data"]
+                self._process_batch_price_response(coin_ids, price_data)
+            except Exception as e:
+                self.context.logger.exception(f"Error processing batch price response: {e}")
 
+        # Group non-batch responses by token and type
+        token_responses = {}
         for response in self.received_responses:
+            if response["request_type"] == "batch_price":
+                continue  # Already processed above
+
             token_symbol = response["token_symbol"]
             request_type = response["request_type"]
 
@@ -682,7 +846,7 @@ class DataCollectionRound(BaseState):
                     social_data = responses["social"]["data"]
                     self._process_social_response(token_symbol, social_data)
 
-                # Process price data
+                # Process price data (individual requests only)
                 if "price" in responses:
                     price_data = responses["price"]["data"]
                     coingecko_id = responses["price"]["coingecko_id"]
@@ -690,6 +854,37 @@ class DataCollectionRound(BaseState):
 
             except Exception as e:
                 self.context.logger.exception(f"Error processing responses for {token_symbol}: {e}")
+
+    def _wait_for_batch_price_response(self) -> Generator:
+        """Wait specifically for the batch price response to complete."""
+        batch_requests = [
+            req_id
+            for req_id, req_info in self.pending_http_requests.items()
+            if req_info["request_type"] == "batch_price"
+        ]
+
+        if not batch_requests:
+            self.context.logger.info("No batch price requests pending")
+            return
+
+        self.context.logger.info(f"Waiting for {len(batch_requests)} batch price responses...")
+        start_time = datetime.now(UTC)
+        timeout_time = start_time + timedelta(seconds=TIMEOUT_SECONDS)
+
+        while batch_requests and datetime.now(UTC) < timeout_time:
+            yield  # Allow message processing
+
+            # Check if any batch requests are still pending
+            batch_requests = [req_id for req_id in batch_requests if req_id in self.pending_http_requests]
+
+            if not batch_requests:
+                self.context.logger.info("All batch price responses received")
+                # Process responses immediately
+                self._process_all_responses()
+                break
+
+        if batch_requests:
+            self.context.logger.warning(f"Timeout waiting for {len(batch_requests)} batch price responses")
 
     def _wait_for_async_responses(self) -> Generator:
         """Wait for all async HTTP responses to be received."""
