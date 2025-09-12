@@ -11,14 +11,14 @@ fingerprint:
   __init__.py: bafybeifhcjbfwkkjfaq57azgh24ufuo4pvjm4vguozhbg3qsrn4tw5ukge
   behaviours/__init__.py: bafybeih2dnrparrlxp2i4km2sozarcl7zzlzqoezmogasfcug52bq7tvpm
   behaviours/analysis.py: bafybeib5w6h36ko3k7abhbrpygfkx5lzocbt7s73jc5nteazmfqnhg4wdm
-  behaviours/base.py: bafybeiamgasfngngqcxdtntg4ntbglqelgbjl63lqhxd6gun4afmrmknpe
-  behaviours/call_checkpoint.py: bafybeiajlzqi4le3gbzadabbr6mzff5mcoaz6445a52einetvlehn6gakm
+  behaviours/base.py: bafybeih7ubjqowqxgpkjfdimol6yoiadfpctnzfttzln6gbp4hmhdepn5u
+  behaviours/call_checkpoint.py: bafybeibq2gtgq5cwm7rqrhwznsyt6fngpl6hukh7novz65wtxf2syakqei
   behaviours/check_staking_kpi_met.py: bafybeif3iikp7hvjvirgtm33kbiusuyx7x7uawtsh4qc4bu7bjkehiwq7m
   behaviours/data_collection.py: bafybeiarqzjfwtrrbists6ht2xevsgntluw22rwaetctoyryxrzhkpccei
   behaviours/error.py: bafybeibg3oabttq34n3ltv7hv7wwfbcxdazzlr5zup2w4rcht2qm5n6d44
   behaviours/execution.py: bafybeict7oc2aguwq4bp2ir34uwlihhjteyvjuvnle5x6ujoaledjeqpgm
   behaviours/pause.py: bafybeifzn3vqxbjj6lqiwmcclejoukr3oyhdevdkalqymtwfkdni3aoke4
-  behaviours/portfolio_validation.py: bafybeigr5q472z6ddv4keoek3xept3777y2ghkiv7hzxrm3tuunuehulty
+  behaviours/portfolio_validation.py: bafybeiftugssmtjbx4uwaldm3zlg5lnzok64butky5gmb5lqaeslmpbrqa
   behaviours/position_monitor.py: bafybeieptxlmk4ffgliaryh2ebqszshafturnq3oi5677z5kp5jh6jcwxy
   behaviours/risk_evaluation.py: bafybeigxaezxhlrb3jx37pa35djvsu5lrkrmu6lh34uef3577z2fe4su2m
   behaviours/round_behaviour.py: bafybeibeqsu6a5okv24qy6kjlwpz2h4yh54gte5rbmdar76ocgydzeapya
@@ -27,7 +27,7 @@ fingerprint:
   behaviours/trade_construction.py: bafybeihhqdfcxnqdd4enxn3rxbyvv36cpsl43pcpkhwbbspdek2an3ttdq
   dialogues.py: bafybeiexxmjsjczvf2bxad7qbecllm3srjhlqkejigerkbldtdtzzuyuke
   handlers.py: bafybeia42myerpm5nf3dkyvgblwtc5zgxs622utgtjtb6tat2wkycvqkoa
-  models.py: bafybeihnisubm3c72q3gym2g5g4o6ayxhsfy6sygmdnusco2jyaud5xpqq
+  models.py: bafybeibgtfwp4tnkczhixopr3252url3cksnras5xdoqiijz7m6nhbbc34
   tests/__init__.py: bafybeigb2ji4vkcap3hokcedggjwsrah7te2nxjhkorwf3ibwgyaa2glma
   tests/test_coingecko_model.py: bafybeicjnqiclfi6r7sbsyjgwlzj3ugmeukii5fp23esdtsanof3lvyn6i
   tests/test_coingecko_model_integration.py: bafybeid6mzsia3wocixdedmr6tcbb2v34oq2fkjqyz2cab4mysjvqbydfi
@@ -37,7 +37,7 @@ fingerprint:
   tests/test_technical_indicators_integration.py: bafybeihqg4gkrope5zhfldvvulgn5ki7eresheh2ewn4ybqiosipddppxi
 fingerprint_ignore_patterns: []
 connections:
-- eightballer/dcxt:0.1.0:bafybeicpbjnhmxeq3kltwg46pp4xvi6z2irfmf7x3fqwwym66tvtccnyxq
+- eightballer/dcxt:0.1.0:bafybeicebtk3ws33txepxzsq6p7lfptn7fkecy6tkk6coiu7xc7ezqqfhe
 - valory/ledger:0.19.0:bafybeibdsjmy4w2eyilbqc7yzutopl65qpeyspxwz7mjvirr52twhjlf5y
 - eightballer/http_client:0.1.0:bafybeiaz5auftwxpt4czrmeeesggqlkc2kosmetq6adrebeu6g7bkhqc2u
 contracts:
@@ -46,6 +46,7 @@ contracts:
 - xiuxiuxar/gnosis_safe:0.1.0:bafybeidg4eqnaoinikb44n3erkxet2tuiurtaqdiis5iqal3ey2odf3ieu
 - valory/multisend:0.1.0:bafybeig5byt5urg2d2bsecufxe5ql7f4mezg3mekfleeh32nmuusx66p4y
 - valory/staking_token:0.1.0:bafybeiclu2xkt6yzgm2d336wcjid7zrgdnvjnxinksxxw5yvfwvwiqd6ii
+- valory/staking_activity_checker:0.1.0:bafybeibh6fasgz3a6tgr7j4svsbrgzxryhkh6gsf7vf4kpvirs77djxzti
 protocols:
 - valory/contract_api:1.0.0:bafybeid247uig2ekykdumh7ewhp2cdq7rchaeqjj6e7urx35zfpdl5zrn4
 - eightballer/default:0.1.0:bafybeihx7izpxqpj42jxbi7s2q6bijtv2vcb7kz2r5bwtfxt7ixlh77s7u
@@ -142,6 +143,7 @@ models:
       price_collection_timeout: 15
       reset_pause_duration: 300
       safe_contract_addresses: '{"ethereum":"0x0000000000000000000000000000000000000000","arbitrum":"0x0000000000000000000000000000000000000000","base":"0x0000000000000000000000000000000000000000","optimism":"0x0000000000000000000000000000000000000000","mode":"0x0000000000000000000000000000000000000000"}'
+      staking_activity_checker_contract_address: '0x133FcEF52285f9A9530A18C6E82c5dd931E175F5'
       stop_loss_atr_multiplier: 1.5
       stop_loss_pct: 0.84
       store_path: ./persistent_data

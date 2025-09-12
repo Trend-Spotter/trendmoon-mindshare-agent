@@ -25,6 +25,9 @@ from aea.protocols.base import Message
 from autonomy.deploy.constants import DEFAULT_ENCODING
 
 from packages.valory.protocols.contract_api import ContractApiMessage
+from packages.valory.connections.ledger.connection import (
+    PUBLIC_ID as LEDGER_CONNECTION_PUBLIC_ID,
+)
 from packages.eightballer.contracts.erc_20.contract import Erc20
 from packages.xiuxiuxar.skills.mindshare_app.dialogues import ContractApiDialogue
 from packages.xiuxiuxar.skills.mindshare_app.behaviours.base import (
@@ -32,6 +35,9 @@ from packages.xiuxiuxar.skills.mindshare_app.behaviours.base import (
     MindshareabciappEvents,
     MindshareabciappStates,
 )
+
+
+LEDGER_API_ADDRESS = str(LEDGER_CONNECTION_PUBLIC_ID)
 
 
 class PortfolioValidationRound(BaseState):
@@ -243,7 +249,7 @@ class PortfolioValidationRound(BaseState):
             # Submit the contract call
             dialogue = self.submit_msg(
                 performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,
-                connection_id="valory/ledger:0.19.0",
+                connection_id=LEDGER_API_ADDRESS,
                 contract_address=usdc_address,
                 contract_id=str(Erc20.contract_id),
                 callable="balance_of",
