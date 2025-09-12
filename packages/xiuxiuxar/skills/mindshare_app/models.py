@@ -801,6 +801,9 @@ class Params(Model):
         self.staking_token_contract_address = kwargs.pop(
             "staking_token_contract_address", "0xEB5638eefE289691EcE01943f768EDBF96258a80"
         )
+        self.staking_activity_checker_contract_address = kwargs.pop(
+            "staking_activity_checker_contract_address", "0x133FcEF52285f9A9530A18C6E82c5dd931E175F5"
+        )
         self.service_id = kwargs.pop("service_id", "mindshare")
         self.on_chain_service_id = kwargs.pop("on_chain_service_id", None)
 
