@@ -5,18 +5,18 @@ type: skill
 description: The http echo skill prints out the content of received http messages
   and responds with success.
 license: Apache-2.0
-aea_version: '>=1.0.0, <2.0.0'
+aea_version: '>=1.0.0, <3.0.0'
 fingerprint:
   README.md: bafybeiesl5jlvvu4enydib32bpyfqphlkdulxy3oqid3t32cjxya5qykci
   __init__.py: bafybeifhcjbfwkkjfaq57azgh24ufuo4pvjm4vguozhbg3qsrn4tw5ukge
   behaviours/__init__.py: bafybeih2dnrparrlxp2i4km2sozarcl7zzlzqoezmogasfcug52bq7tvpm
   behaviours/analysis.py: bafybeib5w6h36ko3k7abhbrpygfkx5lzocbt7s73jc5nteazmfqnhg4wdm
   behaviours/base.py: bafybeih7ubjqowqxgpkjfdimol6yoiadfpctnzfttzln6gbp4hmhdepn5u
-  behaviours/call_checkpoint.py: bafybeibq2gtgq5cwm7rqrhwznsyt6fngpl6hukh7novz65wtxf2syakqei
+  behaviours/call_checkpoint.py: bafybeiduy2luo36jhiutid7ck33bazniolfkg37wijeopcircwwy3nkrga
   behaviours/check_staking_kpi_met.py: bafybeif3iikp7hvjvirgtm33kbiusuyx7x7uawtsh4qc4bu7bjkehiwq7m
   behaviours/data_collection.py: bafybeiarqzjfwtrrbists6ht2xevsgntluw22rwaetctoyryxrzhkpccei
   behaviours/error.py: bafybeibg3oabttq34n3ltv7hv7wwfbcxdazzlr5zup2w4rcht2qm5n6d44
-  behaviours/execution.py: bafybeict7oc2aguwq4bp2ir34uwlihhjteyvjuvnle5x6ujoaledjeqpgm
+  behaviours/execution.py: bafybeidncv3se3xcoddqqixb2b7th33qeaiqff5aivlklajjc6puanqgba
   behaviours/pause.py: bafybeifzn3vqxbjj6lqiwmcclejoukr3oyhdevdkalqymtwfkdni3aoke4
   behaviours/portfolio_validation.py: bafybeiftugssmtjbx4uwaldm3zlg5lnzok64butky5gmb5lqaeslmpbrqa
   behaviours/position_monitor.py: bafybeieptxlmk4ffgliaryh2ebqszshafturnq3oi5677z5kp5jh6jcwxy
@@ -37,24 +37,24 @@ fingerprint:
   tests/test_technical_indicators_integration.py: bafybeihqg4gkrope5zhfldvvulgn5ki7eresheh2ewn4ybqiosipddppxi
 fingerprint_ignore_patterns: []
 connections:
-- eightballer/dcxt:0.1.0:bafybeicebtk3ws33txepxzsq6p7lfptn7fkecy6tkk6coiu7xc7ezqqfhe
-- valory/ledger:0.19.0:bafybeibdsjmy4w2eyilbqc7yzutopl65qpeyspxwz7mjvirr52twhjlf5y
-- eightballer/http_client:0.1.0:bafybeiaz5auftwxpt4czrmeeesggqlkc2kosmetq6adrebeu6g7bkhqc2u
+- eightballer/dcxt:0.1.0:bafybeihj2ko7bwqmxiudoixrlzwml5snurdxaiomfl4lrbbcat3k5sxnxy
+- valory/ledger:0.19.0:bafybeiewhg4ogvr6ccstyvwel4vgpi4rccahoafkpgpak6d7h75a4o3mqm
+- eightballer/http_client:0.1.0:bafybeiatbbjb36uvzzc2pnnrqpdk2xlaic5zwsxj6frswqhw6illauqg6e
 contracts:
-- eightballer/erc_20:0.1.0:bafybeiegd5pdj34s4cuhiaxermjdtyhnapu5usy545vcf6mi5grfazlnpa
-- valory/erc20:0.1.0:bafybeiczphtgmlot3tbsqwfstagnuffw6rlzlxpodnvafodwq573q555ye
-- xiuxiuxar/gnosis_safe:0.1.0:bafybeidg4eqnaoinikb44n3erkxet2tuiurtaqdiis5iqal3ey2odf3ieu
-- valory/multisend:0.1.0:bafybeig5byt5urg2d2bsecufxe5ql7f4mezg3mekfleeh32nmuusx66p4y
-- valory/staking_token:0.1.0:bafybeiclu2xkt6yzgm2d336wcjid7zrgdnvjnxinksxxw5yvfwvwiqd6ii
-- valory/staking_activity_checker:0.1.0:bafybeibh6fasgz3a6tgr7j4svsbrgzxryhkh6gsf7vf4kpvirs77djxzti
+- eightballer/erc_20:0.1.0:bafybeiewlvc62xn6flmzn2dodqw3w6p3w5jqwkx36w5caznf6zjph7t2se
+- xiuxiuxar/erc20:0.1.0:bafybeicgac7pmw7p2vnakyfkcbawvihsx6wfaxcufmnidifduif4urvxni
+- xiuxiuxar/gnosis_safe:0.1.0:bafybeigicdbedhjypzqbyhwn763eyafyv4lhgw4x5vkmxvcljvwignztdu
+- valory/multisend:0.1.0:bafybeigf32oq3jia7uqzetggklri7hzqwfqpzys2bzr2gq7xhrkoc35ace
+- xiuxiuxar/staking_token:0.1.0:bafybeietiuap57gtlaidqnlb3rdy5qkllc5puzcncqehl75srinppwrnde
+- xiuxiuxar/staking_activity_checker:0.1.0:bafybeibwjs5gv74abmdpbbkirlfkc4xgvou3uslcwtscvt6zgqlfw7lesm
 protocols:
-- valory/contract_api:1.0.0:bafybeid247uig2ekykdumh7ewhp2cdq7rchaeqjj6e7urx35zfpdl5zrn4
-- eightballer/default:0.1.0:bafybeihx7izpxqpj42jxbi7s2q6bijtv2vcb7kz2r5bwtfxt7ixlh77s7u
-- eightballer/http:0.1.0:bafybeid75xhq7hfdt7sgj7yrn44yj57xrgxscaw34ir46tndfzvodioxme
-- eightballer/tickers:0.1.0:bafybeicpoaxh4mbzk3rn7rjzvlhrfkzo4st3otzpcs35cixeg3fdvn5dsq
-- eightballer/orders:0.1.0:bafybeicwsxnxvy5cclbwzp6kj6hm2g655j47wdvhe6co3oge7lorwlt364
-- valory/ledger_api:1.0.0:bafybeihmqzcbj6t7vxz2aehd5726ofnzsfjs5cwlf42ro4tn6i34cbfrc4
-- open_aea/signing:1.0.0:bafybeig2d36zxy65vd7fwhs7scotuktydcarm74aprmrb5nioiymr3yixm
+- valory/contract_api:1.0.0:bafybeidpch6cvuweq5x4h6ummnnw5xynmfsbj3sxm2m63seuqizrmvpd3e
+- eightballer/default:0.1.0:bafybeibu3dme3plwprq5j6xl6vfx2e5ebwbudtj5yndkxcsoiwxljst22a
+- eightballer/http:0.1.0:bafybeicpvdcuz5wqgnzqzqyyh3ifo63pqjhze6escra4dxqpxbaz5qs2jy
+- eightballer/tickers:0.1.0:bafybeifiytrsffwnhhilbavse623qsil3tulizbazf7cd7ghfepriejgkq
+- eightballer/orders:0.1.0:bafybeid24shv2uqltnnxn72p6upjb7qzq3lew7fgre2dno72ui5oolvbee
+- valory/ledger_api:1.0.0:bafybeibs34uqr4siluur7orj7tahrlyiokdt57ytiigprnrhi7crqcxe5u
+- open_aea/signing:1.0.0:bafybeiefi3brtm7nwucrbkiuuyu4tqo3zs4nmazjympfwnjzblkmo3i2ti
 skills: []
 behaviours:
   main:

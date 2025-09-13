@@ -1,0 +1,24 @@
+name: gnosis_safe_proxy_factory
+author: xiuxiuxar
+version: 0.1.0
+type: contract
+description: Gnosis Safe proxy factory (GnosisSafeProxyFactory) contract
+license: Apache-2.0
+aea_version: '>=1.0.0, <3.0.0'
+fingerprint:
+  README.md: bafybeibobgyzn3kozckup5uxbugbgkiqrc7d5okmj6gahctccqfifu7e4e
+  __init__.py: bafybeie6rend3dylla4drrueek2pgeiucz7qe6anrybko3zbxdpqtglnwq
+  build/ProxyFactory_V1_3_0.json: bafybeibmhgw6us3nzg5d4vb3krg3udxgnux66vuz26pjcigdjc7zn5jrxm
+  contract.py: bafybeih4bwwuth7ilb6dsfk37lkslxseiy7l3wj2zhkob6ah5oelu3ouq4
+  tests/__init__.py: bafybeieev63o3lhtrvgsggofgiy4vghf7xbfpavlfpvullcdpmro4asw64
+  tests/test_contract.py: bafybeibg7o5pebgjarg3sdjwhptuztzt3sdroj5joc26zttnnaujzhxpt4
+fingerprint_ignore_patterns: []
+contracts: []
+class_name: GnosisSafeProxyFactoryContract
+contract_interface_paths:
+  ethereum: build/ProxyFactory_V1_3_0.json
+dependencies:
+  open-aea-ledger-ethereum: {}
+  open-aea-test-autonomy: {}
+  web3:
+    version: <7,>=6.0.0

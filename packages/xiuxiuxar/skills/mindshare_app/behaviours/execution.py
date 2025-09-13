@@ -30,8 +30,8 @@ from packages.valory.protocols.ledger_api import LedgerApiMessage
 from packages.eightballer.connections.dcxt import PUBLIC_ID as DCXT_PUBLIC_ID
 from packages.eightballer.protocols.orders import OrdersMessage
 from packages.valory.protocols.contract_api import ContractApiMessage
-from packages.valory.contracts.erc20.contract import ERC20
 from packages.open_aea.protocols.signing.message import SigningMessage
+from packages.xiuxiuxar.contracts.erc20.contract import ERC20
 from packages.valory.contracts.multisend.contract import MultiSendContract, MultiSendOperation
 from packages.valory.connections.ledger.connection import (
     PUBLIC_ID as LEDGER_CONNECTION_PUBLIC_ID,
@@ -488,6 +488,7 @@ class ExecutionRound(BaseState):
     def _validate_cow_approval_response(self, message: Message, dialogue: BaseDialogue) -> bool:
         """Process CoW ERC20 approval response and prepare for Safe execution."""
         try:
+            self.context.logger.info(f"Validating CoW approval response: {message}")
             if message.performative == ContractApiMessage.Performative.RAW_TRANSACTION:
                 data = message.raw_transaction.body.get("data")
                 if data:
