@@ -514,7 +514,9 @@ class BaseState(State, ABC):
 
     _state: MindshareabciappStates = None
 
-    supported_protocols: dict[PublicId, list] = {}
+    supported_protocols: dict[PublicId, list] = {
+        OrdersMessage.protocol_id: [],
+    }
 
     def setup(self) -> None:
         """Perform the setup."""

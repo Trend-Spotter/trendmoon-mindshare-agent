@@ -52,7 +52,7 @@ from packages.xiuxiuxar.contracts.gnosis_safe.contract import (
     SAFE_CONTRACT,
     GnosisSafeContract,
 )
-from packages.valory.contracts.gnosis_safe_proxy_factory.tests.test_contract import (
+from packages.xiuxiuxar.contracts.gnosis_safe_proxy_factory.tests.test_contract import (
     PACKAGE_DIR as PROXY_DIR,
 )
 

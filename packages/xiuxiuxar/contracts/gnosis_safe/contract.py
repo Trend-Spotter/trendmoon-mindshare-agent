@@ -39,7 +39,7 @@ from aea_ledger_ethereum import EthereumApi
 from aea.configurations.base import PublicId
 
 from packages.xiuxiuxar.contracts.gnosis_safe.encode import encode_typed_data
-from packages.valory.contracts.gnosis_safe_proxy_factory.contract import (
+from packages.xiuxiuxar.contracts.gnosis_safe_proxy_factory.contract import (
     GnosisSafeProxyFactoryContract,
 )
 
@@ -723,8 +723,8 @@ class GnosisSafeContract(Contract):  # noqa: PLR0904
         owners = [ledger_api.api.to_checksum_address(owner) for owner in safe_contract.functions.getOwners().call()]
         owner = ledger_api.api.to_checksum_address(owner)
         prev_owner = cls._get_prev_owner(owners, owner)
-        data = safe_contract.encodeABI(
-            fn_name="removeOwner",
+        data = safe_contract.encode_abi(
+            abi_element_identifier="removeOwner",
             args=[
                 ledger_api.api.to_checksum_address(prev_owner),
                 owner,
@@ -751,8 +751,8 @@ class GnosisSafeContract(Contract):  # noqa: PLR0904
         owners = [ledger_api.api.to_checksum_address(owner) for owner in safe_contract.functions.getOwners().call()]
         old_owner = ledger_api.api.to_checksum_address(old_owner)
         prev_owner = cls._get_prev_owner(owners, old_owner)
-        data = safe_contract.encodeABI(
-            fn_name="swapOwner",
+        data = safe_contract.encode_abi(
+            abi_element_identifier="swapOwner",
             args=[
                 ledger_api.api.to_checksum_address(prev_owner),
                 old_owner,
