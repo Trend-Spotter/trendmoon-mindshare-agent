@@ -25,7 +25,7 @@ jobs:
       - name: Get version from tag
         id: tag_name
         run: |
-          echo ::set-output name=current_version::${GITHUB_REF#refs/tags/v}
+          echo current_version::${GITHUB_REF#refs/tags/v} >> $GITHUB_OUTPUT
         shell: bash
 
       - uses: actions/checkout@v5
@@ -83,7 +83,7 @@ jobs:
         python-version: ["3.11"]
     env:
       DOCKER_USER: ${{secrets.DOCKER_USER}}
-      DOCKER_PASSWORD: ${{secrets.DOCKER_PASSWORD}}
+      DOCKER_PASSWORD: ${{secrets.DOCKER_TOKEN}}
     steps:
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
@@ -137,7 +137,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [windows-latest, macos-14, macos-14-large]
+        os: [windows-latest, macos-14]
     defaults:
       run:
         shell: bash
