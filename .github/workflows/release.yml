@@ -7,7 +7,7 @@ on:
   # Triggers the workflow on push events but only for the master branch
   push:
     tags:
-      - 'v*'
+      - 'v*.*.*'
 
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
@@ -54,25 +54,6 @@ jobs:
               autonomy init --reset --author $AUTHOR --ipfs --remote
               autonomy push-all
 
-      - name: Update Changelog
-        uses: heinrichreimer/github-changelog-generator-action@v2.1.1
-        id: changelog
-        with:
-            token: ${{ secrets.GH_TOKEN }}
-            issues: true
-            issuesWoLabels: true
-            pullRequests: true
-            prWoLabels: true
-            unreleased: true
-            addSections: '{"documentation":{"prefix":"**Documentation:**","labels":["documentation"]}}'
-
-      - uses: stefanzweifel/git-auto-commit-action@v4
-        with:
-          commit_message: Update Changelog for PR
-          file_pattern: CHANGELOG.md
-          branch: main
-          push_options: '--force'
-
       - name: Install Project
         run: |
             make install
@@ -106,7 +87,7 @@ jobs:
     steps:
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           submodules: 'recursive'
           fetch-depth: 0
@@ -161,7 +142,7 @@ jobs:
         run:
           shell: bash
       steps:
-        - uses: actions/checkout@v3
+        - uses: actions/checkout@v5
         - uses: actions/setup-python@v5
           id: setup-python
           with:
@@ -169,32 +150,32 @@ jobs:
         - name: Add Python to PATH
           run: |
             echo "${{ steps.setup-python.outputs.python-path }}" >> $GITHUB_PATH
-        - name: prepare sign things windows
-          if: runner.os == 'Windows'
-          run: |
-            echo Setup Certificate 
-            echo "${{secrets.SM_CLIENT_CERT_FILE_B64 }}" | base64 --decode > /d/Certificate_pkcs12.p12 
-            echo "Set Variables!"
-            echo "::set-output name=version::${GITHUB_REF#refs/tags/v}" 
-            echo "SM_HOST=${{ secrets.SM_HOST }}" >> "$GITHUB_ENV" 
-            echo "SM_API_KEY=${{ secrets.SM_API_KEY }}" >> "$GITHUB_ENV" 
-            echo "SM_KEY_PAIR_ALIAS=${{ secrets.SM_KEY_PAIR_ALIAS }}" >> "$GITHUB_ENV" 
-            echo "SM_CLIENT_CERT_FILE=D:\\Certificate_pkcs12.p12" >> "$GITHUB_ENV" 
-            echo "SM_CLIENT_CERT_PASSWORD=${{ secrets.SM_CLIENT_CERT_PASSWORD }}" >> "$GITHUB_ENV" 
-            echo "C:\Program Files (x86)\Windows Kits\10\App Certification Kit" >> $GITHUB_PATH 
-            echo "C:\Program Files (x86)\Microsoft SDKs\Windows\v10.0A\bin\NETFX 4.8 Tools" >> $GITHUB_PATH 
-            echo "C:\Program Files\DigiCert\DigiCert One Signing Manager Tools" >> $GITHUB_PATH 
-          shell: bash  
-        - name: Setup SSM KSP on windows latest
-          if: runner.os == 'Windows'
-          run: | 
-            curl -X GET  https://one.digicert.com/signingmanager/api-ui/v1/releases/smtools-windows-x64.msi/download -H "x-api-key:%SM_API_KEY%" -o smtools-windows-x64.msi 
-            msiexec /i smtools-windows-x64.msi /quiet /qn 
-            smksp_registrar.exe list 
-            smctl.exe keypair ls 
-            C:\Windows\System32\certutil.exe -csp "DigiCert Signing Manager KSP" -key -user 
-            smksp_cert_sync.exe 
-          shell: cmd  
+        # - name: prepare sign things windows
+        #   if: runner.os == 'Windows'
+        #   run: |
+        #     echo Setup Certificate
+        #     echo "${{secrets.SM_CLIENT_CERT_FILE_B64 }}" | base64 --decode > /d/Certificate_pkcs12.p12
+        #     echo "Set Variables!"
+        #     echo "::set-output name=version::${GITHUB_REF#refs/tags/v}"
+        #     echo "SM_HOST=${{ secrets.SM_HOST }}" >> "$GITHUB_ENV"
+        #     echo "SM_API_KEY=${{ secrets.SM_API_KEY }}" >> "$GITHUB_ENV"
+        #     echo "SM_KEY_PAIR_ALIAS=${{ secrets.SM_KEY_PAIR_ALIAS }}" >> "$GITHUB_ENV"
+        #     echo "SM_CLIENT_CERT_FILE=D:\\Certificate_pkcs12.p12" >> "$GITHUB_ENV"
+        #     echo "SM_CLIENT_CERT_PASSWORD=${{ secrets.SM_CLIENT_CERT_PASSWORD }}" >> "$GITHUB_ENV"
+        #     echo "C:\Program Files (x86)\Windows Kits\10\App Certification Kit" >> $GITHUB_PATH
+        #     echo "C:\Program Files (x86)\Microsoft SDKs\Windows\v10.0A\bin\NETFX 4.8 Tools" >> $GITHUB_PATH
+        #     echo "C:\Program Files\DigiCert\DigiCert One Signing Manager Tools" >> $GITHUB_PATH
+        #   shell: bash
+        # - name: Setup SSM KSP on windows latest
+        #   if: runner.os == 'Windows'
+        #   run: |
+        #     curl -X GET  https://one.digicert.com/signingmanager/api-ui/v1/releases/smtools-windows-x64.msi/download -H "x-api-key:%SM_API_KEY%" -o smtools-windows-x64.msi
+        #     msiexec /i smtools-windows-x64.msi /quiet /qn
+        #     smksp_registrar.exe list
+        #     smctl.exe keypair ls
+        #     C:\Windows\System32\certutil.exe -csp "DigiCert Signing Manager KSP" -key -user
+        #     smksp_cert_sync.exe
+        #   shell: cmd  
         - name: Install and configure Poetry
           run: pip install poetry
         - name: prepare agent
@@ -204,5 +185,154 @@ jobs:
             make hash_id
             make agent_id
             make ./agent/ethereum_private_key.txt
+
+        - name: prepare archives
+          if: runner.os != 'Windows'
+          run: |
+            make agent.zip
+            make agent.tar.gz
+
+        #### MAC
+        - name: build the file mac os
+          if: runner.os != 'Windows'
+          # env:
+          #   CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          #   CSC_LINK: ${{ secrets.CSC_LINK }}
+          #   APPLE_ID: ${{ secrets.APPLE_ID }}  # Apple ID email
+          #   APPLE_ID_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}  # App-specific password
+          #   APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}  # Team ID из Apple Dev Account
+          #   SIGN_ID: "Developer ID Application: Valory AG (${{ secrets.APPLE_TEAM_ID }})"
+          run: |
+            # echo "$CSC_LINK" | base64 --decode > certificate.p12
+
+            # security create-keychain -p temp build.keychain
+            # security default-keychain -s build.keychain
+            # security unlock-keychain -p temp build.keychain
+            # security import certificate.p12 -k build.keychain -P "$CSC_KEY_PASSWORD" -T /usr/bin/codesign
+            # security set-key-partition-list -S apple-tool:,apple: -s -k temp build.keychain
+
+            make build-agent-runner-mac
+
+            # codesign -dv --verbose=4 dist/agent_runner_bin
+      
+        - name: rename the file mac os
+          if: runner.os != 'Windows'
+          run: | 
+            export FILENAME=`echo -n agent_runner_${{runner.os}}_${{runner.arch}}|tr '[:upper:]' '[:lower:]'`
+            echo "FILENAME=$FILENAME" >> $GITHUB_ENV; 
+            cp dist/agent_runner_bin dist/${FILENAME}
+            dist/${FILENAME} --version
+        
+        ### WINDOWS
+        - name: Build Agent Runner Windonws
+          if: runner.os == 'Windows'
+          run: |
+              make build-agent-runner
+
+        # - name: sign the file
+        #   if: runner.os == 'Windows'
+        #   run: |
+        #     "C:\\Program Files\\DigiCert\\DigiCert One Signing Manager Tools\\smctl.exe" sign --keypair-alias=${{ secrets.SM_KEY_PAIR_ALIAS }} --input "dist/agent_runner_bin.exe"
+
+        - name: rename the file windows
+          if: runner.os == 'Windows'
+          run: | 
+            export FILENAME=`echo -n agent_runner_${{runner.os}}_${{runner.arch}}.exe|tr '[:upper:]' '[:lower:]'`
+            echo "FILENAME=$FILENAME" >> $GITHUB_ENV; 
+            cp dist/agent_runner_bin.exe dist/${FILENAME}
+
+        ### PERFORM CHECK OF AGENT RUNNER
+        - name: check agent runner
+          run: | 
+            make check-agent-runner
+
+        - name: Upload Release Assets Windows
+          uses: actions/upload-artifact@v4
+          with:
+            name: ${{env.FILENAME}}
+            path: dist/${{env.FILENAME}}
+
+        - name: Upload Release Assets 
+          uses: actions/upload-artifact@v4
+          with:
+            name: hash_id
+            path: hash_id
+            overwrite: true
+        - name: Upload Release Assets 
+          uses: actions/upload-artifact@v4
+          with:
+            name: agent_id
+            path: agent_id
+            overwrite: true
+
+        - name: Upload Release Assets 
+          uses: actions/upload-artifact@v4
+          with:
+            name: agent.tar.gz
+            path: agent.tar.gz
+            overwrite: true
+
+        - name: Upload Release Assets 
+          uses: actions/upload-artifact@v4
+          with:
+            name: agent.zip
+            path: agent.zip
+            overwrite: true
+
+    upload-assets:
+        needs: build-agent-runner
+        runs-on: ubuntu-latest
+        steps:
+          - name: Download artifacts
+            uses: actions/download-artifact@v4
+            with:
+              name: agent_runner_macos_x64
+              path: ./dist/
+
+          - name: Download artifacts
+            uses: actions/download-artifact@v4
+            with:
+              name: agent_runner_macos_arm64
+              path: ./dist/
+          - name: Download artifacts
+            uses: actions/download-artifact@v4
+            with:
+              name: agent_runner_windows_x64.exe
+              path: ./dist/
+
+          - name: Download artifacts
+            uses: actions/download-artifact@v4
+            with:
+              name: agent_id
+              path: ./dist/
+          - name: Download artifacts
+            uses: actions/download-artifact@v4
+            with:
+              name: hash_id
+              path: ./dist/
+          - name: Download artifacts
+            uses: actions/download-artifact@v4
+            with:
+              name: agent.zip
+              path: ./dist/
+          - name: Download artifacts
+            uses: actions/download-artifact@v4
+            with:
+              name: agent.tar.gz
+              path: ./dist/
+
+          - name: List files
+            run: ls ./dist/
+
+          - name: Publish Release
+            uses: softprops/action-gh-release@v2
+            if: startsWith(github.ref, 'refs/tags/')
+            with:
+              files: |
+                ./dist/agent_runner*
+                ./dist/hash_id
+                ./dist/agent_id
+                ./dist/agent.zip
+                ./dist/agent.tar.gz
           
 
