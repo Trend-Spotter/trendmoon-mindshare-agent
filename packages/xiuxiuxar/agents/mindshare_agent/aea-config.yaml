@@ -16,11 +16,11 @@ connections:
 - eightballer/dcxt:0.1.0:bafybeihj2ko7bwqmxiudoixrlzwml5snurdxaiomfl4lrbbcat3k5sxnxy
 contracts:
 - eightballer/erc_20:0.1.0:bafybeiewlvc62xn6flmzn2dodqw3w6p3w5jqwkx36w5caznf6zjph7t2se
-- xiuxiuxar/erc20:0.1.0:bafybeicgac7pmw7p2vnakyfkcbawvihsx6wfaxcufmnidifduif4urvxni
+- valory/erc20:0.1.0:bafybeihzzfy7hhegokwbzuwfqdzx2ck3jvg4ccb53fpy4btq7so3f4nezq
 - valory/multisend:0.1.0:bafybeicgoayj3nfrslr5ilcvmytdlc62ebtef2yzc5iq72ivbvgykv26wm
-- xiuxiuxar/gnosis_safe:0.1.0:bafybeigicdbedhjypzqbyhwn763eyafyv4lhgw4x5vkmxvcljvwignztdu
-- xiuxiuxar/gnosis_safe_proxy_factory:0.1.0:bafybeih23obkvzfvq7m2ynggncpgddpz74xwhmmxgjqeohnuqj2jnt22mm
-- xiuxiuxar/staking_token:0.1.0:bafybeietiuap57gtlaidqnlb3rdy5qkllc5puzcncqehl75srinppwrnde
+- valory/gnosis_safe:0.1.0:bafybeigsekgqjoi5phewoqfoqwzsxei4qwfv6n5rapzhd75pvamypvwohe
+- valory/gnosis_safe_proxy_factory:0.1.0:bafybeibbzlmexojfots3kddaglfg2a4ieyebly7wnb2gismqxsosp5f6oi
+- valory/staking_token:0.1.0:bafybeif3d753nt6um3qrdtrytmlyqd7ao7spio6yits3qymuj62y3h2jri
 protocols:
 - valory/contract_api:1.0.0:bafybeidpch6cvuweq5x4h6ummnnw5xynmfsbj3sxm2m63seuqizrmvpd3e
 - eightballer/default:0.1.0:bafybeibu3dme3plwprq5j6xl6vfx2e5ebwbudtj5yndkxcsoiwxljst22a
@@ -32,7 +32,7 @@ protocols:
 - valory/ledger_api:1.0.0:bafybeic5qfhodpwqjdkwxs4gzummpc3dxbpn4egg7s7f2gibfopa4nxz4i
 skills:
 - eightballer/prometheus:0.1.0:bafybeibfuwvdxxnxnm2gghg4t2c7ucdxhmu2xlrpdkk46t5rx7qskbx7ui
-- xiuxiuxar/mindshare_app:0.1.0:bafybeifmdqgtwj66cls3muwm6vy4lc4ncgyihosz4ov6zldor7oozxliom
+- xiuxiuxar/mindshare_app:0.1.0:bafybeid6qxmvful2wcmpl5hsnbl43yl74m62k2ki57apxzfqnrpi5knuie
 customs: []
 default_ledger: ethereum
 required_ledgers:
