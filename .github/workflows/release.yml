@@ -180,6 +180,11 @@ jobs:
         #   shell: cmd  
         - name: Install and configure Poetry
           run: pip install poetry
+        - name: Set up Python executable (Windows)
+          if: runner.os == 'Windows'
+          run: |
+            python --version
+            poetry env use python
         - name: prepare agent
           run: |
             make install
