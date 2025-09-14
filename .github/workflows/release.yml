@@ -134,9 +134,9 @@ jobs:
   build-agent-runner:
     needs:
       - "publish-packages"
-      runs-on: ${{ matrix.os }}
-      strategy:
-        matrix:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
           os: [windows-latest, macos-14, macos-14-large]
       defaults:
         run:
