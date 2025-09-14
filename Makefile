@@ -48,6 +48,21 @@ hashes: clean
 	poetry run autonomy packages lock
 	poetry run autonomy push-all
 
+./hash_id: ./packages/packages.json
+	cat ./packages/packages.json | jq -r '.dev | to_entries[] | select(.key | startswith("agent/")) | .value' > ./hash_id
+
+./agent_id: ./packages/packages.json
+	cat ./packages/packages.json | jq -r '.dev | to_entries[] | select(.key | startswith("agent/")) | .key | sub("^agent/"; "")' > ./agent_id
+
+./agent.zip: ./agent
+	zip -r ./agent.zip ./agent
+
+./agent.tar.gz: ./agent
+	tar czf ./agent.tar.gz ./agent
+
+./agent/ethereum_private_key.txt: ./agent
+	poetry run bash -c "cd ./agent; autonomy  -s generate-key ethereum; autonomy  -s add-key ethereum ethereum_private_key.txt; autonomy -s issue-certificates;"
+
 lint:
 	poetry run adev -v -n 0 lint
 
