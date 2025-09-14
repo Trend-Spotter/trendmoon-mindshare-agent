@@ -12,11 +12,11 @@ fingerprint:
   behaviours/__init__.py: bafybeih2dnrparrlxp2i4km2sozarcl7zzlzqoezmogasfcug52bq7tvpm
   behaviours/analysis.py: bafybeib5w6h36ko3k7abhbrpygfkx5lzocbt7s73jc5nteazmfqnhg4wdm
   behaviours/base.py: bafybeih7ubjqowqxgpkjfdimol6yoiadfpctnzfttzln6gbp4hmhdepn5u
-  behaviours/call_checkpoint.py: bafybeiduy2luo36jhiutid7ck33bazniolfkg37wijeopcircwwy3nkrga
-  behaviours/check_staking_kpi_met.py: bafybeif3iikp7hvjvirgtm33kbiusuyx7x7uawtsh4qc4bu7bjkehiwq7m
+  behaviours/call_checkpoint.py: bafybeig5nfhmd6e4c3lz22v7dqlpnrizhaytslwkpbsjnwzo3cuk7o6rri
+  behaviours/check_staking_kpi_met.py: bafybeihu5jswv66lwx6quhtqygsetbdcrbdzigfmtx445apt427xt7lfqa
   behaviours/data_collection.py: bafybeiarqzjfwtrrbists6ht2xevsgntluw22rwaetctoyryxrzhkpccei
   behaviours/error.py: bafybeibg3oabttq34n3ltv7hv7wwfbcxdazzlr5zup2w4rcht2qm5n6d44
-  behaviours/execution.py: bafybeidncv3se3xcoddqqixb2b7th33qeaiqff5aivlklajjc6puanqgba
+  behaviours/execution.py: bafybeievokpkq4kpapdcs4ztgnk7ov76zvnu3dgtn7ehiqtk3agzxuzqle
   behaviours/pause.py: bafybeifzn3vqxbjj6lqiwmcclejoukr3oyhdevdkalqymtwfkdni3aoke4
   behaviours/portfolio_validation.py: bafybeiftugssmtjbx4uwaldm3zlg5lnzok64butky5gmb5lqaeslmpbrqa
   behaviours/position_monitor.py: bafybeieptxlmk4ffgliaryh2ebqszshafturnq3oi5677z5kp5jh6jcwxy
@@ -42,11 +42,11 @@ connections:
 - eightballer/http_client:0.1.0:bafybeiatbbjb36uvzzc2pnnrqpdk2xlaic5zwsxj6frswqhw6illauqg6e
 contracts:
 - eightballer/erc_20:0.1.0:bafybeiewlvc62xn6flmzn2dodqw3w6p3w5jqwkx36w5caznf6zjph7t2se
-- xiuxiuxar/erc20:0.1.0:bafybeicgac7pmw7p2vnakyfkcbawvihsx6wfaxcufmnidifduif4urvxni
-- xiuxiuxar/gnosis_safe:0.1.0:bafybeigicdbedhjypzqbyhwn763eyafyv4lhgw4x5vkmxvcljvwignztdu
+- valory/erc20:0.1.0:bafybeihzzfy7hhegokwbzuwfqdzx2ck3jvg4ccb53fpy4btq7so3f4nezq
+- valory/gnosis_safe:0.1.0:bafybeigsekgqjoi5phewoqfoqwzsxei4qwfv6n5rapzhd75pvamypvwohe
 - valory/multisend:0.1.0:bafybeicgoayj3nfrslr5ilcvmytdlc62ebtef2yzc5iq72ivbvgykv26wm
-- xiuxiuxar/staking_token:0.1.0:bafybeietiuap57gtlaidqnlb3rdy5qkllc5puzcncqehl75srinppwrnde
-- xiuxiuxar/staking_activity_checker:0.1.0:bafybeibwjs5gv74abmdpbbkirlfkc4xgvou3uslcwtscvt6zgqlfw7lesm
+- valory/staking_token:0.1.0:bafybeif3d753nt6um3qrdtrytmlyqd7ao7spio6yits3qymuj62y3h2jri
+- valory/staking_activity_checker:0.1.0:bafybeigud6ulyzvjvoz3xhvogadsk4xdpcvkpzfambez4oaq2razqidgjy
 protocols:
 - valory/contract_api:1.0.0:bafybeidpch6cvuweq5x4h6ummnnw5xynmfsbj3sxm2m63seuqizrmvpd3e
 - eightballer/default:0.1.0:bafybeibu3dme3plwprq5j6xl6vfx2e5ebwbudtj5yndkxcsoiwxljst22a

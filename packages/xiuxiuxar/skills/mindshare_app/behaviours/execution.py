@@ -30,14 +30,14 @@ from packages.valory.protocols.ledger_api import LedgerApiMessage
 from packages.eightballer.connections.dcxt import PUBLIC_ID as DCXT_PUBLIC_ID
 from packages.eightballer.protocols.orders import OrdersMessage
 from packages.valory.protocols.contract_api import ContractApiMessage
+from packages.valory.contracts.erc20.contract import ERC20
 from packages.open_aea.protocols.signing.message import SigningMessage
-from packages.xiuxiuxar.contracts.erc20.contract import ERC20
 from packages.valory.contracts.multisend.contract import MultiSendContract, MultiSendOperation
 from packages.valory.connections.ledger.connection import (
     PUBLIC_ID as LEDGER_CONNECTION_PUBLIC_ID,
 )
+from packages.valory.contracts.gnosis_safe.contract import SafeOperation, GnosisSafeContract
 from packages.valory.protocols.ledger_api.custom_types import Terms, TransactionDigest
-from packages.xiuxiuxar.contracts.gnosis_safe.contract import SafeOperation, GnosisSafeContract
 from packages.eightballer.protocols.orders.custom_types import Order, OrderSide, OrderType, OrderStatus
 from packages.xiuxiuxar.skills.mindshare_app.behaviours.base import (
     ALLOWED_ASSETS,

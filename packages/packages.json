@@ -1,13 +1,8 @@
 {
     "dev": {
-        "contract/xiuxiuxar/gnosis_safe/0.1.0": "bafybeigicdbedhjypzqbyhwn763eyafyv4lhgw4x5vkmxvcljvwignztdu",
-        "contract/xiuxiuxar/gnosis_safe_proxy_factory/0.1.0": "bafybeih23obkvzfvq7m2ynggncpgddpz74xwhmmxgjqeohnuqj2jnt22mm",
-        "contract/xiuxiuxar/staking_activity_checker/0.1.0": "bafybeibwjs5gv74abmdpbbkirlfkc4xgvou3uslcwtscvt6zgqlfw7lesm",
-        "contract/xiuxiuxar/staking_token/0.1.0": "bafybeietiuap57gtlaidqnlb3rdy5qkllc5puzcncqehl75srinppwrnde",
-        "contract/xiuxiuxar/erc20/0.1.0": "bafybeicgac7pmw7p2vnakyfkcbawvihsx6wfaxcufmnidifduif4urvxni",
-        "skill/xiuxiuxar/mindshare_app/0.1.0": "bafybeifmdqgtwj66cls3muwm6vy4lc4ncgyihosz4ov6zldor7oozxliom",
-        "agent/xiuxiuxar/mindshare_agent/0.1.0": "bafybeih2hq6zo3idm2kjhw67qzgspjeyjkyi7cbkg4vko2czqwvjkvrsgm",
-        "service/xiuxiuxar/mindshare_agent/0.1.0": "bafybeici5iiih4hkqkym2crpdmxwueyiqyjpggfwbejvf2scepunhd5bgm"
+        "skill/xiuxiuxar/mindshare_app/0.1.0": "bafybeibytkeybzkhttshmxy3hegikrfzrr3lqkfpbz4jaccw4i2rvunjee",
+        "agent/xiuxiuxar/mindshare_agent/0.1.0": "bafybeigkefwey7ns7oak26pmveqvijp2tsovhm245yocdjy73occjhu6dm",
+        "service/xiuxiuxar/mindshare_agent/0.1.0": "bafybeiafdsj2rp3taot5e6ftk4dpksyj24ropsust3o7upow6irx5bkknm"
     },
     "third_party": {
         "protocol/valory/contract_api/1.0.0": "bafybeidpch6cvuweq5x4h6ummnnw5xynmfsbj3sxm2m63seuqizrmvpd3e",
@@ -31,6 +26,11 @@
         "protocol/eightballer/approvals/0.1.0": "bafybeicls6lqqye4lmw35dkmnvfdhbpzavpeylx7adrvnqusqq57qa5zd4",
         "contract/eightballer/erc_20/0.1.0": "bafybeiewlvc62xn6flmzn2dodqw3w6p3w5jqwkx36w5caznf6zjph7t2se",
         "contract/valory/multisend/0.1.0": "bafybeicgoayj3nfrslr5ilcvmytdlc62ebtef2yzc5iq72ivbvgykv26wm",
+        "contract/valory/erc20/0.1.0": "bafybeihzzfy7hhegokwbzuwfqdzx2ck3jvg4ccb53fpy4btq7so3f4nezq",
+        "contract/valory/gnosis_safe_proxy_factory/0.1.0": "bafybeibbzlmexojfots3kddaglfg2a4ieyebly7wnb2gismqxsosp5f6oi",
+        "contract/valory/gnosis_safe/0.1.0": "bafybeigsekgqjoi5phewoqfoqwzsxei4qwfv6n5rapzhd75pvamypvwohe",
+        "contract/valory/staking_activity_checker/0.1.0": "bafybeigud6ulyzvjvoz3xhvogadsk4xdpcvkpzfambez4oaq2razqidgjy",
+        "contract/valory/staking_token/0.1.0": "bafybeif3d753nt6um3qrdtrytmlyqd7ao7spio6yits3qymuj62y3h2jri",
         "connection/eightballer/http_client/0.1.0": "bafybeiatbbjb36uvzzc2pnnrqpdk2xlaic5zwsxj6frswqhw6illauqg6e",
         "connection/eightballer/http_server/0.1.0": "bafybeifilny6luzcs4dtv5d2ta4fqqgi7aixch7f75sqnwcqh73oxcgtdu",
         "connection/eightballer/prometheus/0.1.1": "bafybeig7p3tzs7x4awcxjr7ctxljr6h7mrc2c36thnab6zoteualgivj6e",
