@@ -1,5 +1,15 @@
 {
     "dev": {
+        "contract/xiuxiuxar/gnosis_safe/0.1.0": "bafybeigicdbedhjypzqbyhwn763eyafyv4lhgw4x5vkmxvcljvwignztdu",
+        "contract/xiuxiuxar/gnosis_safe_proxy_factory/0.1.0": "bafybeih23obkvzfvq7m2ynggncpgddpz74xwhmmxgjqeohnuqj2jnt22mm",
+        "contract/xiuxiuxar/staking_activity_checker/0.1.0": "bafybeibwjs5gv74abmdpbbkirlfkc4xgvou3uslcwtscvt6zgqlfw7lesm",
+        "contract/xiuxiuxar/staking_token/0.1.0": "bafybeietiuap57gtlaidqnlb3rdy5qkllc5puzcncqehl75srinppwrnde",
+        "contract/xiuxiuxar/erc20/0.1.0": "bafybeicgac7pmw7p2vnakyfkcbawvihsx6wfaxcufmnidifduif4urvxni",
+        "skill/xiuxiuxar/mindshare_app/0.1.0": "bafybeifmdqgtwj66cls3muwm6vy4lc4ncgyihosz4ov6zldor7oozxliom",
+        "agent/xiuxiuxar/mindshare_agent/0.1.0": "bafybeih2hq6zo3idm2kjhw67qzgspjeyjkyi7cbkg4vko2czqwvjkvrsgm",
+        "service/xiuxiuxar/mindshare_agent/0.1.0": "bafybeici5iiih4hkqkym2crpdmxwueyiqyjpggfwbejvf2scepunhd5bgm"
+    },
+    "third_party": {
         "protocol/valory/contract_api/1.0.0": "bafybeidpch6cvuweq5x4h6ummnnw5xynmfsbj3sxm2m63seuqizrmvpd3e",
         "protocol/eightballer/default/0.1.0": "bafybeibu3dme3plwprq5j6xl6vfx2e5ebwbudtj5yndkxcsoiwxljst22a",
         "protocol/eightballer/http/0.1.0": "bafybeicpvdcuz5wqgnzqzqyyh3ifo63pqjhze6escra4dxqpxbaz5qs2jy",
@@ -19,11 +29,6 @@
         "protocol/eightballer/balances/0.1.0": "bafybeifwf2z4rkaooohcsuzspsnvm2fcxl7mplcmb6id2rybky22medzmu",
         "protocol/zarathustra/asset_bridging/0.1.0": "bafybeiaz6wvy7ihbsjynrhmuyghdf4m4q4un6wlg6b566hb6rc4xpz4bwi",
         "protocol/eightballer/approvals/0.1.0": "bafybeicls6lqqye4lmw35dkmnvfdhbpzavpeylx7adrvnqusqq57qa5zd4",
-        "contract/xiuxiuxar/gnosis_safe/0.1.0": "bafybeigicdbedhjypzqbyhwn763eyafyv4lhgw4x5vkmxvcljvwignztdu",
-        "contract/xiuxiuxar/gnosis_safe_proxy_factory/0.1.0": "bafybeih23obkvzfvq7m2ynggncpgddpz74xwhmmxgjqeohnuqj2jnt22mm",
-        "contract/xiuxiuxar/staking_activity_checker/0.1.0": "bafybeibwjs5gv74abmdpbbkirlfkc4xgvou3uslcwtscvt6zgqlfw7lesm",
-        "contract/xiuxiuxar/staking_token/0.1.0": "bafybeietiuap57gtlaidqnlb3rdy5qkllc5puzcncqehl75srinppwrnde",
-        "contract/xiuxiuxar/erc20/0.1.0": "bafybeicgac7pmw7p2vnakyfkcbawvihsx6wfaxcufmnidifduif4urvxni",
         "contract/eightballer/erc_20/0.1.0": "bafybeiewlvc62xn6flmzn2dodqw3w6p3w5jqwkx36w5caznf6zjph7t2se",
         "contract/valory/multisend/0.1.0": "bafybeicgoayj3nfrslr5ilcvmytdlc62ebtef2yzc5iq72ivbvgykv26wm",
         "connection/eightballer/http_client/0.1.0": "bafybeiatbbjb36uvzzc2pnnrqpdk2xlaic5zwsxj6frswqhw6illauqg6e",
@@ -33,10 +38,6 @@
         "connection/valory/ledger/0.19.0": "bafybeierez3cyecdieur34h2wc7wgaqnzfxm6nv5uhxkujlyqdap4wkjvi",
         "connection/valory/ipfs/0.1.0": "bafybeiaiv6xnc6bc5pa5vrn7wng3oq2rb4nmuyi5ti3a6glaomagyqddt4",
         "connection/valory/http_client/0.23.0": "bafybeiglmlwp73njl6ijmruak5ivpfx7hv6gamap72ygsvd7jmonrdtbkm",
-        "skill/xiuxiuxar/mindshare_app/0.1.0": "bafybeifmdqgtwj66cls3muwm6vy4lc4ncgyihosz4ov6zldor7oozxliom",
-        "skill/eightballer/prometheus/0.1.0": "bafybeibfuwvdxxnxnm2gghg4t2c7ucdxhmu2xlrpdkk46t5rx7qskbx7ui",
-        "agent/xiuxiuxar/mindshare_agent/0.1.0": "bafybeih2hq6zo3idm2kjhw67qzgspjeyjkyi7cbkg4vko2czqwvjkvrsgm",
-        "service/xiuxiuxar/mindshare_agent/0.1.0": "bafybeici5iiih4hkqkym2crpdmxwueyiqyjpggfwbejvf2scepunhd5bgm"
-    },
-    "third_party": {}
+        "skill/eightballer/prometheus/0.1.0": "bafybeibfuwvdxxnxnm2gghg4t2c7ucdxhmu2xlrpdkk46t5rx7qskbx7ui"
+    }
 }
