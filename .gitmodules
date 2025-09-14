@@ -1,0 +1,3 @@
+[submodule "third_party/forks/autodev"]
+	path = third_party/forks/autodev
+	url = https://github.com/8ball030/auto_dev.git

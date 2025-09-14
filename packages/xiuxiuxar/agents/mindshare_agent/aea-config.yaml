@@ -12,12 +12,12 @@ connections:
 - eightballer/http_client:0.1.0:bafybeiatbbjb36uvzzc2pnnrqpdk2xlaic5zwsxj6frswqhw6illauqg6e
 - eightballer/http_server:0.1.0:bafybeifilny6luzcs4dtv5d2ta4fqqgi7aixch7f75sqnwcqh73oxcgtdu
 - eightballer/prometheus:0.1.1:bafybeig7p3tzs7x4awcxjr7ctxljr6h7mrc2c36thnab6zoteualgivj6e
-- valory/ledger:0.19.0:bafybeiewhg4ogvr6ccstyvwel4vgpi4rccahoafkpgpak6d7h75a4o3mqm
+- valory/ledger:0.19.0:bafybeierez3cyecdieur34h2wc7wgaqnzfxm6nv5uhxkujlyqdap4wkjvi
 - eightballer/dcxt:0.1.0:bafybeihj2ko7bwqmxiudoixrlzwml5snurdxaiomfl4lrbbcat3k5sxnxy
 contracts:
 - eightballer/erc_20:0.1.0:bafybeiewlvc62xn6flmzn2dodqw3w6p3w5jqwkx36w5caznf6zjph7t2se
 - xiuxiuxar/erc20:0.1.0:bafybeicgac7pmw7p2vnakyfkcbawvihsx6wfaxcufmnidifduif4urvxni
-- valory/multisend:0.1.0:bafybeigf32oq3jia7uqzetggklri7hzqwfqpzys2bzr2gq7xhrkoc35ace
+- valory/multisend:0.1.0:bafybeicgoayj3nfrslr5ilcvmytdlc62ebtef2yzc5iq72ivbvgykv26wm
 - xiuxiuxar/gnosis_safe:0.1.0:bafybeigicdbedhjypzqbyhwn763eyafyv4lhgw4x5vkmxvcljvwignztdu
 - xiuxiuxar/gnosis_safe_proxy_factory:0.1.0:bafybeih23obkvzfvq7m2ynggncpgddpz74xwhmmxgjqeohnuqj2jnt22mm
 - xiuxiuxar/staking_token:0.1.0:bafybeietiuap57gtlaidqnlb3rdy5qkllc5puzcncqehl75srinppwrnde
@@ -26,13 +26,13 @@ protocols:
 - eightballer/default:0.1.0:bafybeibu3dme3plwprq5j6xl6vfx2e5ebwbudtj5yndkxcsoiwxljst22a
 - eightballer/http:0.1.0:bafybeicpvdcuz5wqgnzqzqyyh3ifo63pqjhze6escra4dxqpxbaz5qs2jy
 - eightballer/prometheus:1.0.0:bafybeiedkmjjqbxyid67hwhpkvyknst5rdtn5pazs6rtaa3mj6r2buwl7q
-- open_aea/signing:1.0.0:bafybeiefi3brtm7nwucrbkiuuyu4tqo3zs4nmazjympfwnjzblkmo3i2ti
+- open_aea/signing:1.0.0:bafybeign4u6o3jtz2kuelpuhrmzosbyix2iwf7ifxythigrcuef4ybmuna
 - eightballer/tickers:0.1.0:bafybeifiytrsffwnhhilbavse623qsil3tulizbazf7cd7ghfepriejgkq
 - eightballer/orders:0.1.0:bafybeid24shv2uqltnnxn72p6upjb7qzq3lew7fgre2dno72ui5oolvbee
-- valory/ledger_api:1.0.0:bafybeibs34uqr4siluur7orj7tahrlyiokdt57ytiigprnrhi7crqcxe5u
+- valory/ledger_api:1.0.0:bafybeic5qfhodpwqjdkwxs4gzummpc3dxbpn4egg7s7f2gibfopa4nxz4i
 skills:
 - eightballer/prometheus:0.1.0:bafybeibfuwvdxxnxnm2gghg4t2c7ucdxhmu2xlrpdkk46t5rx7qskbx7ui
-- xiuxiuxar/mindshare_app:0.1.0:bafybeigmjfman7w3jmsefqcoiudjdxp4vu6c5kkhjkhmc7xwhtrwqj4efa
+- xiuxiuxar/mindshare_app:0.1.0:bafybeifmdqgtwj66cls3muwm6vy4lc4ncgyihosz4ov6zldor7oozxliom
 customs: []
 default_ledger: ethereum
 required_ledgers:

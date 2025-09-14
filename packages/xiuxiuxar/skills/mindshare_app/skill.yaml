@@ -38,13 +38,13 @@ fingerprint:
 fingerprint_ignore_patterns: []
 connections:
 - eightballer/dcxt:0.1.0:bafybeihj2ko7bwqmxiudoixrlzwml5snurdxaiomfl4lrbbcat3k5sxnxy
-- valory/ledger:0.19.0:bafybeiewhg4ogvr6ccstyvwel4vgpi4rccahoafkpgpak6d7h75a4o3mqm
+- valory/ledger:0.19.0:bafybeierez3cyecdieur34h2wc7wgaqnzfxm6nv5uhxkujlyqdap4wkjvi
 - eightballer/http_client:0.1.0:bafybeiatbbjb36uvzzc2pnnrqpdk2xlaic5zwsxj6frswqhw6illauqg6e
 contracts:
 - eightballer/erc_20:0.1.0:bafybeiewlvc62xn6flmzn2dodqw3w6p3w5jqwkx36w5caznf6zjph7t2se
 - xiuxiuxar/erc20:0.1.0:bafybeicgac7pmw7p2vnakyfkcbawvihsx6wfaxcufmnidifduif4urvxni
 - xiuxiuxar/gnosis_safe:0.1.0:bafybeigicdbedhjypzqbyhwn763eyafyv4lhgw4x5vkmxvcljvwignztdu
-- valory/multisend:0.1.0:bafybeigf32oq3jia7uqzetggklri7hzqwfqpzys2bzr2gq7xhrkoc35ace
+- valory/multisend:0.1.0:bafybeicgoayj3nfrslr5ilcvmytdlc62ebtef2yzc5iq72ivbvgykv26wm
 - xiuxiuxar/staking_token:0.1.0:bafybeietiuap57gtlaidqnlb3rdy5qkllc5puzcncqehl75srinppwrnde
 - xiuxiuxar/staking_activity_checker:0.1.0:bafybeibwjs5gv74abmdpbbkirlfkc4xgvou3uslcwtscvt6zgqlfw7lesm
 protocols:
@@ -53,8 +53,8 @@ protocols:
 - eightballer/http:0.1.0:bafybeicpvdcuz5wqgnzqzqyyh3ifo63pqjhze6escra4dxqpxbaz5qs2jy
 - eightballer/tickers:0.1.0:bafybeifiytrsffwnhhilbavse623qsil3tulizbazf7cd7ghfepriejgkq
 - eightballer/orders:0.1.0:bafybeid24shv2uqltnnxn72p6upjb7qzq3lew7fgre2dno72ui5oolvbee
-- valory/ledger_api:1.0.0:bafybeibs34uqr4siluur7orj7tahrlyiokdt57ytiigprnrhi7crqcxe5u
-- open_aea/signing:1.0.0:bafybeiefi3brtm7nwucrbkiuuyu4tqo3zs4nmazjympfwnjzblkmo3i2ti
+- valory/ledger_api:1.0.0:bafybeic5qfhodpwqjdkwxs4gzummpc3dxbpn4egg7s7f2gibfopa4nxz4i
+- open_aea/signing:1.0.0:bafybeign4u6o3jtz2kuelpuhrmzosbyix2iwf7ifxythigrcuef4ybmuna
 skills: []
 behaviours:
   main:
