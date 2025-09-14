@@ -185,7 +185,16 @@ jobs:
           run: |
             python --version
             poetry env use python
-        - name: prepare agent
+            poetry install --all-extras
+        - name: prepare agent (Windows)
+          if: runner.os == 'Windows'
+          run: |
+            poetry run autonomy init --reset --author "dummy_author_git_ci" --ipfs --remote
+            make hash_id
+            make agent_id
+            make ./agent/ethereum_private_key.txt
+        - name: prepare agent (Non-Windows)
+          if: runner.os != 'Windows'
           run: |
             make install
             poetry run autonomy init --reset --author "dummy_author_git_ci" --ipfs --remote
