@@ -36,8 +36,8 @@ from packages.valory.contracts.multisend.contract import MultiSendContract, Mult
 from packages.valory.connections.ledger.connection import (
     PUBLIC_ID as LEDGER_CONNECTION_PUBLIC_ID,
 )
+from packages.valory.contracts.gnosis_safe.contract import SafeOperation, GnosisSafeContract
 from packages.valory.protocols.ledger_api.custom_types import Terms, TransactionDigest
-from packages.xiuxiuxar.contracts.gnosis_safe.contract import SafeOperation, GnosisSafeContract
 from packages.eightballer.protocols.orders.custom_types import Order, OrderSide, OrderType, OrderStatus
 from packages.xiuxiuxar.skills.mindshare_app.behaviours.base import (
     ALLOWED_ASSETS,
@@ -488,6 +488,7 @@ class ExecutionRound(BaseState):
     def _validate_cow_approval_response(self, message: Message, dialogue: BaseDialogue) -> bool:
         """Process CoW ERC20 approval response and prepare for Safe execution."""
         try:
+            self.context.logger.info(f"Validating CoW approval response: {message}")
             if message.performative == ContractApiMessage.Performative.RAW_TRANSACTION:
                 data = message.raw_transaction.body.get("data")
                 if data:

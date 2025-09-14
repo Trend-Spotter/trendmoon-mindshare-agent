@@ -19,19 +19,18 @@ jobs:
       fail-fast: false
       matrix:
         python-version:
-        # - "3.9"
         - "3.11"
-        poetry-version: ["1.8.3"]
+        poetry-version: ["2.0.1"]
         os: [ubuntu-22.04,]
     runs-on: ${{ matrix.os }}
     env:
       PYTHONPATH: .
       PYTHONWARNINGS: ignore
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v5
         with:
           submodules: 'recursive'
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install and configure Poetry

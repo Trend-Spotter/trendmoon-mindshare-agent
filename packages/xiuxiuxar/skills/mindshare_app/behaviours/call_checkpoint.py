@@ -19,6 +19,7 @@
 """This module contains the implementation of the behaviours of Mindshare App skill."""
 
 import json
+import math
 from enum import Enum
 from typing import Any
 from pathlib import Path
@@ -30,9 +31,9 @@ from autonomy.deploy.constants import DEFAULT_ENCODING
 from packages.valory.protocols.ledger_api import LedgerApiMessage
 from packages.valory.protocols.contract_api import ContractApiMessage
 from packages.open_aea.protocols.signing.message import SigningMessage
+from packages.valory.contracts.gnosis_safe.contract import SafeOperation, GnosisSafeContract
 from packages.valory.contracts.staking_token.contract import StakingTokenContract
 from packages.valory.protocols.ledger_api.custom_types import Terms
-from packages.xiuxiuxar.contracts.gnosis_safe.contract import SafeOperation, GnosisSafeContract
 from packages.xiuxiuxar.skills.mindshare_app.dialogues import ContractApiDialogue
 from packages.xiuxiuxar.skills.mindshare_app.behaviours.base import (
     ETHER_VALUE,
@@ -43,6 +44,15 @@ from packages.xiuxiuxar.skills.mindshare_app.behaviours.base import (
     MindshareabciappEvents,
     MindshareabciappStates,
 )
+from packages.valory.contracts.staking_activity_checker.contract import StakingActivityCheckerContract
+
+
+# Liveness ratio from the staking contract is expressed in calls per 10**18 seconds.
+LIVENESS_RATIO_SCALE_FACTOR = 10**18
+
+# A safety margin in case there is a delay between the moment the KPI condition is
+# satisfied, and the moment where the checkpoint is called.
+REQUIRED_REQUESTS_SAFETY_MARGIN = 1
 
 
 class StakingState(Enum):
@@ -83,6 +93,7 @@ class CallCheckpointRound(BaseState):
         self.checkpoint_tx_raw_data: bytes | None = None
         self.checkpoint_tx_signed_data: bytes | None = None
         self.checkpoint_tx_final_hash: str | None = None
+        self.min_num_of_safe_tx_required: int | None = None
 
     def setup(self) -> None:
         """Perform the setup."""
@@ -106,6 +117,7 @@ class CallCheckpointRound(BaseState):
         self.checkpoint_tx_raw_data = None
         self.checkpoint_tx_signed_data = None
         self.checkpoint_tx_final_hash = None
+        self.min_num_of_safe_tx_required = None
         for k in self.supported_protocols:
             self.supported_protocols[k] = []
 
@@ -241,8 +253,7 @@ class CallCheckpointRound(BaseState):
 
         self.context.logger.info("Initializing checkpoint check...")
 
-        staking_chain = self.context.params.staking_chain
-        if not staking_chain:
+        if not self.context.params.staking_chain:
             self.context.logger.warning("Service has not been staked on any chain!")
             self.service_staking_state = StakingState.UNSTAKED
             self.staking_state_check_complete = True
@@ -255,12 +266,7 @@ class CallCheckpointRound(BaseState):
     def _get_service_staking_state_async(self) -> None:
         """Get service staking state asynchronously."""
         try:
-            staking_chain = self.context.params.staking_chain
-            staking_token_contract_address = getattr(self.context.params, "staking_token_contract_address", None)
-            service_id = getattr(self.context.params, "service_id", None)
-            on_chain_service_id = getattr(self.context.params, "on_chain_service_id", None)
-
-            if not staking_token_contract_address or not service_id:
+            if not self.context.params.staking_token_contract_address or not self.context.params.service_id:
                 self.context.logger.warning("Missing staking contract address or service ID")
                 self.service_staking_state = StakingState.UNSTAKED
                 self.staking_state_check_complete = True
@@ -269,14 +275,14 @@ class CallCheckpointRound(BaseState):
             dialogue = self.submit_msg(
                 performative=ContractApiMessage.Performative.GET_STATE,
                 connection_id=LEDGER_API_ADDRESS,
-                contract_address=staking_token_contract_address,
+                contract_address=self.context.params.staking_token_contract_address,
                 contract_id=str(StakingTokenContract.contract_id),
                 callable="get_service_staking_state",
                 ledger_id="ethereum",
                 kwargs=ContractApiMessage.Kwargs(
                     {
-                        "service_id": on_chain_service_id,
-                        "chain_id": staking_chain,
+                        "service_id": self.context.params.on_chain_service_id,
+                        "chain_id": self.context.params.staking_chain,
                     }
                 ),
             )
@@ -285,7 +291,7 @@ class CallCheckpointRound(BaseState):
             dialogue.request_type = "staking_state"
             self.pending_contract_calls.append(dialogue)
 
-            self.context.logger.info(f"Submitted staking state request for service {service_id}")
+            self.context.logger.info(f"Submitted staking state request for service {self.context.params.service_id}")
 
         except Exception as e:
             self.context.logger.exception(f"Failed to get service staking state: {e}")
@@ -334,6 +340,15 @@ class CallCheckpointRound(BaseState):
                         self._process_checkpoint_preparation_response(response)
                     elif request_type == "safe_tx_preparation":
                         self._process_safe_tx_preparation_response(response)
+                    elif request_type in {
+                        "liveness_ratio",
+                        "liveness_period",
+                        "ts_checkpoint",
+                        "multisig_nonces",
+                        "service_info",
+                    }:
+                        # These are handled by their respective validation functions
+                        pass
 
                     self.pending_contract_calls.remove(dialogue)
 
@@ -358,6 +373,8 @@ class CallCheckpointRound(BaseState):
             self.service_staking_state = StakingState.STAKED
             self.context.logger.info("Service is staked")
             self._get_next_checkpoint_async()
+            self._calculate_min_num_of_safe_tx_required()
+            self._get_multisig_nonces_async()
         elif staking_state == 2:
             self.service_staking_state = StakingState.EVICTED
             self.context.logger.error("Service has been evicted!")
@@ -371,15 +388,14 @@ class CallCheckpointRound(BaseState):
     def _get_next_checkpoint_async(self) -> None:
         """Get next checkpoint timestamp asynchronously."""
         try:
-            staking_token_contract_address = getattr(self.context.params, "staking_token_contract_address", None)
-            if not staking_token_contract_address:
+            if not self.context.params.staking_token_contract_address:
                 self.staking_state_check_complete = True
                 return
 
             dialogue = self.submit_msg(
                 performative=ContractApiMessage.Performative.GET_STATE,
                 connection_id=LEDGER_API_ADDRESS,
-                contract_address=staking_token_contract_address,
+                contract_address=self.context.params.staking_token_contract_address,
                 contract_id=str(StakingTokenContract.contract_id),
                 callable="get_next_checkpoint_ts",
                 ledger_id="ethereum",
@@ -447,9 +463,8 @@ class CallCheckpointRound(BaseState):
         """Prepare checkpoint transaction asynchronously."""
         try:
             self.context.logger.info("Preparing checkpoint transaction...")
-            staking_token_contract_address = getattr(self.context.params, "staking_token_contract_address", None)
 
-            if not staking_token_contract_address:
+            if not self.context.params.staking_token_contract_address:
                 self.context.logger.warning("No staking token contract address")
                 self.checkpoint_preparation_complete = True
                 return
@@ -457,7 +472,7 @@ class CallCheckpointRound(BaseState):
             dialogue = self.submit_msg(
                 performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,
                 connection_id=LEDGER_API_ADDRESS,
-                contract_address=staking_token_contract_address,
+                contract_address=self.context.params.staking_token_contract_address,
                 contract_id=str(StakingTokenContract.contract_id),
                 callable="build_checkpoint_tx",
                 ledger_id="ethereum",
@@ -535,21 +550,20 @@ class CallCheckpointRound(BaseState):
     def _prepare_safe_tx_hash(self, data: bytes) -> str | None:
         """Prepare safe transaction hash and full transaction."""
         try:
-            staking_chain = self.context.params.staking_chain
-            safe_addresses = self.context.params.safe_contract_addresses
-
-            if isinstance(safe_addresses, str):
+            if isinstance(self.context.params.safe_contract_addresses, str):
                 try:
-                    safe_addresses = json.loads(safe_addresses)
+                    safe_addresses = json.loads(self.context.params.safe_contract_addresses)
                 except json.JSONDecodeError:
                     safe_addresses = {}
 
-            safe_address = safe_addresses.get(staking_chain)
+            safe_address = safe_addresses.get(self.context.params.staking_chain)
             if not safe_address:
-                self.context.logger.warning(f"No safe address found for staking chain {staking_chain}")
+                self.context.logger.warning(
+                    f"No safe address found for staking chain {self.context.params.staking_chain}"
+                )
                 return None
 
-            staking_token_contract_address = getattr(self.context.params, "staking_token_contract_address", None)
+            staking_token_contract_address = self.context.params.staking_token_contract_address
             if not staking_token_contract_address:
                 return None
 
@@ -722,6 +736,7 @@ class CallCheckpointRound(BaseState):
                 "is_checkpoint_reached": self.is_checkpoint_reached,
                 "checkpoint_tx_executed": self.checkpoint_tx_executed,
                 "checkpoint_tx_final_hash": self.checkpoint_tx_final_hash,
+                "min_num_of_safe_tx_required": self.min_num_of_safe_tx_required,
                 "last_checkpoint_check": datetime.now(UTC).isoformat(),
                 "has_required_funds": True,
                 "is_making_on_chain_transactions": bool(self.checkpoint_tx_executed and self.checkpoint_tx_final_hash),
@@ -737,6 +752,342 @@ class CallCheckpointRound(BaseState):
 
         except (PermissionError, OSError, json.JSONDecodeError) as e:
             self.context.logger.warning(f"Failed to save staking state to state.json: {e}")
+
+    def _calculate_min_num_of_safe_tx_required(self) -> None:
+        """Calculate the minimum number of transactions required to unlock staking rewards."""
+        try:
+            if not self.context.params.staking_chain:
+                self.context.logger.warning("No staking chain configured")
+                return
+
+            # Get liveness ratio
+            dialogue = self.submit_msg(
+                performative=ContractApiMessage.Performative.GET_STATE,
+                connection_id=LEDGER_API_ADDRESS,
+                contract_address=self.context.params.staking_activity_checker_contract_address,
+                contract_id=str(StakingActivityCheckerContract.contract_id),
+                callable="liveness_ratio",
+                ledger_id="ethereum",
+                kwargs=ContractApiMessage.Kwargs({"chain_id": self.context.params.staking_chain}),
+            )
+
+            dialogue.validation_func = self._validate_liveness_ratio_response
+            dialogue.request_type = "liveness_ratio"
+            self.pending_contract_calls.append(dialogue)
+
+        except Exception as e:
+            self.context.logger.exception(f"Failed to calculate min num of safe tx required: {e}")
+
+    def _validate_liveness_ratio_response(self, message: Message, dialogue: ContractApiDialogue) -> bool:
+        """Validate liveness ratio response message."""
+        try:
+            if message.performative == ContractApiMessage.Performative.STATE:
+                if hasattr(message, "state") and message.state:
+                    liveness_ratio = message.state.body.get("data")
+                    if liveness_ratio is not None:
+                        self.contract_responses[dialogue.dialogue_label.dialogue_reference[0]] = {
+                            "liveness_ratio": int(liveness_ratio),
+                            "request_type": "liveness_ratio",
+                        }
+                        self.context.logger.info(f"Received liveness ratio: {liveness_ratio}")
+
+                        # Now get liveness period
+                        self._get_liveness_period_async()
+                        return True
+
+            elif message.performative == ContractApiMessage.Performative.ERROR:
+                self.context.logger.warning(f"Contract API error: {message.message}")
+
+            return False
+
+        except Exception as e:
+            self.context.logger.exception(f"Error validating liveness ratio response: {e}")
+            return False
+
+    def _get_liveness_period_async(self) -> None:
+        """Get liveness period asynchronously."""
+        try:
+            if not self.context.params.staking_token_contract_address:
+                return
+
+            dialogue = self.submit_msg(
+                performative=ContractApiMessage.Performative.GET_STATE,
+                connection_id=LEDGER_API_ADDRESS,
+                contract_address=self.context.params.staking_token_contract_address,
+                contract_id=str(StakingTokenContract.contract_id),
+                callable="get_liveness_period",
+                ledger_id="ethereum",
+                kwargs=ContractApiMessage.Kwargs({"chain_id": self.context.params.staking_chain}),
+            )
+
+            dialogue.validation_func = self._validate_liveness_period_response
+            dialogue.request_type = "liveness_period"
+            self.pending_contract_calls.append(dialogue)
+
+        except Exception as e:
+            self.context.logger.exception(f"Failed to get liveness period: {e}")
+
+    def _validate_liveness_period_response(self, message: Message, dialogue: ContractApiDialogue) -> bool:
+        """Validate liveness period response message."""
+        try:
+            if message.performative == ContractApiMessage.Performative.STATE:
+                if hasattr(message, "state") and message.state:
+                    liveness_period = message.state.body.get("data")
+                    if liveness_period is not None:
+                        self.contract_responses[dialogue.dialogue_label.dialogue_reference[0]] = {
+                            "liveness_period": int(liveness_period),
+                            "request_type": "liveness_period",
+                        }
+                        self.context.logger.info(f"Received liveness period: {liveness_period}")
+
+                        # Now get timestamp checkpoint
+                        self._get_ts_checkpoint_async()
+                        return True
+
+            elif message.performative == ContractApiMessage.Performative.ERROR:
+                self.context.logger.warning(f"Contract API error: {message.message}")
+
+            return False
+
+        except Exception as e:
+            self.context.logger.exception(f"Error validating liveness period response: {e}")
+            return False
+
+    def _get_ts_checkpoint_async(self) -> None:
+        """Get timestamp checkpoint asynchronously."""
+        try:
+            if not self.context.params.staking_token_contract_address:
+                return
+
+            dialogue = self.submit_msg(
+                performative=ContractApiMessage.Performative.GET_STATE,
+                connection_id=LEDGER_API_ADDRESS,
+                contract_address=self.context.params.staking_token_contract_address,
+                contract_id=str(StakingTokenContract.contract_id),
+                callable="ts_checkpoint",
+                ledger_id="ethereum",
+                kwargs=ContractApiMessage.Kwargs({"chain_id": self.context.params.staking_chain}),
+            )
+
+            dialogue.validation_func = self._validate_ts_checkpoint_response
+            dialogue.request_type = "ts_checkpoint"
+            self.pending_contract_calls.append(dialogue)
+
+        except Exception as e:
+            self.context.logger.exception(f"Failed to get ts checkpoint: {e}")
+
+    def _validate_ts_checkpoint_response(self, message: Message, dialogue: ContractApiDialogue) -> bool:
+        """Validate ts checkpoint response message."""
+        try:
+            if message.performative == ContractApiMessage.Performative.STATE:
+                if hasattr(message, "state") and message.state:
+                    ts_checkpoint = message.state.body.get("data")
+                    if ts_checkpoint is not None:
+                        self.contract_responses[dialogue.dialogue_label.dialogue_reference[0]] = {
+                            "ts_checkpoint": int(ts_checkpoint),
+                            "request_type": "ts_checkpoint",
+                        }
+                        self.context.logger.info(f"Received ts checkpoint: {ts_checkpoint}")
+
+                        # Now calculate the actual minimum number
+                        self._perform_min_tx_calculation()
+                        return True
+
+            elif message.performative == ContractApiMessage.Performative.ERROR:
+                self.context.logger.warning(f"Contract API error: {message.message}")
+
+            return False
+
+        except Exception as e:
+            self.context.logger.exception(f"Error validating ts checkpoint response: {e}")
+            return False
+
+    def _perform_min_tx_calculation(self) -> None:
+        """Perform the actual calculation of minimum required transactions."""
+        try:
+            # Collect all required data from responses
+            liveness_ratio = None
+            liveness_period = None
+            ts_checkpoint = None
+
+            for response in self.contract_responses.values():
+                if response.get("request_type") == "liveness_ratio":
+                    liveness_ratio = response.get("liveness_ratio")
+                elif response.get("request_type") == "liveness_period":
+                    liveness_period = response.get("liveness_period")
+                elif response.get("request_type") == "ts_checkpoint":
+                    ts_checkpoint = response.get("ts_checkpoint")
+
+            if not all([liveness_ratio, liveness_period, ts_checkpoint is not None]):
+                self.context.logger.error("Missing required data for min tx calculation")
+                return
+
+            current_timestamp = int(datetime.now(UTC).timestamp())
+
+            min_num_of_safe_tx_required = (
+                math.ceil(
+                    max(liveness_period, (current_timestamp - ts_checkpoint))
+                    * liveness_ratio
+                    / LIVENESS_RATIO_SCALE_FACTOR
+                )
+                + REQUIRED_REQUESTS_SAFETY_MARGIN
+            )
+
+            self.min_num_of_safe_tx_required = min_num_of_safe_tx_required
+            self.context.logger.info(f"Calculated minimum number of safe tx required: {min_num_of_safe_tx_required}")
+
+        except Exception as e:
+            self.context.logger.exception(f"Error performing min tx calculation: {e}")
+
+    def _get_multisig_nonces_async(self) -> None:
+        """Get multisig nonces asynchronously."""
+        try:
+            if isinstance(self.context.params.safe_contract_addresses, str):
+                try:
+                    safe_addresses = json.loads(self.context.params.safe_contract_addresses)
+                except json.JSONDecodeError:
+                    safe_addresses = {}
+
+            multisig_address = safe_addresses.get(self.context.params.staking_chain)
+
+            if not self.context.params.staking_activity_checker_contract_address or not multisig_address:
+                self.context.logger.warning("Missing staking activity checker address or multisig address")
+                return
+
+            dialogue = self.submit_msg(
+                performative=ContractApiMessage.Performative.GET_STATE,
+                connection_id=LEDGER_API_ADDRESS,
+                contract_address=self.context.params.staking_activity_checker_contract_address,
+                contract_id=str(StakingActivityCheckerContract.contract_id),
+                callable="get_multisig_nonces",
+                ledger_id="ethereum",
+                kwargs=ContractApiMessage.Kwargs(
+                    {
+                        "chain_id": self.context.params.staking_chain,
+                        "multisig": multisig_address,
+                    }
+                ),
+            )
+
+            dialogue.validation_func = self._validate_multisig_nonces_response
+            dialogue.request_type = "multisig_nonces"
+            self.pending_contract_calls.append(dialogue)
+
+        except Exception as e:
+            self.context.logger.exception(f"Failed to get multisig nonces: {e}")
+
+    def _validate_multisig_nonces_response(self, message: Message, dialogue: ContractApiDialogue) -> bool:
+        """Validate multisig nonces response message."""
+        try:
+            if message.performative == ContractApiMessage.Performative.STATE:
+                if hasattr(message, "state") and message.state:
+                    multisig_nonces = message.state.body.get("data")
+                    if multisig_nonces is not None and len(multisig_nonces) > 0:
+                        current_nonce = multisig_nonces[0]
+                        self.contract_responses[dialogue.dialogue_label.dialogue_reference[0]] = {
+                            "multisig_nonces": current_nonce,
+                            "request_type": "multisig_nonces",
+                        }
+                        self.context.logger.info(f"Received multisig nonces: {current_nonce}")
+
+                        # Now get service info to get last checkpoint nonce
+                        self._get_service_info_async()
+                        return True
+
+            elif message.performative == ContractApiMessage.Performative.ERROR:
+                self.context.logger.warning(f"Contract API error: {message.message}")
+
+            return False
+
+        except Exception as e:
+            self.context.logger.exception(f"Error validating multisig nonces response: {e}")
+            return False
+
+    def _get_service_info_async(self) -> None:
+        """Get service info asynchronously."""
+        try:
+            if not self.context.params.staking_token_contract_address or not self.context.params.on_chain_service_id:
+                self.context.logger.warning("Missing staking token contract address or service ID")
+                return
+
+            dialogue = self.submit_msg(
+                performative=ContractApiMessage.Performative.GET_STATE,
+                connection_id=LEDGER_API_ADDRESS,
+                contract_address=self.context.params.staking_token_contract_address,
+                contract_id=str(StakingTokenContract.contract_id),
+                callable="get_service_info",
+                ledger_id="ethereum",
+                kwargs=ContractApiMessage.Kwargs(
+                    {
+                        "chain_id": self.context.params.staking_chain,
+                        "service_id": self.context.params.on_chain_service_id,
+                    }
+                ),
+            )
+
+            dialogue.validation_func = self._validate_service_info_response
+            dialogue.request_type = "service_info"
+            self.pending_contract_calls.append(dialogue)
+
+        except Exception as e:
+            self.context.logger.exception(f"Failed to get service info: {e}")
+
+    def _validate_service_info_response(self, message: Message, dialogue: ContractApiDialogue) -> bool:
+        """Validate service info response message."""
+        try:
+            if message.performative == ContractApiMessage.Performative.STATE:
+                if hasattr(message, "state") and message.state:
+                    service_info = message.state.body.get("data")
+                    if service_info is not None and len(service_info) > 2 and len(service_info[2]) > 0:
+                        last_checkpoint_nonce = service_info[2][0]
+                        self.contract_responses[dialogue.dialogue_label.dialogue_reference[0]] = {
+                            "service_info": service_info,
+                            "last_checkpoint_nonce": last_checkpoint_nonce,
+                            "request_type": "service_info",
+                        }
+                        self.context.logger.info(
+                            f"Received service info with last checkpoint nonce: {last_checkpoint_nonce}"
+                        )
+
+                        # Now calculate multisig nonces since last checkpoint
+                        self._calculate_multisig_nonces_since_checkpoint()
+                        return True
+
+            elif message.performative == ContractApiMessage.Performative.ERROR:
+                self.context.logger.warning(f"Contract API error: {message.message}")
+
+            return False
+
+        except Exception as e:
+            self.context.logger.exception(f"Error validating service info response: {e}")
+            return False
+
+    def _calculate_multisig_nonces_since_checkpoint(self) -> None:
+        """Calculate multisig nonces since last checkpoint."""
+        try:
+            # Get current nonce and last checkpoint nonce from responses
+            current_nonce = None
+            last_checkpoint_nonce = None
+
+            for response in self.contract_responses.values():
+                if response.get("request_type") == "multisig_nonces":
+                    current_nonce = response.get("multisig_nonces")
+                elif response.get("request_type") == "service_info":
+                    last_checkpoint_nonce = response.get("last_checkpoint_nonce")
+
+            if current_nonce is not None and last_checkpoint_nonce is not None:
+                multisig_nonces_since_last_cp = current_nonce - last_checkpoint_nonce
+                self.context.logger.info(
+                    f"Multisig transactions since last checkpoint: {multisig_nonces_since_last_cp}"
+                )
+
+                # Check if KPI is met
+                if self.min_num_of_safe_tx_required is not None:
+                    kpi_met = multisig_nonces_since_last_cp >= self.min_num_of_safe_tx_required
+                    self.context.logger.info(f"Staking KPI met: {kpi_met}")
+
+        except Exception as e:
+            self.context.logger.exception(f"Error calculating multisig nonces since checkpoint: {e}")
 
     def _finalize_checkpoint_check(self) -> None:
         """Finalize checkpoint check and determine transition."""

@@ -3,36 +3,36 @@ author: xiuxiuxar
 version: 0.1.0
 license: Apache-2.0
 description: ''
-aea_version: '>=1.55.0, <2.0.0'
+aea_version: '>=1.55.0, <3.0.0'
 fingerprint:
   tests/__init__.py: bafybeibk76alseqt3ufreyev7rnz5zuk6dcftt7c2ob54gmhpt6xrhkg2y
   tests/test_agent.py: bafybeigz2b62yc6haiqcjwssmkb4blb6d64t4i7u53g56cacq4w3b3x5mq
 fingerprint_ignore_patterns: []
 connections:
-- eightballer/http_client:0.1.0:bafybeiaz5auftwxpt4czrmeeesggqlkc2kosmetq6adrebeu6g7bkhqc2u
-- eightballer/http_server:0.1.0:bafybeidrvllrr23mc6bvjxn6v3hny6oiwhfgi72n2b7w6ck5luousjfbbq
-- eightballer/prometheus:0.1.1:bafybeigw2unvrvt5mv3i4nay564s3p3wpiym2ftmc5qkwmxh53edncmcdq
-- valory/ledger:0.19.0:bafybeibdsjmy4w2eyilbqc7yzutopl65qpeyspxwz7mjvirr52twhjlf5y
-- eightballer/dcxt:0.1.0:bafybeifdxvim27zd77csuh5ejaxsjhzuwm5bpwaeirppnd5cidxquewgbm
+- eightballer/http_client:0.1.0:bafybeiatbbjb36uvzzc2pnnrqpdk2xlaic5zwsxj6frswqhw6illauqg6e
+- eightballer/http_server:0.1.0:bafybeifilny6luzcs4dtv5d2ta4fqqgi7aixch7f75sqnwcqh73oxcgtdu
+- eightballer/prometheus:0.1.1:bafybeig7p3tzs7x4awcxjr7ctxljr6h7mrc2c36thnab6zoteualgivj6e
+- valory/ledger:0.19.0:bafybeierez3cyecdieur34h2wc7wgaqnzfxm6nv5uhxkujlyqdap4wkjvi
+- eightballer/dcxt:0.1.0:bafybeihj2ko7bwqmxiudoixrlzwml5snurdxaiomfl4lrbbcat3k5sxnxy
 contracts:
-- eightballer/erc_20:0.1.0:bafybeiegd5pdj34s4cuhiaxermjdtyhnapu5usy545vcf6mi5grfazlnpa
-- valory/erc20:0.1.0:bafybeiczphtgmlot3tbsqwfstagnuffw6rlzlxpodnvafodwq573q555ye
-- valory/multisend:0.1.0:bafybeig5byt5urg2d2bsecufxe5ql7f4mezg3mekfleeh32nmuusx66p4y
-- xiuxiuxar/gnosis_safe:0.1.0:bafybeidg4eqnaoinikb44n3erkxet2tuiurtaqdiis5iqal3ey2odf3ieu
-- valory/gnosis_safe_proxy_factory:0.1.0:bafybeiegj5zx4wrahc6gpunxvxgjkzdg4nvdojbqkk5xggv2mt56oecpoa
-- valory/staking_token:0.1.0:bafybeiclu2xkt6yzgm2d336wcjid7zrgdnvjnxinksxxw5yvfwvwiqd6ii
+- eightballer/erc_20:0.1.0:bafybeiewlvc62xn6flmzn2dodqw3w6p3w5jqwkx36w5caznf6zjph7t2se
+- valory/erc20:0.1.0:bafybeihzzfy7hhegokwbzuwfqdzx2ck3jvg4ccb53fpy4btq7so3f4nezq
+- valory/multisend:0.1.0:bafybeicgoayj3nfrslr5ilcvmytdlc62ebtef2yzc5iq72ivbvgykv26wm
+- valory/gnosis_safe:0.1.0:bafybeigsekgqjoi5phewoqfoqwzsxei4qwfv6n5rapzhd75pvamypvwohe
+- valory/gnosis_safe_proxy_factory:0.1.0:bafybeibbzlmexojfots3kddaglfg2a4ieyebly7wnb2gismqxsosp5f6oi
+- valory/staking_token:0.1.0:bafybeif3d753nt6um3qrdtrytmlyqd7ao7spio6yits3qymuj62y3h2jri
 protocols:
-- valory/contract_api:1.0.0:bafybeid247uig2ekykdumh7ewhp2cdq7rchaeqjj6e7urx35zfpdl5zrn4
-- eightballer/default:0.1.0:bafybeihx7izpxqpj42jxbi7s2q6bijtv2vcb7kz2r5bwtfxt7ixlh77s7u
-- eightballer/http:0.1.0:bafybeid75xhq7hfdt7sgj7yrn44yj57xrgxscaw34ir46tndfzvodioxme
-- eightballer/prometheus:1.0.0:bafybeidxo32tu43ru3xlk3kd5b6xlwf6vaytxvvhtjbh7ag52kexos4ke4
-- open_aea/signing:1.0.0:bafybeig2d36zxy65vd7fwhs7scotuktydcarm74aprmrb5nioiymr3yixm
-- eightballer/tickers:0.1.0:bafybeicpoaxh4mbzk3rn7rjzvlhrfkzo4st3otzpcs35cixeg3fdvn5dsq
-- eightballer/orders:0.1.0:bafybeicwsxnxvy5cclbwzp6kj6hm2g655j47wdvhe6co3oge7lorwlt364
-- valory/ledger_api:1.0.0:bafybeihmqzcbj6t7vxz2aehd5726ofnzsfjs5cwlf42ro4tn6i34cbfrc4
+- valory/contract_api:1.0.0:bafybeidpch6cvuweq5x4h6ummnnw5xynmfsbj3sxm2m63seuqizrmvpd3e
+- eightballer/default:0.1.0:bafybeibu3dme3plwprq5j6xl6vfx2e5ebwbudtj5yndkxcsoiwxljst22a
+- eightballer/http:0.1.0:bafybeicpvdcuz5wqgnzqzqyyh3ifo63pqjhze6escra4dxqpxbaz5qs2jy
+- eightballer/prometheus:1.0.0:bafybeiedkmjjqbxyid67hwhpkvyknst5rdtn5pazs6rtaa3mj6r2buwl7q
+- open_aea/signing:1.0.0:bafybeign4u6o3jtz2kuelpuhrmzosbyix2iwf7ifxythigrcuef4ybmuna
+- eightballer/tickers:0.1.0:bafybeifiytrsffwnhhilbavse623qsil3tulizbazf7cd7ghfepriejgkq
+- eightballer/orders:0.1.0:bafybeid24shv2uqltnnxn72p6upjb7qzq3lew7fgre2dno72ui5oolvbee
+- valory/ledger_api:1.0.0:bafybeic5qfhodpwqjdkwxs4gzummpc3dxbpn4egg7s7f2gibfopa4nxz4i
 skills:
-- eightballer/prometheus:0.1.0:bafybeid4ssotxk7ajsesyzh5p7vpbclsviwj2tqxo46qgkoel2h5fzepze
-- xiuxiuxar/mindshare_app:0.1.0:bafybeih2qcfzpxfwehepdioqct3pecl42p4ie4hgu2telyuzhhqrv7ctvq
+- eightballer/prometheus:0.1.0:bafybeibfuwvdxxnxnm2gghg4t2c7ucdxhmu2xlrpdkk46t5rx7qskbx7ui
+- xiuxiuxar/mindshare_app:0.1.0:bafybeibytkeybzkhttshmxy3hegikrfzrr3lqkfpbz4jaccw4i2rvunjee
 customs: []
 default_ledger: ethereum
 required_ledgers:
@@ -64,13 +64,34 @@ logging_config:
       propagate: false
   version: 1
 dependencies:
-  pandas:
-    version: ==2.3.1
-  pandas-ta-classic:
-    version: ==0.3.14b2
-  open-aea-ledger-cosmos: {}
+  eth-abi:
+    version: ==5.1.0
+  eth-utils:
+    version: '>=2.3.1'
+  eth-typing:
+    version: <=5.2.0
+  hexbytes:
+    version: '>=1.3.1,<2.0.0'
+  open-autonomy: {}
   open-aea-ledger-ethereum: {}
-  rich: {}
+  open-aea-test-autonomy: {}
+  packaging:
+    version: '>=23.1,<24.0'
+  pycryptodome:
+    version: ==3.20.0
+  requests:
+    version: '>=2.28.1,<2.31.2'
+  web3:
+    version: '>=5.0.0'
+  pandas:
+    version: '>=2.3.1'
+  httpx: {}
+  pandas-ta-classic:
+    version: '>=0.3.14b2'
+  open-aea-ledger-cosmos: {}
+  rich:
+    version: '>=14.1.0,<15.0.0'
+  cowdao-cowpy: {}
 default_connection: null
 ---
 public_id: eightballer/http_server:0.1.0:bafybeicp3ubkonolxjgnwgqmaz624qduwzzz74fbjizu77lyvnpo77uv7u
@@ -159,7 +180,7 @@ config:
       is_gas_estimation_enabled: true
       timeout: 10
 ---
-public_id: eightballer/dcxt:0.1.0:bafybeid2knx2lkd5jz64a357vtcz35gfjtoqey4shmmjtygl3r7dx6kvwq
+public_id: eightballer/dcxt:0.1.0:bafybeihj2ko7bwqmxiudoixrlzwml5snurdxaiomfl4lrbbcat3k5sxnxy
 type: connection
 config:
   exchanges:

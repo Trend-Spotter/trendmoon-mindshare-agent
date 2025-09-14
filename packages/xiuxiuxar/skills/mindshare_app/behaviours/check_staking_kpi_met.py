@@ -29,8 +29,8 @@ from autonomy.deploy.constants import DEFAULT_ENCODING
 from packages.valory.protocols.ledger_api import LedgerApiMessage
 from packages.valory.protocols.contract_api import ContractApiMessage
 from packages.open_aea.protocols.signing.message import SigningMessage
+from packages.valory.contracts.gnosis_safe.contract import SafeOperation, GnosisSafeContract
 from packages.valory.protocols.ledger_api.custom_types import Terms
-from packages.xiuxiuxar.contracts.gnosis_safe.contract import SafeOperation, GnosisSafeContract
 from packages.xiuxiuxar.skills.mindshare_app.dialogues import ContractApiDialogue
 from packages.xiuxiuxar.skills.mindshare_app.behaviours.base import (
     ETHER_VALUE,

@@ -1,6 +1,3 @@
-[submodule "third_party/forks/open-aea"]
-	path = third_party/forks/open-aea
-	url = https://github.com/xiuxiuxar/open-aea.git
-[submodule "third_party/forks/balpy"]
-	path = third_party/forks/balpy
-	url = https://github.com/xiuxiuxar/balpy.git
+[submodule "third_party/forks/autodev"]
+	path = third_party/forks/autodev
+	url = https://github.com/8ball030/auto_dev.git

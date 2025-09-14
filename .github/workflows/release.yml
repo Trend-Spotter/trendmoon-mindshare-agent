@@ -22,10 +22,17 @@ jobs:
         os: [ubuntu-latest]
         python-versions: ["3.11"]
     steps:
-      - uses: actions/checkout@v4
+      - name: Get version from tag
+        id: tag_name
+        run: |
+          echo ::set-output name=current_version::${GITHUB_REF#refs/tags/v}
+        shell: bash
+
+      - uses: actions/checkout@v5
         with:
           submodules: 'recursive'
-      - uses: actions/setup-python@v4
+
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-versions }}
       - name: Install and configure Poetry

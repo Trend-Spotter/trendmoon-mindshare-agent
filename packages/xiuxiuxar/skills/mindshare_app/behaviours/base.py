@@ -61,6 +61,155 @@ ALLOWED_ASSETS: dict[str, list[dict[str, str]]] = {
             "coingecko_id": "virtual-protocol",
         },
         {
+            "address": "0x5ab3d4c385b400f3abb49e80de2faf6a88a7b691",
+            "symbol": "FLOCK",
+            "coingecko_id": "flock-2",
+        },
+        {
+            "address": "0x6b2504a03ca4d43d0d73776f6ad46dab2f2a4cfd",
+            "symbol": "REI",
+            "coingecko_id": "unit-00-rei",
+        },
+        {
+            "address": "0x1bc0c42215582d5a085795f4badbac3ff36d1bcb",
+            "symbol": "CLANKER",
+            "coingecko_id": "tokenbot-2",
+        },
+        {
+            "address": "0x164ffdae2fe3891714bc2968f1875ca4fa1079d0",
+            "symbol": "DEFI.ssi",
+            "coingecko_id": "defi-ssi",
+            "decimals": 8,
+        },
+        {
+            "address": "0x22af33fe49fd1fa80c7149773dde5890d3c76f3b",
+            "symbol": "BNKR",
+            "coingecko_id": "bankercoin-2",
+        },
+        {
+            "address": "0x90ec58ef4cc9f37b96de1e203b65bd4e6e79580e",
+            "symbol": "AMETA",
+            "coingecko_id": "alpha-city",
+        },
+        {
+            "address": "0x0c03ce270b4826ec62e7dd007f0b716068639f7b",
+            "symbol": "TIG",
+            "coingecko_id": "the-innovation-game",
+        },
+        {
+            "address": "0x2f6c17fa9f9bc3600346ab4e48c0701e1d5962ae",
+            "symbol": "Fartcoin",
+            "coingecko_id": "based-fartcoin",
+        },
+        {
+            "address": "0x9b8df6e244526ab5f6e6400d331db28c8fdddb55",
+            "symbol": "uSOL",
+            "coingecko_id": "wrapped-solana-universal",
+        },
+        {
+            "address": "0xdd3acdbdc7b358df453a6cb6bca56c92aa5743aa",
+            "symbol": "MEME.ssi",
+            "coingecko_id": "meme-ssi",
+            "decimals": 8,
+        },
+        {
+            "address": "0xbaa5cc21fd487b8fcc2f632f3f4e8d37262a0842",
+            "symbol": "MORPHO",
+            "coingecko_id": "morpho",
+        },
+        {
+            "address": "0x2615a94df961278dcbc41fb0a54fec5f10a693ae",
+            "symbol": "uXRP",
+            "coingecko_id": "wrapped-xrp-universal",
+        },
+        {
+            "address": "0x161e113b8e9bbaefb846f73f31624f6f9607bd44",
+            "symbol": "SIMMI",
+            "coingecko_id": "simmi-token",
+        },
+        {
+            "address": "0x50da645f148798f68ef2d7db7c1cb22a6819bb2c",
+            "symbol": "SPX",
+            "coingecko_id": "spx6900",
+            "decimals": 8,
+        },
+        {
+            "address": "0xf9569cfb8fd265e91aa478d86ae8c78b8af55df4",
+            "symbol": "AUKI",
+            "coingecko_id": "auki-labs",
+        },
+        {
+            "address": "0x6921b130d297cc43754afba22e5eac0fbf8db75b",
+            "symbol": "doginme",
+            "coingecko_id": "doginme",
+        },
+        {
+            "address": "0xb89d354ad1b0d95a48b3de4607f75a8cd710c1ba",
+            "symbol": "LAY",
+            "coingecko_id": "loomlay",
+        },
+        {
+            "address": "0xef22cb48b8483df6152e1423b19df5553bbd818b",
+            "symbol": "HEU",
+            "coingecko_id": "heurist",
+        },
+        {
+            "address": "0x9a26f5433671751c3276a065f57e5a02d2817973",
+            "symbol": "KEYCAT",
+            "coingecko_id": "keyboard-cat-base",
+        },
+        {
+            "address": "0xbe35071605277d8be5a52c84a66ab1bc855a758d",
+            "symbol": "B4FWX",
+            "coingecko_id": "be-for-fwx",
+        },
+        {
+            "address": "0xa1832f7f4e534ae557f9b5ab76de54b1873e498b",
+            "symbol": "BID",
+            "coingecko_id": "creatorbid",
+        },
+        {
+            "address": "0x20dd04c17afd5c9a8b3f2cdacaa8ee7907385bef",
+            "symbol": "NATIVE",
+            "coingecko_id": "native-2",
+        },
+        {
+            "address": "0x78ec15c5fd8efc5e924e9eebb9e549e29c785867",
+            "symbol": "TORUS",
+            "coingecko_id": "torus",
+        },
+        {
+            "address": "0xacfe6019ed1a7dc6f7b508c02d1b04ec88cc21bf",
+            "symbol": "VVV",
+            "coingecko_id": "venice-token",
+        },
+        {
+            "address": "0x60a3e35cc302bfa44cb288bc5a4f316fdb1adb42",
+            "symbol": "EURC",
+            "coingecko_id": "euro-coin",
+            "decimals": 6,
+        },
+        {
+            "address": "0x4b12507e171970b3acd48edfeb5bd1c676e61280",
+            "symbol": "IVT",
+            "coingecko_id": "ivault",
+        },
+        {
+            "address": "0x8fe815417913a93ea99049fc0718ee1647a2a07c",
+            "symbol": "XSWAP",
+            "coingecko_id": "xswap-2",
+        },
+        {
+            "address": "0xb33ff54b9f7242ef1593d2c9bcd8f9df46c77935",
+            "symbol": "FAI",
+            "coingecko_id": "freysa-ai",
+        },
+        {
+            "address": "0x52b492a33e447cdb854c7fc19f1e57e8bfa1777d",
+            "symbol": "PEPE",
+            "coingecko_id": "based-pepe",
+        },
+        {
             "address": "0x532f27101965dd16442E59d40670FaF5eBB142E4",
             "symbol": "BRETT",
             "coingecko_id": "based-brett",
@@ -76,9 +225,9 @@ ALLOWED_ASSETS: dict[str, list[dict[str, str]]] = {
             "coingecko_id": "degen-base",
         },
         {
-            "address": "0x54330d28ca3357f294334bdc454a032e7f353416",
-            "symbol": "OLAS",
-            "coingecko_id": "autonolas",
+            "address": "0xf6e932ca12afa26665dc4dde7e27be02a7c02e50",
+            "symbol": "MOCHI",
+            "coingecko_id": "mochi-thecatcoin",
         },
         {
             "address": "0xAC1Bd2486aAf3B5C0fc3Fd868558b082a531B2B4",
@@ -86,9 +235,10 @@ ALLOWED_ASSETS: dict[str, list[dict[str, str]]] = {
             "coingecko_id": "toshi",
         },
         {
-            "address": "0x1111111111166b7fe7bd91427724b487980afc69",
-            "symbol": "ZORA",
-            "coingecko_id": "zora",
+            "address": "0x3a46ed8fceb6ef1ada2e4600a522ae7e24d2ed18",
+            "symbol": "USSI",
+            "coingecko_id": "ussi",
+            "decimals": 8,
         },
         {
             "address": "0x940181a94A35A4569E4529A3CDfB74e38FD98631",
@@ -101,10 +251,9 @@ ALLOWED_ASSETS: dict[str, list[dict[str, str]]] = {
             "coingecko_id": "ski-mask-dog",
         },
         {
-            "address": "0x9E6A46f294bB67c20F1D1E7AfB0bBEf614403B55",
-            "symbol": "MAG7.ssi",
-            "coingecko_id": "mag7-ssi",
-            "decimals": 8,
+            "address": "0x2d57c47bc5d2432feeedf2c9150162a9862d3ccf",
+            "symbol": "DICKBUTT",
+            "coingecko_id": "dickbutt",
         },
         {
             "address": "0xB1a03EdA10342529bBF8EB700a06C60441fEf25d",
@@ -112,24 +261,49 @@ ALLOWED_ASSETS: dict[str, list[dict[str, str]]] = {
             "coingecko_id": "mister-miggles",
         },
         {
-            "address": "0x226a2fa2556c48245e57cd1cba4c6c9e67077dd2",
-            "symbol": "BIO",
-            "coingecko_id": "bio-protocol",
+            "address": "0x63706e401c06ac8513145b7687a14804d17f814b",
+            "symbol": "AAVE",
+            "coingecko_id": "aave",
         },
         {
-            "address": "0x2f299be3b081e8cd47dc56c1932fcae7a91b5dcd",
-            "symbol": "XTTA",
-            "coingecko_id": "xtta",
+            "address": "0x767a739d1a152639e9ea1d8c1bd55fdc5b217d7f",
+            "symbol": "VEIL",
+            "coingecko_id": "veil-token",
         },
         {
-            "address": "0xd5C3a723e63a0ECaB81081c26c6A3c4b2634Bf85",
-            "symbol": "WOJAK",
-            "coingecko_id": "based-wojak",
+            "address": "0x9c632e6aaa3ea73f91554f8a3cb2ed2f29605e0c",
+            "symbol": "XCN",
+            "coingecko_id": "chain-2",
         },
         {
-            "address": "0xA4A2E2ca3fBfE21aed83471D28b6f65A233C6e00",
-            "symbol": "TIBBIR",
-            "coingecko_id": "ribbita-by-virtuals",
+            "address": "0xfa980ced6895ac314e7de34ef1bfae90a5add21b",
+            "symbol": "PRIME",
+            "coingecko_id": "echelon-prime",
+        },
+        {
+            "address": "0x96419929d7949d6a801a6909c145c8eef6a40431",
+            "symbol": "SPEC",
+            "coingecko_id": "spectral",
+        },
+        {
+            "address": "0x0578d8a44db98b23bf096a382e016e29a5ce0ffe",
+            "symbol": "HIGHER",
+            "coingecko_id": "higher",
+        },
+        {
+            "address": "0xfb42da273158b0f642f59f2ba7cc1d5457481677",
+            "symbol": "LINGO",
+            "coingecko_id": "lingo",
+        },
+        {
+            "address": "0x91ad1b44913cd1b8241a4ff1e2eaa198da6bf4c9",
+            "symbol": "ALU",
+            "coingecko_id": "altura",
+        },
+        {
+            "address": "0xecaf81eb42cd30014eb44130b89bcd6d4ad98b92",
+            "symbol": "CHAD",
+            "coingecko_id": "based-chad",
         },
     ]
 }
@@ -340,7 +514,9 @@ class BaseState(State, ABC):
 
     _state: MindshareabciappStates = None
 
-    supported_protocols: dict[PublicId, list] = {}
+    supported_protocols: dict[PublicId, list] = {
+        OrdersMessage.protocol_id: [],
+    }
 
     def setup(self) -> None:
         """Perform the setup."""
