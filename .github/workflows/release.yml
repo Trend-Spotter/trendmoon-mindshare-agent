@@ -25,7 +25,7 @@ jobs:
       - name: Get version from tag
         id: tag_name
         run: |
-          echo current_version::${GITHUB_REF#refs/tags/v} >> $GITHUB_OUTPUT
+          echo current_version=${GITHUB_REF#refs/tags/v} >> $GITHUB_OUTPUT
         shell: bash
 
       - uses: actions/checkout@v5
