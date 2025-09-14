@@ -302,12 +302,6 @@ jobs:
           - name: Download artifacts
             uses: actions/download-artifact@v4
             with:
-              name: agent_runner_macos_x64
-              path: ./dist/
-
-          - name: Download artifacts
-            uses: actions/download-artifact@v4
-            with:
               name: agent_runner_macos_arm64
               path: ./dist/
           - name: Download artifacts
