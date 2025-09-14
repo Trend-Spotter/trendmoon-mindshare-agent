@@ -143,6 +143,8 @@ jobs:
         shell: bash
     steps:
         - uses: actions/checkout@v5
+          with:
+            submodules: 'recursive'
         - uses: actions/setup-python@v5
           id: setup-python
           with:
