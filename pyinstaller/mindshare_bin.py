@@ -20,27 +20,21 @@
 import os
 import sys
 from pathlib import Path
-
 import aea.configurations.validation as validation_module
-from aea.cli.core import cli
-from aea.mail.base_pb2 import DESCRIPTOR  # noqa: F401
-from multiaddr.codecs.idna import to_bytes as _
-from aea_ledger_cosmos.cosmos import *  # noqa: F403
-from multiaddr.codecs.uint16be import to_bytes as _
-from aea.crypto.registries.base import *  # noqa: F403
-from aea_ledger_ethereum.ethereum import *  # noqa: F403
-from google.protobuf.descriptor_pb2 import FileDescriptorProto  # noqa: F401
-
 
 # patch for the _CUR_DIR value
 # we need this because pyinstaller generated binaries handle paths differently
-if getattr(sys, "_MEIPASS", None):
-    # Running as PyInstaller bundle
-    validation_module._CUR_DIR = Path(sys._MEIPASS) / "aea" / "configurations"  # noqa: SLF001
-    validation_module._SCHEMAS_DIR = str(Path(sys._MEIPASS) / "aea" / "configurations" / "schemas")  # noqa: SLF001
-else:
-    # Running normally
-    pass
+validation_module._CUR_DIR = Path(sys._MEIPASS) / validation_module._CUR_DIR  # noqa: SLF001
+validation_module._SCHEMAS_DIR = os.path.join(validation_module._CUR_DIR, "schemas")  # noqa: SLF001
+
+from aea.cli.core import cli
+from google.protobuf.descriptor_pb2 import FileDescriptorProto  # noqa: F401
+from aea.mail.base_pb2 import DESCRIPTOR  # noqa: F401
+from multiaddr.codecs.idna import to_bytes as _
+from multiaddr.codecs.uint16be import to_bytes as _
+from aea_ledger_ethereum.ethereum import *  # noqa: F403
+from aea_ledger_cosmos.cosmos import *  # noqa: F403
+from aea.crypto.registries.base import *  # noqa: F403
 
 
 if __name__ == "__main__":
