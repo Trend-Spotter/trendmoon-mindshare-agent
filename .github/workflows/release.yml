@@ -7,29 +7,25 @@ on:
   # Triggers the workflow on push events but only for the master branch
   push:
     tags:
-      - 'v*'
+      - 'v*.*.*'
 
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
 
 # A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
-  # This workflow contains a single job called "release"
-  release:
-    name: Create Release
-    runs-on: ubuntu-22.04
-
+  publish-packages:
+    name: Push Packages
+    runs-on: ubuntu-latest
     strategy:
       matrix:
+        os: [ubuntu-latest]
         python-versions: ["3.11"]
-
-    permissions:
-        contents: write
     steps:
       - name: Get version from tag
         id: tag_name
         run: |
-          echo ::set-output name=current_version::${GITHUB_REF#refs/tags/v}
+          echo current_version=${GITHUB_REF#refs/tags/v} >> $GITHUB_OUTPUT
         shell: bash
 
       - uses: actions/checkout@v5
@@ -39,7 +35,6 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-versions }}
-
       - name: Install and configure Poetry
         uses: snok/install-poetry@v1
         with:
@@ -48,25 +43,16 @@ jobs:
           virtualenvs-in-project: false
           virtualenvs-path: ~/my-custom-path
           installer-parallel: true
-
-      - name: Update Changelog
-        uses: heinrichreimer/github-changelog-generator-action@v2.1.1
-        id: changelog
+      - uses: addnab/docker-run-action@v3
         with:
-            token: ${{ secrets.GH_TOKEN }}
-            issues: true
-            issuesWoLabels: true
-            pullRequests: true
-            prWoLabels: true
-            unreleased: true
-            addSections: '{"documentation":{"prefix":"**Documentation:**","labels":["documentation"]}}'
-
-      - uses: stefanzweifel/git-auto-commit-action@v4
-        with:
-          commit_message: Update Changelog for PR
-          file_pattern: CHANGELOG.md
-          branch: main
-          push_options: '--force'
+            image: valory/open-autonomy-user:latest
+            options: -v ${{ github.workspace }}:/work
+            run: |
+              echo "Pushing Packages"
+              cd /work
+              export AUTHOR=$(grep 'service' packages/packages.json | awk -F/ '{print $2}' | head -1)
+              autonomy init --reset --author $AUTHOR --ipfs --remote
+              autonomy push-all
 
       - name: Install Project
         run: |
@@ -86,4 +72,277 @@ jobs:
           files: packages/packages.json
           draft: false
           prerelease: false
+  publish-images:
+    name: Publish Docker Images
+    runs-on: ${{ matrix.os }}
+    needs:
+      - "publish-packages"
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+        python-version: ["3.11"]
+    env:
+      DOCKER_USER: ${{secrets.DOCKER_USER}}
+      DOCKER_PASSWORD: ${{secrets.DOCKER_TOKEN}}
+    steps:
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: actions/checkout@v5
+        with:
+          submodules: 'recursive'
+          fetch-depth: 0
+      - uses: addnab/docker-run-action@v3
+        with:
+          image: valory/open-autonomy-user:latest
+          options: -v ${{ github.workspace }}:/work
+          run: |
+            echo "Setting Tag Images"
+            cd /work
+            apt-get update && apt-get install git -y || exit 1
+            git config --global --add safe.directory /work
+            export TAG=$(git describe --exact-match --tags $(git rev-parse HEAD)) || exit 1
+            if [ $? -eq 0 ]; then
+                export TAG=`echo $TAG | sed 's/^v//'`
+            else
+                echo "You are not on a tagged branch"
+                exit 1
+            fi
+            echo VERSION=$TAG> env.sh
+            echo AUTHOR=$(grep 'service/' packages/packages.json | awk -F/ '{print $2}' | head -1) >> env.sh
+            echo SERVICE=$(grep 'service/' packages/packages.json | awk -F/ '{print $3}' | head -1) >> env.sh
+            echo AGENT=$(grep 'agent/' packages/packages.json | awk -F/ '{print $3}' | head -1) >> env.sh
+            echo DEFAULT_IMAGE_TAG=$(cat packages/packages.json | grep agent/ | awk -F: '{print $2}' | tr -d '", ' | head -n 1) >> env.sh
+            cat env.sh
+      - uses: addnab/docker-run-action@v3
+        name: Build Images
+        with:
+          image: valory/open-autonomy-user:latest
+          options: -v ${{ github.workspace }}:/work -e DOCKER_USER -e DOCKER_PASSWORD
+          shell: bash
+          run: |
+            echo "Building Docker Images"
+            cd /work
+            source env.sh || exit 1
+            echo "Building images for $AUTHOR for service $SERVICE"
+            autonomy init --reset --author $AUTHOR --ipfs --remote
+            autonomy fetch $AUTHOR/$SERVICE --service --local || exit 1
+            cd $SERVICE || exit 1
+            echo $DOCKER_PASSWORD | docker login -u $DOCKER_USER --password-stdin || exit 1
+            docker buildx create --name multiarch-builder --driver docker-container --bootstrap --use
+            autonomy build-image --builder multiarch-builder --platform linux/amd64,linux/arm64 --pre-install-command "apt-get update && apt-get install gfortran pkg-config libopenblas-dev liblapack-dev python3-dev libssl-dev libxml2-dev libxslt-dev libjpeg-dev -y" --push || exit 1
+            autonomy build-image --builder multiarch-builder --platform linux/amd64,linux/arm64 --pre-install-command "apt-get update && apt-get install gfortran pkg-config libopenblas-dev liblapack-dev python3-dev libssl-dev libxml2-dev libxslt-dev libjpeg-dev -y" --push --version $VERSION || exit 1
+  build-agent-runner:
+    needs:
+      - "publish-packages"
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [windows-latest, macos-14]
+    defaults:
+      run:
+        shell: bash
+    steps:
+        - uses: actions/checkout@v5
+          with:
+            submodules: 'recursive'
+        - uses: actions/setup-python@v5
+          id: setup-python
+          with:
+            python-version: "3.11"
+        - name: Add Python to PATH
+          run: |
+            echo "${{ steps.setup-python.outputs.python-path }}" >> $GITHUB_PATH
+        # - name: prepare sign things windows
+        #   if: runner.os == 'Windows'
+        #   run: |
+        #     echo Setup Certificate
+        #     echo "${{secrets.SM_CLIENT_CERT_FILE_B64 }}" | base64 --decode > /d/Certificate_pkcs12.p12
+        #     echo "Set Variables!"
+        #     echo "::set-output name=version::${GITHUB_REF#refs/tags/v}"
+        #     echo "SM_HOST=${{ secrets.SM_HOST }}" >> "$GITHUB_ENV"
+        #     echo "SM_API_KEY=${{ secrets.SM_API_KEY }}" >> "$GITHUB_ENV"
+        #     echo "SM_KEY_PAIR_ALIAS=${{ secrets.SM_KEY_PAIR_ALIAS }}" >> "$GITHUB_ENV"
+        #     echo "SM_CLIENT_CERT_FILE=D:\\Certificate_pkcs12.p12" >> "$GITHUB_ENV"
+        #     echo "SM_CLIENT_CERT_PASSWORD=${{ secrets.SM_CLIENT_CERT_PASSWORD }}" >> "$GITHUB_ENV"
+        #     echo "C:\Program Files (x86)\Windows Kits\10\App Certification Kit" >> $GITHUB_PATH
+        #     echo "C:\Program Files (x86)\Microsoft SDKs\Windows\v10.0A\bin\NETFX 4.8 Tools" >> $GITHUB_PATH
+        #     echo "C:\Program Files\DigiCert\DigiCert One Signing Manager Tools" >> $GITHUB_PATH
+        #   shell: bash
+        # - name: Setup SSM KSP on windows latest
+        #   if: runner.os == 'Windows'
+        #   run: |
+        #     curl -X GET  https://one.digicert.com/signingmanager/api-ui/v1/releases/smtools-windows-x64.msi/download -H "x-api-key:%SM_API_KEY%" -o smtools-windows-x64.msi
+        #     msiexec /i smtools-windows-x64.msi /quiet /qn
+        #     smksp_registrar.exe list
+        #     smctl.exe keypair ls
+        #     C:\Windows\System32\certutil.exe -csp "DigiCert Signing Manager KSP" -key -user
+        #     smksp_cert_sync.exe
+        #   shell: cmd  
+        - name: Install and configure Poetry
+          run: pip install poetry
+        - name: Set up Python executable (Windows)
+          if: runner.os == 'Windows'
+          run: |
+            python --version
+            poetry env use python
+            poetry install --all-extras
+        - name: prepare agent (Windows)
+          if: runner.os == 'Windows'
+          run: |
+            poetry run autonomy init --reset --author "dummy_author_git_ci" --ipfs --remote
+            make hash_id
+            make agent_id
+            make ./agent/ethereum_private_key.txt
+        - name: prepare agent (Non-Windows)
+          if: runner.os != 'Windows'
+          run: |
+            make install
+            poetry run autonomy init --reset --author "dummy_author_git_ci" --ipfs --remote
+            make hash_id
+            make agent_id
+            make ./agent/ethereum_private_key.txt
+
+        - name: prepare archives
+          if: runner.os != 'Windows'
+          run: |
+            make agent.zip
+            make agent.tar.gz
+
+        #### MAC
+        - name: build the file mac os
+          if: runner.os != 'Windows'
+          # env:
+          #   CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          #   CSC_LINK: ${{ secrets.CSC_LINK }}
+          #   APPLE_ID: ${{ secrets.APPLE_ID }}  # Apple ID email
+          #   APPLE_ID_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}  # App-specific password
+          #   APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}  # Team ID из Apple Dev Account
+          #   SIGN_ID: "Developer ID Application: Valory AG (${{ secrets.APPLE_TEAM_ID }})"
+          run: |
+            # echo "$CSC_LINK" | base64 --decode > certificate.p12
+
+            # security create-keychain -p temp build.keychain
+            # security default-keychain -s build.keychain
+            # security unlock-keychain -p temp build.keychain
+            # security import certificate.p12 -k build.keychain -P "$CSC_KEY_PASSWORD" -T /usr/bin/codesign
+            # security set-key-partition-list -S apple-tool:,apple: -s -k temp build.keychain
+
+            make build-agent-runner-mac
+
+            # codesign -dv --verbose=4 dist/agent_runner_bin
+      
+        - name: rename the file mac os
+          if: runner.os != 'Windows'
+          run: | 
+            export FILENAME=`echo -n agent_runner_${{runner.os}}_${{runner.arch}}|tr '[:upper:]' '[:lower:]'`
+            echo "FILENAME=$FILENAME" >> $GITHUB_ENV; 
+            cp dist/agent_runner_bin dist/${FILENAME}
+            dist/${FILENAME} --version
+        
+        ### WINDOWS
+        - name: Build Agent Runner Windonws
+          if: runner.os == 'Windows'
+          run: |
+              make build-agent-runner
+
+        # - name: sign the file
+        #   if: runner.os == 'Windows'
+        #   run: |
+        #     "C:\\Program Files\\DigiCert\\DigiCert One Signing Manager Tools\\smctl.exe" sign --keypair-alias=${{ secrets.SM_KEY_PAIR_ALIAS }} --input "dist/agent_runner_bin.exe"
+
+        - name: rename the file windows
+          if: runner.os == 'Windows'
+          run: | 
+            export FILENAME=`echo -n agent_runner_${{runner.os}}_${{runner.arch}}.exe|tr '[:upper:]' '[:lower:]'`
+            echo "FILENAME=$FILENAME" >> $GITHUB_ENV; 
+            cp dist/agent_runner_bin.exe dist/${FILENAME}
+
+        ### PERFORM CHECK OF AGENT RUNNER
+        - name: check agent runner
+          run: | 
+            make check-agent-runner
+
+        - name: Upload Release Assets Windows
+          uses: actions/upload-artifact@v4
+          with:
+            name: ${{env.FILENAME}}
+            path: dist/${{env.FILENAME}}
+
+        - name: Upload Release Assets 
+          uses: actions/upload-artifact@v4
+          with:
+            name: hash_id
+            path: hash_id
+            overwrite: true
+        - name: Upload Release Assets 
+          uses: actions/upload-artifact@v4
+          with:
+            name: agent_id
+            path: agent_id
+            overwrite: true
+
+        - name: Upload Release Assets 
+          uses: actions/upload-artifact@v4
+          with:
+            name: agent.tar.gz
+            path: agent.tar.gz
+            overwrite: true
+
+        - name: Upload Release Assets 
+          uses: actions/upload-artifact@v4
+          with:
+            name: agent.zip
+            path: agent.zip
+            overwrite: true
+
+  upload-assets:
+    needs: build-agent-runner
+    runs-on: ubuntu-latest
+    steps:
+          - name: Download artifacts
+            uses: actions/download-artifact@v4
+            with:
+              name: agent_runner_macos_arm64
+              path: ./dist/
+          - name: Download artifacts
+            uses: actions/download-artifact@v4
+            with:
+              name: agent_runner_windows_x64.exe
+              path: ./dist/
+
+          - name: Download artifacts
+            uses: actions/download-artifact@v4
+            with:
+              name: agent_id
+              path: ./dist/
+          - name: Download artifacts
+            uses: actions/download-artifact@v4
+            with:
+              name: hash_id
+              path: ./dist/
+          - name: Download artifacts
+            uses: actions/download-artifact@v4
+            with:
+              name: agent.zip
+              path: ./dist/
+          - name: Download artifacts
+            uses: actions/download-artifact@v4
+            with:
+              name: agent.tar.gz
+              path: ./dist/
+
+          - name: List files
+            run: ls ./dist/
+
+          - name: Publish Release
+            uses: softprops/action-gh-release@v2
+            if: startsWith(github.ref, 'refs/tags/')
+            with:
+              files: |
+                ./dist/agent_runner*
+                ./dist/hash_id
+                ./dist/agent_id
+                ./dist/agent.zip
+                ./dist/agent.tar.gz
+          
 

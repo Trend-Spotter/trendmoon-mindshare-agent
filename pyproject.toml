@@ -50,6 +50,7 @@ open-multicaller = ">=0.2.0,<0.4.0"
 rich = "^14.1.0"
 pandas-ta-classic = "^0.3.14b2"
 httpx = "0.23.3"
+pyinstaller = "^6.16.0"
 
 [build-system]
 build-backend = "poetry.core.masonry.api"
