@@ -53,7 +53,7 @@ hashes: clean
 poetry-install: 
 
 	PYTHON_KEYRING_BACKEND=keyring.backends.null.Keyring poetry install
-	PYTHON_KEYRING_BACKEND=keyring.backends.null.Keyring poetry run pip install --upgrade --force-reinstall setuptools>=75.9.1  # fix for KeyError: 'setuptools._distutils.compilers'
+	PYTHON_KEYRING_BACKEND=keyring.backends.null.Keyring poetry run pip install --upgrade --force-reinstall setuptools==75.9.1  # fix for KeyError: 'setuptools._distutils.compilers'
 
 
 
