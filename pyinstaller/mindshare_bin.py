@@ -34,8 +34,13 @@ from google.protobuf.descriptor_pb2 import FileDescriptorProto  # noqa: F401
 
 # patch for the _CUR_DIR value
 # we need this because pyinstaller generated binaries handle paths differently
-validation_module._CUR_DIR = Path(sys._MEIPASS) / validation_module._CUR_DIR  # noqa: SLF001
-validation_module._SCHEMAS_DIR = os.path.join(validation_module._CUR_DIR, "schemas")  # noqa: SLF001
+if getattr(sys, "_MEIPASS", None):
+    # Running as PyInstaller bundle
+    validation_module._CUR_DIR = Path(sys._MEIPASS) / "aea" / "configurations"  # noqa: SLF001
+    validation_module._SCHEMAS_DIR = str(Path(sys._MEIPASS) / "aea" / "configurations" / "schemas")  # noqa: SLF001
+else:
+    # Running normally
+    pass
 
 
 if __name__ == "__main__":
