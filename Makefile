@@ -67,6 +67,7 @@ poetry-install:
 build-agent-runner: poetry-install agent
 	poetry run pyinstaller \
 	--collect-data eth_account \
+	--collect-data multiformats_config \
 	--collect-data aea \
 	--collect-data autonomy \
 	--collect-all aea \
@@ -85,8 +86,7 @@ build-agent-runner: poetry-install agent
 build-agent-runner-mac: poetry-install  agent
 	poetry run pyinstaller \
 	--collect-data eth_account \
-	--collect-data aea \
-	--collect-data autonomy \
+	--collect-data multiformats_config \
 	--collect-all aea \
 	--collect-all autonomy \
 	--collect-all aea_ledger_ethereum \
@@ -98,11 +98,6 @@ build-agent-runner-mac: poetry-install  agent
 	--name agent_runner_bin
 	./dist/agent_runner_bin --version
 
-
-./agent:  poetry-install ./hash_id
-	@if [ ! -d "agent" ]; then \
-		poetry run autonomy -s fetch --remote `cat ./hash_id` --alias agent; \
-	fi \
 
 ./hash_id: ./packages/packages.json
 	cat ./packages/packages.json | jq -r '.dev | to_entries[] | select(.key | startswith("agent/")) | .value' > ./hash_id
