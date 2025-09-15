@@ -67,6 +67,8 @@ poetry-install:
 build-agent-runner: poetry-install agent
 	poetry run pyinstaller \
 	--collect-data eth_account \
+	--collect-data aea \
+	--collect-data autonomy \
 	--collect-all aea \
 	--collect-all autonomy \
 	--collect-all aea_ledger_ethereum \
@@ -83,6 +85,8 @@ build-agent-runner: poetry-install agent
 build-agent-runner-mac: poetry-install  agent
 	poetry run pyinstaller \
 	--collect-data eth_account \
+	--collect-data aea \
+	--collect-data autonomy \
 	--collect-all aea \
 	--collect-all autonomy \
 	--collect-all aea_ledger_ethereum \
