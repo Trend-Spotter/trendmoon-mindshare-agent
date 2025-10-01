@@ -32,7 +32,7 @@ protocols:
 - valory/ledger_api:1.0.0:bafybeic5qfhodpwqjdkwxs4gzummpc3dxbpn4egg7s7f2gibfopa4nxz4i
 skills:
 - eightballer/prometheus:0.1.0:bafybeibfuwvdxxnxnm2gghg4t2c7ucdxhmu2xlrpdkk46t5rx7qskbx7ui
-- xiuxiuxar/mindshare_app:0.1.0:bafybeibytkeybzkhttshmxy3hegikrfzrr3lqkfpbz4jaccw4i2rvunjee
+- xiuxiuxar/mindshare_app:0.1.0:bafybeieqtsh6asy575rzs2ounom5qfctfbn4enl7mgoimxmb47326yxo7u
 customs: []
 default_ledger: ethereum
 required_ledgers:
@@ -116,7 +116,7 @@ models:
       staking_chain: ${str:base}
       staking_threshold_period: ${int:2}
       min_num_of_safe_tx_required: ${int:1}
-      staking_token_contract_address: ${str:0xEB5638eefE289691EcE01943f768EDBF96258a80}
+      staking_token_contract_address: ${str:0x8b8a86A056D3145Ec2ecc30FB52C3aF2e6daB7C5}
       on_chain_service_id: ${int:41}
       service_id: ${str:mindshare}
       data_sufficiency_threshold: ${float:0.8}
