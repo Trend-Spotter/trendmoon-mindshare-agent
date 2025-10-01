@@ -126,7 +126,7 @@ models:
       staking_chain: base
       staking_threshold_period: 1
       min_num_of_safe_tx_required: 5
-      staking_token_contract_address: '0xEB5638eefE289691EcE01943f768EDBF96258a80'
+      staking_token_contract_address: '0x8b8a86A056D3145Ec2ecc30FB52C3aF2e6daB7C5'
       on_chain_service_id: null
       service_id: mindshare
       cowswap_slippage_tolerance: 0.005
