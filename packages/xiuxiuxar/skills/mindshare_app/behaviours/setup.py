@@ -54,7 +54,9 @@ class SetupRound(BaseState):
 
         safe_contract_addresses = self.context.params.safe_contract_addresses
         if safe_contract_addresses is None or safe_contract_addresses == "":
-            self.context.logger.error(f"No safe contract addresses found: {self.context.params.safe_contract_addresses}")
+            self.context.logger.error(
+                f"No safe contract addresses found: {self.context.params.safe_contract_addresses}"
+            )
             msg = "No safe contract addresses found"
             raise ValueError(msg)
         self.context.logger.info(f"Safe contract addresses: {safe_contract_addresses}")
