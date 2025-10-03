@@ -9,7 +9,7 @@ fingerprint:
   tests/__init__.py: bafybeiausykbndof27hjfgwqg6nnmk7zw7lyytwzekih3gszwdypbtxjka
   tests/test_service.py: bafybeicplirjoql5q3l5zjl5xrgamnoxuj3year7u2vrtfnzzllzeyutuy
 fingerprint_ignore_patterns: []
-agent: xiuxiuxar/mindshare_agent:0.1.0:bafybeidr3nes26pfgkqhm4houdoaaj2ulqa5dpcqvja7hpvgux7hnfnfwi
+agent: xiuxiuxar/mindshare_agent:0.1.0:bafybeiflbcs5upn7zjamhgbjtgobsdrok5ehezvpaudgmhu7mijq6ldahm
 number_of_agents: 1
 deployment:
   agent:
@@ -32,20 +32,20 @@ config:
     wallet: null
     ledger_id: base
     etherscan_api_key: ${CONNECTION_DCXT_CONFIG_EXCHANGES_0_ETHERSCAN_API_KEY:str:test_key}
-    rpc_url: ${CONNECTION_DCXT_CONFIG_EXCHANGES_0_RPC_URL:str:https://base.drpc.org}
+    rpc_url: ${BASE_LEDGER_RPC:str:https://base.drpc.org}
   - name: cowswap
     key_path: ethereum_private_key.txt
     wallet: null
     ledger_id: base
     etherscan_api_key: ${CONNECTION_DCXT_CONFIG_EXCHANGES_0_ETHERSCAN_API_KEY:str:test_key}
-    rpc_url: ${CONNECTION_DCXT_CONFIG_EXCHANGES_0_RPC_URL:str:https://base.drpc.org}
+    rpc_url: ${BASE_LEDGER_RPC:str:https://base.drpc.org}
 ---
 public_id: valory/ledger:0.19.0:bafybeihgkny2vpdn6uz5zf7lcyws4hsxirndoubeptevjzzsl4ues465am
 type: connection
 config:
   ledger_apis:
     base:
-      address: ${CONNECTION_LEDGER_CONFIG_LEDGER_APIS_BASE_ADDRESS:str:https://base.drpc.org}
+      address: ${BASE_LEDGER_RPC:str:https://base.drpc.org}
       chain_id: 8453
       poa_chain: false
       default_gas_price_strategy: eip1559
@@ -61,7 +61,7 @@ config:
       is_gas_estimation_enabled: true
       timeout: 10
     ethereum:
-      address: ${CONNECTION_LEDGER_CONFIG_LEDGER_APIS_BASE_ADDRESS:str:https://base.drpc.org}
+      address: ${BASE_LEDGER_RPC:str:https://base.drpc.org}
       chain_id: 8453
       poa_chain: false
       default_gas_price_strategy: eip1559

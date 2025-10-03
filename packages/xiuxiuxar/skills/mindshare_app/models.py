@@ -838,6 +838,7 @@ class Params(Model):
         self.macd_signal_period = kwargs.pop("macd_signal_period", 9)
         self.adx_period_length = kwargs.pop("adx_period_length", 14)
         self.adx_threshold = kwargs.pop("adx_threshold", 41)
+        self.agent_balance_threshold = kwargs.pop("agent_balance_threshold", 10000000000000000)
         super().__init__(*args, **kwargs)
 
 

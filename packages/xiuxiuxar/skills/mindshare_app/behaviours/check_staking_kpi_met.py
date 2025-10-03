@@ -31,7 +31,7 @@ from packages.valory.protocols.contract_api import ContractApiMessage
 from packages.open_aea.protocols.signing.message import SigningMessage
 from packages.valory.contracts.gnosis_safe.contract import SafeOperation, GnosisSafeContract
 from packages.valory.protocols.ledger_api.custom_types import Terms
-from packages.xiuxiuxar.skills.mindshare_app.dialogues import ContractApiDialogue
+from packages.xiuxiuxar.skills.mindshare_app.dialogues import LedgerApiDialogue, ContractApiDialogue
 from packages.xiuxiuxar.skills.mindshare_app.behaviours.base import (
     ETHER_VALUE,
     SAFE_TX_GAS,
@@ -71,6 +71,9 @@ class CheckStakingKPIRound(BaseState):
         self.vanity_tx_raw_data: bytes | None = None
         self.vanity_tx_signed_data: bytes | None = None
         self.vanity_tx_final_hash: str | None = None
+        self.agent_balance_check_submitted: bool = False
+        self.agent_balance: int | None = None
+        self.has_required_funds: bool = False
 
     def setup(self) -> None:
         """Perform the setup."""
@@ -92,52 +95,31 @@ class CheckStakingKPIRound(BaseState):
         self.vanity_tx_raw_data = None
         self.vanity_tx_signed_data = None
         self.vanity_tx_final_hash = None
+        self.agent_balance_check_submitted = False
+        self.agent_balance = None
+        self.has_required_funds = False
         for k in self.supported_protocols:
             self.supported_protocols[k] = []
 
     def act(self) -> None:
         """Perform the act."""
         try:
-            if not self.started:
-                self.context.logger.info(f"Entering {self._state} state.")
-                self.started = True
+            self._handle_startup()
 
-            # Initialize KPI checking on first call
-            if not self.kpi_check_initialized:
-                self._initialize_kpi_check()
-                return  # Exit early, let FSM cycle for async response
-
-            # Check if staking KPI check is complete
-            if not self.staking_kpi_check_complete:
-                self._check_contract_responses()
-                if not self.staking_kpi_check_complete:
-                    return  # Still waiting for response, let FSM cycle
-
-            # If KPI is not met and we need vanity tx but haven't submitted request
-            if (
-                not self.is_staking_kpi_met
-                and not self.vanity_tx_request_submitted
-                and self._should_prepare_vanity_tx()
-            ):
-                self._prepare_vanity_tx_async()
+            if self._handle_kpi_initialization():
                 return
 
-            # Check for vanity tx preparation responses
-            if self.vanity_tx_request_submitted and not self.vanity_tx_prepared:
-                self._check_vanity_tx_responses()
-                if not self.vanity_tx_prepared:
-                    return
-
-            # If vanity tx prepared but not executed, execute it
-            if self.vanity_tx_prepared and self.vanity_tx_hex and not self.vanity_tx_execution_submitted:
-                self._execute_vanity_tx_async()
+            if self._handle_staking_kpi_check():
                 return
 
-            # Check for vanity tx execution responses
-            if self.vanity_tx_execution_submitted and not self.vanity_tx_executed:
-                self._check_vanity_tx_execution_responses()
-                if not self.vanity_tx_executed:
-                    return
+            if self._handle_balance_check():
+                return
+
+            if self._handle_vanity_tx_preparation():
+                return
+
+            if self._handle_vanity_tx_execution():
+                return
 
             # All checks complete, finalize
             self._finalize_kpi_check()
@@ -151,6 +133,62 @@ class CheckStakingKPIRound(BaseState):
             }
             self._event = MindshareabciappEvents.ERROR
             self._is_done = True
+
+    def _handle_startup(self) -> None:
+        """Handle startup logging."""
+        if not self.started:
+            self.context.logger.info(f"Entering {self._state} state.")
+            self.started = True
+
+    def _handle_kpi_initialization(self) -> bool:
+        """Handle KPI initialization. Returns True if should exit early."""
+        if not self.kpi_check_initialized:
+            self._initialize_kpi_check()
+            return True
+        return False
+
+    def _handle_staking_kpi_check(self) -> bool:
+        """Handle staking KPI check. Returns True if should exit early."""
+        if not self.staking_kpi_check_complete:
+            self._check_contract_responses()
+            return not self.staking_kpi_check_complete
+        return False
+
+    def _handle_balance_check(self) -> bool:
+        """Handle agent balance check. Returns True if should exit early."""
+        if not self.agent_balance_check_submitted:
+            self._check_agent_balance_async()
+            return True
+
+        if self.agent_balance_check_submitted and self.agent_balance is None:
+            self._check_balance_response()
+            return self.agent_balance is None
+
+        return False
+
+    def _handle_vanity_tx_preparation(self) -> bool:
+        """Handle vanity transaction preparation. Returns True if should exit early."""
+        if not self.is_staking_kpi_met and not self.vanity_tx_request_submitted and self._should_prepare_vanity_tx():
+            self._prepare_vanity_tx_async()
+            return True
+
+        if self.vanity_tx_request_submitted and not self.vanity_tx_prepared:
+            self._check_vanity_tx_responses()
+            return not self.vanity_tx_prepared
+
+        return False
+
+    def _handle_vanity_tx_execution(self) -> bool:
+        """Handle vanity transaction execution. Returns True if should exit early."""
+        if self.vanity_tx_prepared and self.vanity_tx_hex and not self.vanity_tx_execution_submitted:
+            self._execute_vanity_tx_async()
+            return True
+
+        if self.vanity_tx_execution_submitted and not self.vanity_tx_executed:
+            self._check_vanity_tx_execution_responses()
+            return not self.vanity_tx_executed
+
+        return False
 
     def _initialize_kpi_check(self) -> None:
         """Initialize staking KPI check."""
@@ -403,6 +441,90 @@ class CheckStakingKPIRound(BaseState):
         except (PermissionError, OSError, json.JSONDecodeError) as e:
             self.context.logger.warning(f"Failed to save KPI state to state.json: {e}")
 
+    def _check_agent_balance_threshold(self) -> bool:
+        """Check if agent's ETH balance is above the threshold."""
+        return self.has_required_funds
+
+    def _check_agent_balance_async(self) -> None:
+        """Check agent's ETH balance asynchronously."""
+        try:
+            self.context.logger.info("Checking agent balance...")
+
+            agent_address = self.context.agent_address
+
+            dialogue = self.submit_msg(
+                performative=LedgerApiMessage.Performative.GET_BALANCE,
+                connection_id=LEDGER_API_ADDRESS,
+                ledger_id="ethereum",  # Use ethereum ledger for base chain, since LedgerAPI can't set "base" chain
+                address=agent_address,
+            )
+
+            dialogue.validation_func = self._validate_balance_response
+            self.agent_balance_check_submitted = True
+            self.context.logger.debug(f"Submitted balance check for address: {agent_address}")
+
+        except Exception as e:
+            self.context.logger.exception(f"Failed to submit balance check: {e}")
+            self.agent_balance_check_submitted = True
+            self.agent_balance = 0
+            self.has_required_funds = False
+
+    def _validate_balance_response(self, message: LedgerApiMessage, _dialogue: LedgerApiDialogue) -> bool:
+        """Validate balance response."""
+        try:
+            if message.performative == LedgerApiMessage.Performative.BALANCE:
+                balance = int(message.balance)
+                self.agent_balance = balance
+                threshold = self.context.params.agent_balance_threshold
+                self.has_required_funds = balance >= threshold
+
+                self.context.logger.info(
+                    f"Agent balance: {balance} wei ({balance / 1e18:.4f} ETH), "
+                    f"threshold: {threshold} wei ({threshold / 1e18:.4f} ETH), "
+                    f"sufficient: {self.has_required_funds}"
+                )
+                return True
+
+            if message.performative == LedgerApiMessage.Performative.ERROR:
+                self.context.logger.error(f"Error checking balance: {message.message}")
+                self.agent_balance = 0
+                self.has_required_funds = False
+                return True
+
+            return False
+
+        except Exception as e:
+            self.context.logger.exception(f"Error validating balance response: {e}")
+            self.agent_balance = 0
+            self.has_required_funds = False
+            return False
+
+    def _check_balance_response(self) -> None:
+        """Check if balance response has been received."""
+        try:
+            ledger_messages = self.supported_protocols.get(LedgerApiMessage.protocol_id, [])
+
+            if ledger_messages:
+                # The validation function (_validate_balance_response) will have already
+                # set self.agent_balance and self.has_required_funds
+                # If we got a response, agent_balance should be set
+                if self.agent_balance is not None:
+                    self.context.logger.debug(
+                        f"Balance check complete: {self.agent_balance} wei, "
+                        f"has_required_funds: {self.has_required_funds}"
+                    )
+                else:
+                    self.context.logger.warning("Received ledger message but balance not set")
+
+                    self.agent_balance = 0
+                    self.has_required_funds = False
+
+        except Exception as e:
+            self.context.logger.exception(f"Error checking balance response: {e}")
+            # Set safe defaults
+            self.agent_balance = 0
+            self.has_required_funds = False
+
     def _should_prepare_vanity_tx(self) -> bool:
         """Determine if we should prepare a vanity transaction."""
         # Only prepare vanity tx if KPI is not met and we're in evaluation period
@@ -440,7 +562,7 @@ class CheckStakingKPIRound(BaseState):
             self.context.logger.debug(f"Safe address for chain {staking_chain}: {safe_address}")
 
             # Prepare vanity transaction data
-            tx_data = b"0x"
+            tx_data = to_bytes(text="0x")
             self.context.logger.debug(f"Transaction data: {tx_data}")
 
             # Submit contract call to get safe transaction hash
@@ -556,7 +678,7 @@ class CheckStakingKPIRound(BaseState):
         try:
             self.context.logger.info("Executing vanity transaction...")
 
-            staking_chain = getattr(self.context.params, "staking_chain", "ethereum")
+            staking_chain = getattr(self.context.params, "staking_chain", "base")
             safe_addresses = getattr(self.context.params, "safe_contract_addresses", {})
 
             if isinstance(safe_addresses, str):

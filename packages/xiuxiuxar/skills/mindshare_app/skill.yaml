@@ -11,9 +11,9 @@ fingerprint:
   __init__.py: bafybeifhcjbfwkkjfaq57azgh24ufuo4pvjm4vguozhbg3qsrn4tw5ukge
   behaviours/__init__.py: bafybeih2dnrparrlxp2i4km2sozarcl7zzlzqoezmogasfcug52bq7tvpm
   behaviours/analysis.py: bafybeib5w6h36ko3k7abhbrpygfkx5lzocbt7s73jc5nteazmfqnhg4wdm
-  behaviours/base.py: bafybeih7ubjqowqxgpkjfdimol6yoiadfpctnzfttzln6gbp4hmhdepn5u
+  behaviours/base.py: bafybeigebgl4hf2jbgtp6texsr74t3mz4xn3mdvhrstokxxtwmbth3knai
   behaviours/call_checkpoint.py: bafybeig5nfhmd6e4c3lz22v7dqlpnrizhaytslwkpbsjnwzo3cuk7o6rri
-  behaviours/check_staking_kpi_met.py: bafybeihu5jswv66lwx6quhtqygsetbdcrbdzigfmtx445apt427xt7lfqa
+  behaviours/check_staking_kpi_met.py: bafybeifgbiltus4gykgtk4qkp7cccnebz3mzcqb7vmbchteyvz44lellpq
   behaviours/data_collection.py: bafybeiarqzjfwtrrbists6ht2xevsgntluw22rwaetctoyryxrzhkpccei
   behaviours/error.py: bafybeibg3oabttq34n3ltv7hv7wwfbcxdazzlr5zup2w4rcht2qm5n6d44
   behaviours/execution.py: bafybeievokpkq4kpapdcs4ztgnk7ov76zvnu3dgtn7ehiqtk3agzxuzqle
@@ -26,8 +26,8 @@ fingerprint:
   behaviours/signal_aggregation.py: bafybeidlukwyfptwig55c6yrh6wlfydeyw46uz45rxlugcgg3gupuvgyje
   behaviours/trade_construction.py: bafybeihhqdfcxnqdd4enxn3rxbyvv36cpsl43pcpkhwbbspdek2an3ttdq
   dialogues.py: bafybeiexxmjsjczvf2bxad7qbecllm3srjhlqkejigerkbldtdtzzuyuke
-  handlers.py: bafybeia42myerpm5nf3dkyvgblwtc5zgxs622utgtjtb6tat2wkycvqkoa
-  models.py: bafybeibgtfwp4tnkczhixopr3252url3cksnras5xdoqiijz7m6nhbbc34
+  handlers.py: bafybeigzo2yaakfaw4r6djrwobxaqvynh65dmzsq7fs7vw73liqqsreuk4
+  models.py: bafybeiakblji64pjonqlfrunwnbomo6piulu7pnhd7t4ju2mfkx64jiakq
   tests/__init__.py: bafybeigb2ji4vkcap3hokcedggjwsrah7te2nxjhkorwf3ibwgyaa2glma
   tests/test_coingecko_model.py: bafybeicjnqiclfi6r7sbsyjgwlzj3ugmeukii5fp23esdtsanof3lvyn6i
   tests/test_coingecko_model_integration.py: bafybeid6mzsia3wocixdedmr6tcbb2v34oq2fkjqyz2cab4mysjvqbydfi
@@ -161,6 +161,7 @@ models:
       macd_signal_period: 9
       adx_period_length: 14
       adx_threshold: 41
+      agent_balance_threshold: 10000000000000000
     class_name: Params
 dependencies:
   pandas:
