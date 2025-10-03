@@ -9,7 +9,7 @@ fingerprint:
   tests/__init__.py: bafybeiausykbndof27hjfgwqg6nnmk7zw7lyytwzekih3gszwdypbtxjka
   tests/test_service.py: bafybeicplirjoql5q3l5zjl5xrgamnoxuj3year7u2vrtfnzzllzeyutuy
 fingerprint_ignore_patterns: []
-agent: xiuxiuxar/mindshare_agent:0.1.0:bafybeigw4ly7athhthqwg5kb66ftybakhnm3txxairictofbquhfhj3lxe
+agent: xiuxiuxar/mindshare_agent:0.1.0:bafybeidr3nes26pfgkqhm4houdoaaj2ulqa5dpcqvja7hpvgux7hnfnfwi
 number_of_agents: 1
 deployment:
   agent:
@@ -82,8 +82,8 @@ type: skill
 models:
   params:
     args:
-      store_path: ${SKILL_MINDSHARE_APP_MAIN_ARGS_STORE_PATH:str:./persistent_data}
-      safe_contract_addresses: ${SKILL_MINDSHARE_APP_MODELS_PARAMS_ARGS_SAFE_CONTRACT_ADDRESSES:str:{"ethereum":"0x0000000000000000000000000000000000000000","base":"0x0000000000000000000000000000000000000000"}}
+      store_path: ${STORE_PATH:str:./persistent_data}
+      safe_contract_addresses: ${SAFE_CONTRACT_ADDRESSES:str:{"ethereum":"0x0000000000000000000000000000000000000000","base":"0x0000000000000000000000000000000000000000"}}
       coingecko_api_key: ${SKILL_MINDSHARE_APP_MODELS_PARAMS_ARGS_COINGECKO_API_KEY:str:test_key}
       trendmoon_api_key: ${SKILL_MINDSHARE_APP_MODELS_PARAMS_ARGS_TRENDMOON_API_KEY:str:test_key}
       reset_pause_duration: ${SKILL_MINDSHARE_APP_MODELS_PARAMS_ARGS_RESET_PAUSE_DURATION:int:10}
