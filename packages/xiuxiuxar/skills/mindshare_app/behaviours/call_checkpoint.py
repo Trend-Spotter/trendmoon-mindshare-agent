@@ -93,7 +93,6 @@ class CallCheckpointRound(BaseState):
         self.checkpoint_tx_raw_data: bytes | None = None
         self.checkpoint_tx_signed_data: bytes | None = None
         self.checkpoint_tx_final_hash: str | None = None
-        self.min_num_of_safe_tx_required: int | None = None
 
     def setup(self) -> None:
         """Perform the setup."""
@@ -117,7 +116,6 @@ class CallCheckpointRound(BaseState):
         self.checkpoint_tx_raw_data = None
         self.checkpoint_tx_signed_data = None
         self.checkpoint_tx_final_hash = None
-        self.min_num_of_safe_tx_required = None
         for k in self.supported_protocols:
             self.supported_protocols[k] = []
 
@@ -278,7 +276,7 @@ class CallCheckpointRound(BaseState):
                 contract_address=self.context.params.staking_token_contract_address,
                 contract_id=str(StakingTokenContract.contract_id),
                 callable="get_service_staking_state",
-                ledger_id="ethereum",
+                ledger_id="ethereum",  # Use ethereum ledger for base chain, since LedgerAPI can't set "base" chain
                 kwargs=ContractApiMessage.Kwargs(
                     {
                         "service_id": self.context.params.on_chain_service_id,
@@ -302,21 +300,23 @@ class CallCheckpointRound(BaseState):
         """Validate staking state response message."""
         try:
             if message.performative == ContractApiMessage.Performative.STATE:
-                if hasattr(message, "state") and message.state:
-                    state_data = message.state.body.get("data")
-                    if state_data is not None:
-                        staking_state = int(state_data)
-                        self.contract_responses[dialogue.dialogue_label.dialogue_reference[0]] = {
-                            "staking_state": staking_state,
-                            "request_type": "staking_state",
-                        }
-                        self.context.logger.info(f"Received staking state: {staking_state}")
-                        return True
+                state_data = message.state.body.get("data")
+                if state_data is not None:
+                    staking_state = int(state_data)
+                    self.contract_responses[dialogue.dialogue_label.dialogue_reference[0]] = {
+                        "staking_state": staking_state,
+                        "request_type": "staking_state",
+                    }
+                    self.context.logger.info(f"Received staking state: {staking_state}")
+                    return True
 
-            elif message.performative == ContractApiMessage.Performative.ERROR:
-                self.context.logger.warning(f"Contract API error: {message.message}")
+            if message.performative == ContractApiMessage.Performative.ERROR:
+                self.context.logger.error(f"Contract API error for staking state: {message.message}")
+                return False
 
-            return False
+            # Accept unexpected intermediate messages to avoid validation warnings
+            self.context.logger.debug(f"Staking state: received unexpected performative {message.performative}")
+            return True
 
         except Exception as e:
             self.context.logger.exception(f"Error validating staking state response: {e}")
@@ -398,7 +398,7 @@ class CallCheckpointRound(BaseState):
                 contract_address=self.context.params.staking_token_contract_address,
                 contract_id=str(StakingTokenContract.contract_id),
                 callable="get_next_checkpoint_ts",
-                ledger_id="ethereum",
+                ledger_id="ethereum",  # Use ethereum ledger for base chain, since LedgerAPI can't set "base" chain
                 kwargs=ContractApiMessage.Kwargs({"chain_id": self.context.params.staking_chain}),
             )
 
@@ -416,20 +416,22 @@ class CallCheckpointRound(BaseState):
         """Validate next checkpoint response message."""
         try:
             if message.performative == ContractApiMessage.Performative.STATE:
-                if hasattr(message, "state") and message.state:
-                    checkpoint_data = message.state.body.get("data")
-                    if checkpoint_data is not None:
-                        self.contract_responses[dialogue.dialogue_label.dialogue_reference[0]] = {
-                            "next_checkpoint_ts": int(checkpoint_data),
-                            "request_type": "next_checkpoint",
-                        }
-                        self.context.logger.info(f"Received next checkpoint timestamp: {checkpoint_data}")
-                        return True
+                checkpoint_data = message.state.body.get("data")
+                if checkpoint_data is not None:
+                    self.contract_responses[dialogue.dialogue_label.dialogue_reference[0]] = {
+                        "next_checkpoint_ts": int(checkpoint_data),
+                        "request_type": "next_checkpoint",
+                    }
+                    self.context.logger.info(f"Received next checkpoint timestamp: {checkpoint_data}")
+                    return True
 
-            elif message.performative == ContractApiMessage.Performative.ERROR:
-                self.context.logger.warning(f"Contract API error: {message.message}")
+            if message.performative == ContractApiMessage.Performative.ERROR:
+                self.context.logger.error(f"Contract API error for next checkpoint: {message.message}")
+                return False
 
-            return False
+            # Accept unexpected intermediate messages to avoid validation warnings
+            self.context.logger.debug(f"Next checkpoint: received unexpected performative {message.performative}")
+            return True
 
         except Exception as e:
             self.context.logger.exception(f"Error validating next checkpoint response: {e}")
@@ -475,13 +477,14 @@ class CallCheckpointRound(BaseState):
                 contract_address=self.context.params.staking_token_contract_address,
                 contract_id=str(StakingTokenContract.contract_id),
                 callable="build_checkpoint_tx",
-                ledger_id="ethereum",
+                ledger_id="ethereum",  # Use ethereum ledger for base chain, since LedgerAPI can't set "base" chain
                 kwargs=ContractApiMessage.Kwargs({"chain_id": self.context.params.staking_chain}),
             )
 
             dialogue.validation_func = self._validate_checkpoint_preparation_response
             dialogue.request_type = "checkpoint_preparation"
             self.pending_contract_calls.append(dialogue)
+            self.checkpoint_preparation_complete = True
 
             self.context.logger.info("Submitted checkpoint preparation request")
 
@@ -493,20 +496,24 @@ class CallCheckpointRound(BaseState):
         """Validate checkpoint preparation response message."""
         try:
             if message.performative == ContractApiMessage.Performative.RAW_TRANSACTION:
-                if hasattr(message, "raw_transaction") and message.raw_transaction:
-                    checkpoint_data = message.raw_transaction.body.get("data")
-                    if checkpoint_data:
-                        self.contract_responses[dialogue.dialogue_label.dialogue_reference[0]] = {
-                            "checkpoint_data": checkpoint_data,
-                            "request_type": "checkpoint_preparation",
-                        }
-                        self.context.logger.info("Received checkpoint transaction data")
-                        return True
+                checkpoint_data = message.raw_transaction.body.get("data")
+                if checkpoint_data:
+                    self.contract_responses[dialogue.dialogue_label.dialogue_reference[0]] = {
+                        "checkpoint_data": checkpoint_data,
+                        "request_type": "checkpoint_preparation",
+                    }
+                    self.context.logger.info("Received checkpoint transaction data")
+                    return True
 
-            elif message.performative == ContractApiMessage.Performative.ERROR:
-                self.context.logger.warning(f"Contract API error: {message.message}")
+            if message.performative == ContractApiMessage.Performative.ERROR:
+                self.context.logger.error(f"Contract API error for checkpoint preparation: {message.message}")
+                return False
 
-            return False
+            # Accept unexpected intermediate messages to avoid validation warnings
+            self.context.logger.debug(
+                f"Checkpoint preparation: received unexpected performative {message.performative}"
+            )
+            return True
 
         except Exception as e:
             self.context.logger.exception(f"Error validating checkpoint preparation response: {e}")
@@ -520,9 +527,13 @@ class CallCheckpointRound(BaseState):
 
                 if request_nonce in self.contract_responses:
                     response = self.contract_responses[request_nonce]
+                    request_type = response.get("request_type")
 
-                    if response.get("request_type") == "checkpoint_preparation":
+                    if request_type == "checkpoint_preparation":
                         self._process_checkpoint_preparation_response(response)
+                        self.pending_contract_calls.remove(dialogue)
+                    elif request_type == "safe_tx_preparation":
+                        self._process_safe_tx_preparation_response(response)
                         self.pending_contract_calls.remove(dialogue)
 
             if not self.pending_contract_calls and not self.checkpoint_preparation_complete:
@@ -531,14 +542,14 @@ class CallCheckpointRound(BaseState):
 
         except Exception as e:
             self.context.logger.exception(f"Error checking checkpoint preparation responses: {e}")
-            self.checkpoint_preparation_complete = True
+            self._handle_error(e)
 
     def _process_checkpoint_preparation_response(self, response: dict) -> None:
         """Process checkpoint preparation response."""
         checkpoint_data = response["checkpoint_data"]
+        self.checkpoint_data = checkpoint_data
         self.checkpoint_tx_hex = self._prepare_safe_tx_hash(checkpoint_data)
-        self.checkpoint_preparation_complete = True
-        self.context.logger.info(f"Checkpoint transaction prepared: {self.checkpoint_tx_hex}")
+        self.context.logger.info(f"Checkpoint data received, preparing safe tx....: {self.checkpoint_tx_hex}")
 
     def _process_safe_tx_preparation_response(self, response: dict) -> None:
         """Process Safe transaction preparation response."""
@@ -608,20 +619,22 @@ class CallCheckpointRound(BaseState):
         """Validate Safe transaction preparation response message."""
         try:
             if message.performative == ContractApiMessage.Performative.RAW_TRANSACTION:
-                if hasattr(message, "raw_transaction") and message.raw_transaction:
-                    raw_tx = message.raw_transaction
-                    if raw_tx:
-                        self.contract_responses[dialogue.dialogue_label.dialogue_reference[0]] = {
-                            "safe_tx_raw_data": raw_tx,
-                            "request_type": "safe_tx_preparation",
-                        }
-                        self.context.logger.info("Received Safe transaction raw data")
-                        return True
+                raw_tx = message.raw_transaction
+                if raw_tx:
+                    self.contract_responses[dialogue.dialogue_label.dialogue_reference[0]] = {
+                        "safe_tx_raw_data": raw_tx,
+                        "request_type": "safe_tx_preparation",
+                    }
+                    self.context.logger.info("Received Safe transaction raw data")
+                    return True
 
-            elif message.performative == ContractApiMessage.Performative.ERROR:
-                self.context.logger.warning(f"Contract API error: {message.message}")
+            if message.performative == ContractApiMessage.Performative.ERROR:
+                self.context.logger.error(f"Contract API error for Safe tx preparation: {message.message}")
+                return False
 
-            return False
+            # Accept unexpected intermediate messages to avoid validation warnings
+            self.context.logger.debug(f"Safe tx preparation: received unexpected performative {message.performative}")
+            return True
 
         except Exception as e:
             self.context.logger.exception(f"Error validating Safe tx preparation response: {e}")
@@ -667,8 +680,17 @@ class CallCheckpointRound(BaseState):
                 self.context.logger.info("Checkpoint transaction signed successfully")
                 return True
 
-            self.context.logger.error(f"Checkpoint transaction signing failed: {message.performative}")
-            return False
+            if message.performative == SigningMessage.Performative.ERROR:
+                error_code = message.error_code if hasattr(message, "error_code") else "unknown"
+                self.context.logger.error(f"Checkpoint transaction signing failed with error: {error_code}")
+                return False
+
+            # Log unexpected performatives but don't fail validation
+            self.context.logger.debug(
+                f"Received unexpected signing message performative: {message.performative}, "
+                "waiting for SIGNED_TRANSACTION"
+            )
+            return True  # Return True to avoid validation warning for intermediate messages
 
         except Exception as e:
             self.context.logger.exception(f"Error processing checkpoint signing response: {e}")
@@ -782,23 +804,25 @@ class CallCheckpointRound(BaseState):
         """Validate liveness ratio response message."""
         try:
             if message.performative == ContractApiMessage.Performative.STATE:
-                if hasattr(message, "state") and message.state:
-                    liveness_ratio = message.state.body.get("data")
-                    if liveness_ratio is not None:
-                        self.contract_responses[dialogue.dialogue_label.dialogue_reference[0]] = {
-                            "liveness_ratio": int(liveness_ratio),
-                            "request_type": "liveness_ratio",
-                        }
-                        self.context.logger.info(f"Received liveness ratio: {liveness_ratio}")
+                liveness_ratio = message.state.body.get("data")
+                if liveness_ratio is not None:
+                    self.contract_responses[dialogue.dialogue_label.dialogue_reference[0]] = {
+                        "liveness_ratio": int(liveness_ratio),
+                        "request_type": "liveness_ratio",
+                    }
+                    self.context.logger.info(f"Received liveness ratio: {liveness_ratio}")
 
-                        # Now get liveness period
-                        self._get_liveness_period_async()
-                        return True
+                    # Now get liveness period
+                    self._get_liveness_period_async()
+                    return True
 
-            elif message.performative == ContractApiMessage.Performative.ERROR:
-                self.context.logger.warning(f"Contract API error: {message.message}")
+            if message.performative == ContractApiMessage.Performative.ERROR:
+                self.context.logger.error(f"Contract API error for liveness ratio: {message.message}")
+                return False
 
-            return False
+            # Accept unexpected intermediate messages to avoid validation warnings
+            self.context.logger.debug(f"Liveness ratio: received unexpected performative {message.performative}")
+            return True
 
         except Exception as e:
             self.context.logger.exception(f"Error validating liveness ratio response: {e}")
@@ -831,23 +855,25 @@ class CallCheckpointRound(BaseState):
         """Validate liveness period response message."""
         try:
             if message.performative == ContractApiMessage.Performative.STATE:
-                if hasattr(message, "state") and message.state:
-                    liveness_period = message.state.body.get("data")
-                    if liveness_period is not None:
-                        self.contract_responses[dialogue.dialogue_label.dialogue_reference[0]] = {
-                            "liveness_period": int(liveness_period),
-                            "request_type": "liveness_period",
-                        }
-                        self.context.logger.info(f"Received liveness period: {liveness_period}")
+                liveness_period = message.state.body.get("data")
+                if liveness_period is not None:
+                    self.contract_responses[dialogue.dialogue_label.dialogue_reference[0]] = {
+                        "liveness_period": int(liveness_period),
+                        "request_type": "liveness_period",
+                    }
+                    self.context.logger.info(f"Received liveness period: {liveness_period}")
 
-                        # Now get timestamp checkpoint
-                        self._get_ts_checkpoint_async()
-                        return True
+                    # Now get timestamp checkpoint
+                    self._get_ts_checkpoint_async()
+                    return True
 
-            elif message.performative == ContractApiMessage.Performative.ERROR:
-                self.context.logger.warning(f"Contract API error: {message.message}")
+            if message.performative == ContractApiMessage.Performative.ERROR:
+                self.context.logger.error(f"Contract API error for liveness period: {message.message}")
+                return False
 
-            return False
+            # Accept unexpected intermediate messages to avoid validation warnings
+            self.context.logger.debug(f"Liveness period: received unexpected performative {message.performative}")
+            return True
 
         except Exception as e:
             self.context.logger.exception(f"Error validating liveness period response: {e}")
@@ -880,23 +906,25 @@ class CallCheckpointRound(BaseState):
         """Validate ts checkpoint response message."""
         try:
             if message.performative == ContractApiMessage.Performative.STATE:
-                if hasattr(message, "state") and message.state:
-                    ts_checkpoint = message.state.body.get("data")
-                    if ts_checkpoint is not None:
-                        self.contract_responses[dialogue.dialogue_label.dialogue_reference[0]] = {
-                            "ts_checkpoint": int(ts_checkpoint),
-                            "request_type": "ts_checkpoint",
-                        }
-                        self.context.logger.info(f"Received ts checkpoint: {ts_checkpoint}")
+                ts_checkpoint = message.state.body.get("data")
+                if ts_checkpoint is not None:
+                    self.contract_responses[dialogue.dialogue_label.dialogue_reference[0]] = {
+                        "ts_checkpoint": int(ts_checkpoint),
+                        "request_type": "ts_checkpoint",
+                    }
+                    self.context.logger.info(f"Received ts checkpoint: {ts_checkpoint}")
 
-                        # Now calculate the actual minimum number
-                        self._perform_min_tx_calculation()
-                        return True
+                    # Now calculate the actual minimum number
+                    self._perform_min_tx_calculation()
+                    return True
 
-            elif message.performative == ContractApiMessage.Performative.ERROR:
-                self.context.logger.warning(f"Contract API error: {message.message}")
+            if message.performative == ContractApiMessage.Performative.ERROR:
+                self.context.logger.error(f"Contract API error for ts checkpoint: {message.message}")
+                return False
 
-            return False
+            # Accept unexpected intermediate messages to avoid validation warnings
+            self.context.logger.debug(f"TS checkpoint: received unexpected performative {message.performative}")
+            return True
 
         except Exception as e:
             self.context.logger.exception(f"Error validating ts checkpoint response: {e}")
@@ -980,24 +1008,26 @@ class CallCheckpointRound(BaseState):
         """Validate multisig nonces response message."""
         try:
             if message.performative == ContractApiMessage.Performative.STATE:
-                if hasattr(message, "state") and message.state:
-                    multisig_nonces = message.state.body.get("data")
-                    if multisig_nonces is not None and len(multisig_nonces) > 0:
-                        current_nonce = multisig_nonces[0]
-                        self.contract_responses[dialogue.dialogue_label.dialogue_reference[0]] = {
-                            "multisig_nonces": current_nonce,
-                            "request_type": "multisig_nonces",
-                        }
-                        self.context.logger.info(f"Received multisig nonces: {current_nonce}")
+                multisig_nonces = message.state.body.get("data")
+                if multisig_nonces is not None and len(multisig_nonces) > 0:
+                    current_nonce = multisig_nonces[0]
+                    self.contract_responses[dialogue.dialogue_label.dialogue_reference[0]] = {
+                        "multisig_nonces": current_nonce,
+                        "request_type": "multisig_nonces",
+                    }
+                    self.context.logger.info(f"Received multisig nonces: {current_nonce}")
 
-                        # Now get service info to get last checkpoint nonce
-                        self._get_service_info_async()
-                        return True
+                    # Now get service info to get last checkpoint nonce
+                    self._get_service_info_async()
+                    return True
 
-            elif message.performative == ContractApiMessage.Performative.ERROR:
-                self.context.logger.warning(f"Contract API error: {message.message}")
+            if message.performative == ContractApiMessage.Performative.ERROR:
+                self.context.logger.error(f"Contract API error for multisig nonces: {message.message}")
+                return False
 
-            return False
+            # Accept unexpected intermediate messages to avoid validation warnings
+            self.context.logger.debug(f"Multisig nonces: received unexpected performative {message.performative}")
+            return True
 
         except Exception as e:
             self.context.logger.exception(f"Error validating multisig nonces response: {e}")
@@ -1036,27 +1066,29 @@ class CallCheckpointRound(BaseState):
         """Validate service info response message."""
         try:
             if message.performative == ContractApiMessage.Performative.STATE:
-                if hasattr(message, "state") and message.state:
-                    service_info = message.state.body.get("data")
-                    if service_info is not None and len(service_info) > 2 and len(service_info[2]) > 0:
-                        last_checkpoint_nonce = service_info[2][0]
-                        self.contract_responses[dialogue.dialogue_label.dialogue_reference[0]] = {
-                            "service_info": service_info,
-                            "last_checkpoint_nonce": last_checkpoint_nonce,
-                            "request_type": "service_info",
-                        }
-                        self.context.logger.info(
-                            f"Received service info with last checkpoint nonce: {last_checkpoint_nonce}"
-                        )
+                service_info = message.state.body.get("data")
+                if service_info is not None and len(service_info) > 2 and len(service_info[2]) > 0:
+                    last_checkpoint_nonce = service_info[2][0]
+                    self.contract_responses[dialogue.dialogue_label.dialogue_reference[0]] = {
+                        "service_info": service_info,
+                        "last_checkpoint_nonce": last_checkpoint_nonce,
+                        "request_type": "service_info",
+                    }
+                    self.context.logger.info(
+                        f"Received service info with last checkpoint nonce: {last_checkpoint_nonce}"
+                    )
 
-                        # Now calculate multisig nonces since last checkpoint
-                        self._calculate_multisig_nonces_since_checkpoint()
-                        return True
+                    # Now calculate multisig nonces since last checkpoint
+                    self._calculate_multisig_nonces_since_checkpoint()
+                    return True
 
-            elif message.performative == ContractApiMessage.Performative.ERROR:
-                self.context.logger.warning(f"Contract API error: {message.message}")
+            if message.performative == ContractApiMessage.Performative.ERROR:
+                self.context.logger.error(f"Contract API error for service info: {message.message}")
+                return False
 
-            return False
+            # Accept unexpected intermediate messages to avoid validation warnings
+            self.context.logger.debug(f"Service info: received unexpected performative {message.performative}")
+            return True
 
         except Exception as e:
             self.context.logger.exception(f"Error validating service info response: {e}")
