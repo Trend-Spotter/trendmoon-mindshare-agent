@@ -272,6 +272,7 @@ class LedgerApiHandler(Handler):
             LedgerApiMessage.Performative.TRANSACTION_DIGESTS,
             LedgerApiMessage.Performative.TRANSACTION_RECEIPT,
             LedgerApiMessage.Performative.ERROR,
+            LedgerApiMessage.Performative.BALANCE,
         }
     )
 

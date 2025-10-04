@@ -544,6 +544,8 @@ class BaseState(State, ABC):
                 SigningMessage.Performative.SIGN_TRANSACTION: self.context.signing_dialogues,
                 LedgerApiMessage.Performative.SEND_SIGNED_TRANSACTION: self.context.ledger_api_dialogues,
                 LedgerApiMessage.Performative.GET_TRANSACTION_RECEIPT: self.context.ledger_api_dialogues,
+                LedgerApiMessage.Performative.GET_STATE: self.context.ledger_api_dialogues,
+                LedgerApiMessage.Performative.GET_BALANCE: self.context.ledger_api_dialogues,
             }
         return self._performative_to_dialogue_class
 
