@@ -216,12 +216,16 @@ class PositionMonitoringRound(BaseState):
         unrealized_pnl = (current_price - entry_price) * position_size
         pnl_percentage = ((current_price - entry_price) / entry_price) * 100
 
+        # Calculate current market value in USDC
+        current_value_usdc = current_price * position_size
+
         rsi = self._get_current_rsi(symbol)
 
         # Update position with current data
         updated_position = {
             **position,
             "current_price": current_price,
+            "current_value_usdc": current_value_usdc,
             "unrealized_pnl": unrealized_pnl,
             "pnl_percentage": pnl_percentage,
             "last_updated": datetime.now(UTC).isoformat(),

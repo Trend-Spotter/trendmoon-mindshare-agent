@@ -173,7 +173,10 @@ class PortfolioValidationRound(BaseState):
                 self.portfolio_metrics["current_positions"] = len(self.open_positions)
                 self.portfolio_metrics["total_portfolio_value"] = positions_data.get("total_portfolio_value", 0.0)
 
-                total_exposure = sum(pos.get("entry_value_usdc", 0.0) for pos in self.open_positions)
+                # Use current_value_usdc if available (updated by position monitor), fallback to entry_value_usdc
+                total_exposure = sum(
+                    pos.get("current_value_usdc", pos.get("entry_value_usdc", 0.0)) for pos in self.open_positions
+                )
                 self.portfolio_metrics["total_exposure"] = total_exposure
 
             else:
