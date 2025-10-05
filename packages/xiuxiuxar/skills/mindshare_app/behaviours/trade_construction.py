@@ -43,6 +43,7 @@ if TYPE_CHECKING:
 MAX_DEVIATION = 0.50  # 50% deviation threshold
 WARNING_DEVIATION = 0.20  # 20% deviation for warnings
 PRICE_COLLECTION_TIMEOUT_SECONDS = 180
+BUFFER_RATIO = 0.05  # 5% NAV buffer for position sizing
 
 
 @dataclass
@@ -611,37 +612,42 @@ class TradeConstructionRound(BaseState):
                 f"Using available trading capital from portfolio validation: ${available_capital:.2f}"
             )
 
-            # Get portfolio metrics to calculate total portfolio value
+            # Get portfolio metrics to calculate total portfolio value (NAV)
             portfolio_metrics = getattr(self.context, "portfolio_metrics", {})
             total_exposure = portfolio_metrics.get("total_exposure", 0.0)
 
-            # Total Portfolio Value = Available Cash + Existing Positions
-            total_portfolio_value = available_capital + total_exposure
+            # NAV = Available Cash + Existing Positions
+            nav = available_capital + total_exposure
 
-            # Each position should be 1/7 of total portfolio value
-            target_position_size = total_portfolio_value * (1.0 / 7.0)
+            # Compute buffer dynamically: buffer = NAV * buffer_ratio
+            buffer = nav * BUFFER_RATIO
 
-            # But we can only use available capital (minus buffer)
-            min_capital_buffer = portfolio_metrics.get("min_capital_buffer", 500.0)
-            usable_capital = available_capital - min_capital_buffer
-
-            # Position size is the minimum of target and usable capital
-            position_size = min(target_position_size, usable_capital)
-
-            # Apply minimum position size constraint
-            min_size = self.risk_parameters["min_position_size"]
-            position_size = max(min_size, position_size)
-
+            # Check max positions constraint
             max_positions = self.context.params.max_positions
-            current_positions = len(self.open_positions)
-            if current_positions >= max_positions:
-                self.context.logger.info(f"Max positions reached: {current_positions}/{max_positions}")
+            active_positions = len(self.open_positions)
+            if active_positions >= max_positions:
+                self.context.logger.info(f"Max positions reached: {active_positions}/{max_positions}")
+                return 0.0
+
+            # Calculate position size with buffer
+            divisor = min(active_positions, max_positions) if active_positions > 0 else max_positions
+            position_size = (nav - buffer) / divisor
+            position_size = min(position_size, (nav - buffer) / max_positions)
+
+            # Check minimum position size constraint
+            # If calculated size is below minimum, don't trade (return 0)
+            min_size = self.risk_parameters["min_position_size"]
+            if position_size < min_size:
+                self.context.logger.warning(
+                    f"Calculated position size (${position_size:.2f}) below minimum (${min_size:.2f}). "
+                    f"NAV too small to maintain position sizing strategy."
+                )
                 return 0.0
 
             self.context.logger.info(
-                f"Position sizing: Total portfolio: ${total_portfolio_value:.2f}, "
-                f"Target per position: ${target_position_size:.2f}, "
-                f"Actual position size: ${position_size:.2f}"
+                f"Position sizing: NAV: ${nav:.2f}, Buffer (5%): ${buffer:.2f}, "
+                f"Active positions: {active_positions}, "
+                f"Position size: ${position_size:.2f}"
             )
 
             return position_size
