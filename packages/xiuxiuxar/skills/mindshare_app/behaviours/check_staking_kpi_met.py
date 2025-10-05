@@ -330,6 +330,16 @@ class CheckStakingKPIRound(BaseState):
             # Increment period count for this round
             period_count += 1
 
+            # Handle edge case: checkpoint nonce is higher than current nonce (stale/corrupt state)
+            # This can happen if state was manually edited or checkpoint was set incorrectly
+            if last_checkpoint_nonce > current_nonce:
+                self.context.logger.warning(
+                    f"Checkpoint nonce ({last_checkpoint_nonce}) is higher than current nonce ({current_nonce}). "
+                    "Resetting checkpoint to current state."
+                )
+                last_checkpoint_nonce = current_nonce
+                period_number_at_last_cp = period_count
+
             self.context.logger.info(
                 f"KPI Evaluation - Current nonce: {current_nonce}, "
                 f"Last checkpoint nonce: {last_checkpoint_nonce}, "
@@ -344,6 +354,16 @@ class CheckStakingKPIRound(BaseState):
                 self.context.logger.info("Period threshold not exceeded yet")
                 self.is_staking_kpi_met = True  # KPI is considered met if not in evaluation period
             else:
+                # We're in evaluation period - reset checkpoint to start counting from now
+                # This ensures we only need min_num_of_safe_tx_required NEW transactions from this point
+                if period_number_at_last_cp < period_count - staking_threshold_period:
+                    self.context.logger.info(
+                        f"Entering evaluation period. Resetting checkpoint from period {period_number_at_last_cp} "
+                        f"to {period_count}, nonce from {last_checkpoint_nonce} to {current_nonce}"
+                    )
+                    period_number_at_last_cp = period_count
+                    last_checkpoint_nonce = current_nonce
+
                 # Calculate transactions since last checkpoint
                 multisig_nonces_since_last_cp = current_nonce - last_checkpoint_nonce
 
@@ -426,9 +446,11 @@ class CheckStakingKPIRound(BaseState):
                     state_data = json.load(f)
 
             # Update KPI data in state
+            # If has_required_funds is explicitly provided in kmp_data, use that value
+            # Otherwise, fall back to checking the current instance variable
             kpi_state = {
                 "is_staking_kpi_met": kmp_data.get("is_staking_kpi_met", False),
-                "has_required_funds": self._check_agent_balance_threshold(),
+                "has_required_funds": kmp_data.get("has_required_funds", self._check_agent_balance_threshold()),
                 "period_count": kmp_data.get("period_count", 0),
                 "period_number_at_last_cp": kmp_data.get("period_number_at_last_cp", 0),
                 "last_checkpoint_nonce": kmp_data.get("last_checkpoint_nonce", 0),
@@ -495,6 +517,12 @@ class CheckStakingKPIRound(BaseState):
                     f"threshold: {threshold} wei ({threshold / 1e18:.4f} ETH), "
                     f"sufficient: {self.has_required_funds}"
                 )
+
+                # Persist the balance check result to state
+                kpi_state = self._load_kpi_state()
+                kpi_state["has_required_funds"] = self.has_required_funds
+                self._save_kpi_state(kpi_state)
+
                 return True
 
             if message.performative == LedgerApiMessage.Performative.ERROR:
@@ -525,6 +553,10 @@ class CheckStakingKPIRound(BaseState):
                         f"Balance check complete: {self.agent_balance} wei, "
                         f"has_required_funds: {self.has_required_funds}"
                     )
+                    # Update KPI state with the balance check result
+                    kpi_state = self._load_kpi_state()
+                    kpi_state["has_required_funds"] = self.has_required_funds
+                    self._save_kpi_state(kpi_state)
                 else:
                     self.context.logger.warning("Received ledger message but balance not set")
 
