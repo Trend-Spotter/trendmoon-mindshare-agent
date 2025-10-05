@@ -180,15 +180,25 @@ class CheckStakingKPIRound(BaseState):
 
     def _handle_vanity_tx_execution(self) -> bool:
         """Handle vanity transaction execution. Returns True if should exit early."""
+        # Step 1: Submit the raw transaction request
         if self.vanity_tx_prepared and self.vanity_tx_hex and not self.vanity_tx_execution_submitted:
             self._execute_vanity_tx_async()
             return True
 
-        if self.vanity_tx_execution_submitted and not self.vanity_tx_executed:
+        # Step 2: Wait for raw transaction response and submit for signing
+        if self.vanity_tx_execution_submitted and not self.vanity_tx_signing_submitted:
             self._check_vanity_tx_execution_responses()
-            return not self.vanity_tx_executed
+            # Keep waiting - don't proceed until signing is submitted
+            return True
 
-        return False
+        # Step 3: Wait for signing to complete (validation function handles this)
+        if self.vanity_tx_signing_submitted and not self.vanity_tx_broadcast_submitted:
+            # Signing validation function will trigger broadcast
+            return True
+
+        # Step 4: Wait for broadcast to complete (validation function sets vanity_tx_executed)
+        # Broadcast validation function will set vanity_tx_executed = True
+        return self.vanity_tx_broadcast_submitted and not self.vanity_tx_executed
 
     def _initialize_kpi_check(self) -> None:
         """Initialize staking KPI check."""
@@ -286,6 +296,8 @@ class CheckStakingKPIRound(BaseState):
                     if "current_nonce" in response:
                         current_nonce = response["current_nonce"]
                         self._evaluate_staking_kpi(current_nonce)
+                        # Clear the response after processing
+                        del self.contract_responses[request_nonce]
 
                     # Remove from pending
                     self.pending_contract_calls.remove(dialogue)
@@ -643,6 +655,8 @@ class CheckStakingKPIRound(BaseState):
                         safe_tx_hash = response["safe_tx_hash"]
                         tx_data = response["tx_data"]
                         self._finalize_vanity_tx(safe_tx_hash, tx_data)
+                        # Clear the response after processing
+                        del self.contract_responses[request_nonce]
 
                     # Remove from pending
                     self.pending_contract_calls.remove(dialogue)
@@ -797,13 +811,11 @@ class CheckStakingKPIRound(BaseState):
                         kpi_state["vanity_tx_timestamp"] = datetime.now(UTC).isoformat()
                         self._save_kpi_state(kpi_state)
 
+                        # Clear the response after processing
+                        del self.contract_responses[request_nonce]
+
                     # Remove from pending
                     self.pending_contract_calls.remove(dialogue)
-
-            # If no pending calls, mark as executed
-            if not self.pending_contract_calls and not self.vanity_tx_executed:
-                self.vanity_tx_executed = True
-                self.context.logger.info("Vanity transaction execution completed (no response)")
 
         except Exception as e:
             self.context.logger.exception(f"Error checking vanity tx execution responses: {e}")
@@ -846,11 +858,21 @@ class CheckStakingKPIRound(BaseState):
                 self.vanity_tx_signed_data = message.signed_transaction
                 self.context.logger.info("Vanity transaction signed successfully")
 
+                # Immediately broadcast the signed transaction
                 self._broadcast_vanity_transaction()
                 return True
 
-            self.context.logger.error(f"Vanity transaction signing failed: {message.performative}")
-            return False
+            if message.performative == SigningMessage.Performative.ERROR:
+                error_code = message.error_code if hasattr(message, "error_code") else "unknown"
+                self.context.logger.error(f"Vanity transaction signing failed with error: {error_code}")
+                return False
+
+            # Log unexpected performatives but don't fail validation
+            self.context.logger.debug(
+                f"Received unexpected signing message performative: {message.performative}, "
+                "waiting for SIGNED_TRANSACTION"
+            )
+            return True  # Return True to avoid validation warning for intermediate messages
 
         except Exception as e:
             self.context.logger.exception(f"Error processing vanity signing response: {e}")
@@ -878,18 +900,30 @@ class CheckStakingKPIRound(BaseState):
             if message.performative == LedgerApiMessage.Performative.TRANSACTION_DIGEST:
                 tx_hash = message.transaction_digest.body
                 self.vanity_tx_final_hash = tx_hash
-                self.context.logger.info(f"Vanity transaction broadcast successful: {tx_hash}")
+                self.context.logger.info(f"✅ Vanity transaction broadcast successful: {tx_hash}")
 
+                # Update KPI state with broadcast information
                 kpi_state = self._load_kpi_state()
                 kpi_state["vanity_tx_broadcast"] = True
                 kpi_state["vanity_tx_final_hash"] = tx_hash
                 kpi_state["vanity_tx_broadcast_timestamp"] = datetime.now(UTC).isoformat()
                 self._save_kpi_state(kpi_state)
 
+                # Mark as executed so we can proceed to finalization
+                self.vanity_tx_executed = True
+
                 return True
 
-            self.context.logger.error(f"Vanity transaction broadcast failed: {message.performative}")
-            return False
+            if message.performative == LedgerApiMessage.Performative.ERROR:
+                self.context.logger.error(f"Vanity transaction broadcast failed: {message.message}")
+                return False
+
+            # Log unexpected performatives but don't fail validation
+            self.context.logger.debug(
+                f"Received unexpected broadcast message performative: {message.performative}, "
+                "waiting for TRANSACTION_DIGEST"
+            )
+            return True
 
         except Exception as e:
             self.context.logger.exception(f"Error processing vanity broadcast response: {e}")
