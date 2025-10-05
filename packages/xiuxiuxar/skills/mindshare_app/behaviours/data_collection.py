@@ -22,6 +22,7 @@ import json
 import time
 import operator
 from typing import Any
+from pathlib import Path
 from datetime import UTC, datetime, timedelta
 from collections.abc import Generator
 
@@ -229,6 +230,62 @@ class DataCollectionRound(BaseState):
             self.tokens_needing_ohlcv_update.add(symbol)
             self.tokens_needing_social_update.add(symbol)
 
+    def _handle_corrupt_data_file(self, data_file: Path) -> None:
+        """Handle a corrupt data file by backing up and clearing."""
+        backup_file = self.context.store_path / "collected_data.corrupt.backup.json"
+        try:
+            # Remove old backup if it exists
+            if backup_file.exists():
+                backup_file.unlink()
+            # Move corrupt file to backup
+            data_file.rename(backup_file)
+            self.context.logger.info(f"Corrupt file backed up to {backup_file}")
+        except (OSError, PermissionError) as backup_error:
+            self.context.logger.warning(f"Failed to backup corrupt file: {backup_error}")
+            # If backup fails, just delete the corrupt file
+            try:
+                data_file.unlink()
+                self.context.logger.info("Deleted corrupt file")
+            except Exception as delete_error:
+                self.context.logger.exception(f"Failed to delete corrupt file: {delete_error}")
+
+    def _load_existing_data_file(self, data_file: Path) -> dict | None:
+        """Load and validate existing data file."""
+        try:
+            with open(data_file, encoding=DEFAULT_ENCODING) as f:
+                existing_data = json.load(f)
+        except json.JSONDecodeError as e:
+            self.context.logger.exception(
+                f"Corrupt data file detected at {data_file}: {e}. " "Replacing with fresh data structure."
+            )
+            self._handle_corrupt_data_file(data_file)
+            return None
+
+        # Validate data structure
+        if not isinstance(existing_data, dict):
+            self.context.logger.error(f"Invalid data structure in {data_file}, expected dict. Starting fresh.")
+            try:
+                data_file.unlink()
+                self.context.logger.info("Cleared invalid data file")
+            except Exception as delete_error:
+                self.context.logger.exception(f"Failed to delete invalid data file: {delete_error}")
+            return None
+
+        return existing_data
+
+    def _analyze_token_updates(self, existing_data: dict) -> None:
+        """Analyze which tokens need updates and populate tracking sets."""
+        current_time = datetime.now(UTC)
+
+        for token in self.pending_tokens:
+            symbol = token["symbol"]
+
+            if self._needs_ohlcv_update(existing_data, symbol, current_time):
+                self.tokens_needing_ohlcv_update.add(symbol)
+
+            if self._needs_social_update(existing_data, symbol, current_time):
+                self.tokens_needing_social_update.add(symbol)
+
     def _load_and_analyze_existing_data(self) -> dict | None:
         """Load existing data and analyze what needs updating."""
         try:
@@ -241,28 +298,15 @@ class DataCollectionRound(BaseState):
                 self.context.logger.info(f"Data file does not exist: {data_file}")
                 return None
 
-            with open(data_file, encoding=DEFAULT_ENCODING) as f:
-                existing_data = json.load(f)
+            existing_data = self._load_existing_data_file(data_file)
+            if existing_data is None:
+                return None
 
             # Ensure tracking fields exist
-            if "last_ohlcv_update" not in existing_data:
-                existing_data["last_ohlcv_update"] = {}
-            if "last_social_update" not in existing_data:
-                existing_data["last_social_update"] = {}
+            existing_data.setdefault("last_ohlcv_update", {})
+            existing_data.setdefault("last_social_update", {})
 
-            current_time = datetime.now(UTC)
-
-            for token in self.pending_tokens:
-                symbol = token["symbol"]
-
-                ohlcv_needs_update = self._needs_ohlcv_update(existing_data, symbol, current_time)
-                if ohlcv_needs_update:
-                    self.tokens_needing_ohlcv_update.add(symbol)
-
-                # Check social data freshness
-                social_needs_update = self._needs_social_update(existing_data, symbol, current_time)
-                if social_needs_update:
-                    self.tokens_needing_social_update.add(symbol)
+            self._analyze_token_updates(existing_data)
 
             return existing_data
 

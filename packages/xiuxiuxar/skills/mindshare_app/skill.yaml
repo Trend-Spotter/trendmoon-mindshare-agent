@@ -13,15 +13,15 @@ fingerprint:
   behaviours/analysis.py: bafybeib5w6h36ko3k7abhbrpygfkx5lzocbt7s73jc5nteazmfqnhg4wdm
   behaviours/base.py: bafybeigebgl4hf2jbgtp6texsr74t3mz4xn3mdvhrstokxxtwmbth3knai
   behaviours/call_checkpoint.py: bafybeihhysgont4d35634ixg66dmnsopu6ibpe63n54balj2ahh3f2puf4
-  behaviours/check_staking_kpi_met.py: bafybeibqeuepy4gorfue5qitpaf3mm6362mf4l7cryrdrk3jtfpcww5bbm
-  behaviours/data_collection.py: bafybeiarqzjfwtrrbists6ht2xevsgntluw22rwaetctoyryxrzhkpccei
+  behaviours/check_staking_kpi_met.py: bafybeiasj6lpd3o4rle65akukiova2ifu2c52rntr5j5vwz7dxdqm4xpbq
+  behaviours/data_collection.py: bafybeiat7aswh27zdtmbymb6k7lsq4cadvqjk5dbwfq3padvw6sdmfwytq
   behaviours/error.py: bafybeibg3oabttq34n3ltv7hv7wwfbcxdazzlr5zup2w4rcht2qm5n6d44
   behaviours/execution.py: bafybeievokpkq4kpapdcs4ztgnk7ov76zvnu3dgtn7ehiqtk3agzxuzqle
   behaviours/pause.py: bafybeifzn3vqxbjj6lqiwmcclejoukr3oyhdevdkalqymtwfkdni3aoke4
   behaviours/portfolio_validation.py: bafybeiftugssmtjbx4uwaldm3zlg5lnzok64butky5gmb5lqaeslmpbrqa
   behaviours/position_monitor.py: bafybeieptxlmk4ffgliaryh2ebqszshafturnq3oi5677z5kp5jh6jcwxy
   behaviours/risk_evaluation.py: bafybeigxaezxhlrb3jx37pa35djvsu5lrkrmu6lh34uef3577z2fe4su2m
-  behaviours/round_behaviour.py: bafybeibeqsu6a5okv24qy6kjlwpz2h4yh54gte5rbmdar76ocgydzeapya
+  behaviours/round_behaviour.py: bafybeia5v7snxhsnztps7tsmvjtauqbvek6khvjlihi334mo2i7ann3wna
   behaviours/setup.py: bafybeihxgs26vlo75emurowxrprh56mjqhktfr6geaeqv2gahafluxac5a
   behaviours/signal_aggregation.py: bafybeidlukwyfptwig55c6yrh6wlfydeyw46uz45rxlugcgg3gupuvgyje
   behaviours/trade_construction.py: bafybeihhqdfcxnqdd4enxn3rxbyvv36cpsl43pcpkhwbbspdek2an3ttdq
@@ -124,7 +124,7 @@ models:
       trendmoon_rate_limit_per_second: 5
       trendmoon_monthly_credits: 10000
       staking_chain: base
-      staking_threshold_period: 1
+      staking_threshold_period: 5
       min_num_of_safe_tx_required: 5
       staking_token_contract_address: '0x8b8a86A056D3145Ec2ecc30FB52C3aF2e6daB7C5'
       on_chain_service_id: null

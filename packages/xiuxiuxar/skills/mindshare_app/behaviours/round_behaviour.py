@@ -164,7 +164,7 @@ class MindshareabciappFsmBehaviour(FSMBehaviour):
         self.register_transition(
             source=MindshareabciappStates.PORTFOLIOVALIDATIONROUND.value,
             event=MindshareabciappEvents.AT_LIMIT,
-            destination=MindshareabciappStates.CHECKSTAKINGKPIROUND.value,
+            destination=MindshareabciappStates.PAUSEDROUND.value,
         )
         self.register_transition(
             source=MindshareabciappStates.PORTFOLIOVALIDATIONROUND.value,
