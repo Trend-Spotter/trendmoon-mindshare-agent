@@ -43,7 +43,6 @@ if TYPE_CHECKING:
 MAX_DEVIATION = 0.50  # 50% deviation threshold
 WARNING_DEVIATION = 0.20  # 20% deviation for warnings
 PRICE_COLLECTION_TIMEOUT_SECONDS = 180
-BUFFER_RATIO = 0.05  # 5% NAV buffer for position sizing
 
 
 @dataclass
@@ -64,6 +63,9 @@ class TradeConstructionRound(BaseState):
         TickersMessage.protocol_id: [],
     }
 
+    # Maximum number of consecutive errors before failing
+    MAX_TICKER_ERRORS = 3
+
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._state = MindshareabciappStates.TRADECONSTRUCTIONROUND
@@ -76,6 +78,9 @@ class TradeConstructionRound(BaseState):
         self.price_collection_started: bool = False
         self.started_at: datetime | None = None
         self.open_positions: list[dict[str, Any]] = []
+        self.validated_requests: set[str] = set()  # Track validated requests to avoid re-validation
+        self.consecutive_ticker_errors: int = 0  # Track consecutive ticker errors
+        self.trade_skipped: bool = False  # Track if trade was skipped (not an error)
 
     def setup(self) -> None:
         """Setup the state."""
@@ -89,6 +94,9 @@ class TradeConstructionRound(BaseState):
         self.price_collection_started = False
         self.started_at = None
         self.open_positions = []
+        self.validated_requests = set()
+        self.consecutive_ticker_errors = 0
+        self.trade_skipped = False
         for k in self.supported_protocols:
             self.supported_protocols[k] = []
 
@@ -137,6 +145,50 @@ class TradeConstructionRound(BaseState):
             self.context.logger.exception(f"Unexpected error loading positions: {e}")
             return []
 
+    def _has_pending_order_or_position(self, symbol: str) -> bool:
+        """Check if the given symbol has a pending order or open position."""
+        # Check for pending orders
+        if self._has_pending_order(symbol):
+            return True
+
+        # Check for open positions
+        return bool(self._has_open_position(symbol))
+
+    def _has_pending_order(self, symbol: str) -> bool:
+        """Check if the given symbol has a pending order."""
+        if not self.context.store_path:
+            return False
+
+        trades_file = self.context.store_path / "pending_trades.json"
+        if not trades_file.exists():
+            return False
+
+        try:
+            with open(trades_file, encoding=DEFAULT_ENCODING) as f:
+                data = json.load(f)
+                pending_trades = data.get("trades", [])
+
+                # Check if any pending trade matches this symbol
+                for trade in pending_trades:
+                    if trade.get("symbol") == symbol:
+                        self.context.logger.debug(f"Found pending order for {symbol}: {trade.get('trade_id')}")
+                        return True
+
+                return False
+
+        except (FileNotFoundError, PermissionError, OSError, json.JSONDecodeError) as e:
+            self.context.logger.warning(f"Failed to check pending orders for {symbol}: {e}")
+            return False
+
+    def _has_open_position(self, symbol: str) -> bool:
+        """Check if the given symbol has an open position."""
+        for position in self.open_positions:
+            if position.get("symbol") == symbol and position.get("status") == "open":
+                self.context.logger.debug(f"Found open position for {symbol}: {position.get('position_id')}")
+                return True
+
+        return False
+
     def _process_trade_construction(self) -> bool:
         """Process the trade construction workflow step by step."""
         if not self.construction_initialized:
@@ -144,6 +196,12 @@ class TradeConstructionRound(BaseState):
             self._initialize_construction()
 
             if not self._load_trade_signal():
+                # Check if trade was skipped (normal operation) or actual error
+                if self.trade_skipped:
+                    self.context.logger.info("Trade construction skipped - no action needed.")
+                    return True  # Treat skip as success, will transition to DONE
+
+                # Actual error loading trade signal
                 self.context.logger.error("Failed to load trade signal from previous round.")
                 self._set_error_state()
                 return False
@@ -207,38 +265,55 @@ class TradeConstructionRound(BaseState):
     def _load_trade_signal(self) -> bool:
         """Load the trade signal from the previous round."""
         try:
+            # Try to load from context first
             if hasattr(self.context, "approved_trade_signal") and self.context.approved_trade_signal:
                 self.trade_signal = self.context.approved_trade_signal
+            else:
+                # Load from storage
+                success = self._load_signal_from_storage()
+                if not success:
+                    return False
+
+            # Validate the loaded signal
+            symbol = self.trade_signal.get("symbol", "Unknown")
+
+            # Check if ticker already has pending order or open position
+            if self._has_pending_order_or_position(symbol):
                 self.context.logger.info(
-                    f"Loaded approved trade signal for {self.trade_signal.get('symbol', 'Unknown')}"
+                    f"Skipping trade signal for {symbol}: ticker already has pending order or open position"
                 )
-                return True
-
-            if not self.context.store_path:
-                self.context.logger.warning("No store path available, skipping trade signal loading.")
+                self.trade_skipped = True  # Mark as skipped (not an error)
                 return False
 
-            signals_file = self.context.store_path / "signals.json"
-            if not signals_file.exists():
-                self.context.logger.warning("No signals file found")
-                return False
-
-            with open(signals_file, encoding=DEFAULT_ENCODING) as f:
-                signals_data = json.load(f)
-
-            latest_signal = signals_data.get("last_signal")
-
-            if not latest_signal or latest_signal.get("status") != "approved":
-                self.context.logger.warning("No approved signal found, skipping trade signal loading.")
-                return False
-
-            self.trade_signal = latest_signal
-            self.context.logger.info(f"Loaded approved trade signal for {self.trade_signal.get('symbol', 'Unknown')}")
+            self.context.logger.info(f"Loaded approved trade signal for {symbol}")
             return True
 
         except Exception as e:
             self.context.logger.exception(f"Error loading trade signal: {e!s}")
             return False
+
+    def _load_signal_from_storage(self) -> bool:
+        """Load signal from storage file."""
+        if not self.context.store_path:
+            self.context.logger.warning("No store path available, skipping trade signal loading.")
+            return False
+
+        signals_file = self.context.store_path / "signals.json"
+        if not signals_file.exists():
+            self.context.logger.warning("No signals file found")
+            return False
+
+        with open(signals_file, encoding=DEFAULT_ENCODING) as f:
+            signals_data = json.load(f)
+
+        latest_signal = signals_data.get("last_signal")
+
+        if not latest_signal or latest_signal.get("status") != "approved":
+            self.context.logger.warning("No approved signal found, skipping trade signal loading.")
+            return False
+
+        self.trade_signal = latest_signal
+        return True
 
     def _start_price_collection(self) -> None:
         """Start price collection for the trade signal."""
@@ -317,32 +392,97 @@ class TradeConstructionRound(BaseState):
     def _validate_ticker_msg(self, ticker_msg: TickersMessage, _dialogue: BaseDialogue) -> bool:
         """Validate the ticker message."""
         try:
-            if ticker_msg is None:
+            # Basic validation
+            if ticker_msg is None or not isinstance(ticker_msg, TickersMessage):
+                self.consecutive_ticker_errors += 1
                 return False
 
-            if not isinstance(ticker_msg, TickersMessage):
-                return False
-
+            # Handle error responses
             if ticker_msg.performative == TickersMessage.Performative.ERROR:
-                self.context.logger.warning(
-                    f"Received error from DCXT: {getattr(ticker_msg, 'error_msg', 'Unknown error')}"
-                )
-                return False
+                return self._handle_ticker_error(ticker_msg)
 
+            # Handle successful ticker response
             if ticker_msg.performative == TickersMessage.Performative.TICKER and ticker_msg.ticker is not None:
                 self.context.logger.info(f"Received valid ticker: {ticker_msg.ticker.symbol}")
                 self.context.logger.info(f"Ticker: {ticker_msg.ticker.dict()}")
+                # Reset error counter on success
+                self.consecutive_ticker_errors = 0
                 return True
 
+            # Invalid response
+            self.consecutive_ticker_errors += 1
             return False
 
         except Exception as e:
             self.context.logger.exception(f"Error validating ticker message: {e!s}")
+            self.consecutive_ticker_errors += 1
             return False
+
+    def _handle_ticker_error(self, ticker_msg: TickersMessage) -> bool:
+        """Handle ticker error response."""
+        error_msg = getattr(ticker_msg, "error_msg", "Unknown error")
+        self.context.logger.warning(f"Received error from DCXT: {error_msg}")
+
+        # Check for specific CowSwap errors
+        if self._is_cowswap_fee_error(error_msg):
+            self.context.logger.error(
+                "CowSwap fee error: Sell amount does not cover fee. "
+                "Position size may be too small for current gas costs."
+            )
+            self.context.error_context = {
+                "error_type": "cowswap_fee_error",
+                "error_message": "Sell amount does not cover CowSwap fee",
+                "originating_round": str(self._state),
+                "error_details": error_msg,
+            }
+            # This is a non-retryable error - mark as failed immediately
+            self.consecutive_ticker_errors = self.MAX_TICKER_ERRORS
+            return False
+
+        # Track consecutive errors for timeouts and API unavailable
+        self.consecutive_ticker_errors += 1
+
+        # Fail fast if we hit the error threshold
+        if self.consecutive_ticker_errors >= self.MAX_TICKER_ERRORS:
+            self.context.logger.error(
+                f"Exceeded max ticker errors ({self.MAX_TICKER_ERRORS}). " f"Last error: {error_msg}"
+            )
+            self.context.error_context = {
+                "error_type": "ticker_timeout_error",
+                "error_message": f"Failed to get ticker after {self.MAX_TICKER_ERRORS} attempts",
+                "originating_round": str(self._state),
+                "last_error": error_msg,
+            }
+
+        return False
+
+    def _is_cowswap_fee_error(self, error_msg: str) -> bool:
+        """Check if error message indicates CowSwap fee coverage issue."""
+        if not error_msg:
+            return False
+
+        error_msg_lower = error_msg.lower()
+        return any(
+            indicator in error_msg_lower
+            for indicator in [
+                "sellamountdoesnotcoverfee",
+                "sell amount for the sell order is lower than the fee",
+                "does not cover fee",
+            ]
+        )
 
     def _check_price_collection_complete(self) -> bool:
         """Check if all price collection is complete."""
         try:
+            # Check if we exceeded the max error threshold - fail immediately
+            if self.consecutive_ticker_errors >= self.MAX_TICKER_ERRORS:
+                self.context.logger.error(
+                    f"Price collection failed due to {self.consecutive_ticker_errors} consecutive errors"
+                )
+                # Set error state to transition to HandleErrorRound
+                self._set_error_state()
+                return True  # Return True to stop waiting, error state is already set
+
             # Check if we have received responses for all requests
             received_responses = len(self.supported_protocols.get(TickersMessage.protocol_id, []))
             expected_responses = len(self.pending_price_requests)
@@ -356,6 +496,10 @@ class TradeConstructionRound(BaseState):
                 dialogue = price_request.ticker_dialogue
                 if not dialogue.validation_func(dialogue.last_incoming_message, dialogue):
                     self.context.logger.error(f"Invalid ticker message for {price_request.symbol}")
+                    # Check if error threshold was hit during validation
+                    if self.consecutive_ticker_errors >= self.MAX_TICKER_ERRORS:
+                        self._set_error_state()
+                        return True  # Stop processing, transition to error handling
                     return False
 
             return True
@@ -620,7 +764,7 @@ class TradeConstructionRound(BaseState):
             nav = available_capital + total_exposure
 
             # Compute buffer dynamically: buffer = NAV * buffer_ratio
-            buffer = nav * BUFFER_RATIO
+            buffer = nav * self.context.params.buffer_ratio
 
             # Check max positions constraint
             max_positions = self.context.params.max_positions

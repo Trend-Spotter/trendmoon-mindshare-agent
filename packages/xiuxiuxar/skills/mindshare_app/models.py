@@ -814,7 +814,7 @@ class Params(Model):
         self.max_positions = kwargs.pop("max_positions", 10)
         self.max_exposure_per_position = kwargs.pop("max_exposure_per_position", 20.0)
         self.max_total_exposure = kwargs.pop("max_total_exposure", 80.0)
-        self.min_capital_buffer = kwargs.pop("min_capital_buffer", 500.0)
+        self.buffer_ratio = kwargs.pop("buffer_ratio", 0.05)
         self.min_position_size_usdc = kwargs.pop("min_position_size_usdc", 100)
         self.reset_pause_duration = kwargs.pop("reset_pause_duration", 10)
         self.trading_strategy = kwargs.pop("trading_strategy", "balanced")

@@ -62,8 +62,6 @@ class AnalysisRound(BaseState):
 
     def act(self) -> None:
         """Perform the act."""
-        self.context.logger.info(f"Entering {self._state} state.")
-
         try:
             if not self.analysis_initialized:
                 self._initialize_analysis()
@@ -92,7 +90,7 @@ class AnalysisRound(BaseState):
         """Initialize the analysis."""
         if self.analysis_initialized:
             return
-
+        self.context.logger.info(f"Entering {self._state} state.")
         self.context.logger.info("Initializing analysis...")
 
         if not self._load_collected_data():

@@ -10,24 +10,24 @@ fingerprint:
   README.md: bafybeiesl5jlvvu4enydib32bpyfqphlkdulxy3oqid3t32cjxya5qykci
   __init__.py: bafybeifhcjbfwkkjfaq57azgh24ufuo4pvjm4vguozhbg3qsrn4tw5ukge
   behaviours/__init__.py: bafybeih2dnrparrlxp2i4km2sozarcl7zzlzqoezmogasfcug52bq7tvpm
-  behaviours/analysis.py: bafybeib5w6h36ko3k7abhbrpygfkx5lzocbt7s73jc5nteazmfqnhg4wdm
+  behaviours/analysis.py: bafybeieumrqvs6gpltcjvv4djvpcazfbz5kjhvs2otxe6gitmmunkn5yey
   behaviours/base.py: bafybeigebgl4hf2jbgtp6texsr74t3mz4xn3mdvhrstokxxtwmbth3knai
   behaviours/call_checkpoint.py: bafybeihhysgont4d35634ixg66dmnsopu6ibpe63n54balj2ahh3f2puf4
   behaviours/check_staking_kpi_met.py: bafybeiasj6lpd3o4rle65akukiova2ifu2c52rntr5j5vwz7dxdqm4xpbq
   behaviours/data_collection.py: bafybeiat7aswh27zdtmbymb6k7lsq4cadvqjk5dbwfq3padvw6sdmfwytq
-  behaviours/error.py: bafybeibg3oabttq34n3ltv7hv7wwfbcxdazzlr5zup2w4rcht2qm5n6d44
+  behaviours/error.py: bafybeiebcif7jx2eaknkgd6guthtwk62rz5u2zwvvgthqxatbltjjeam24
   behaviours/execution.py: bafybeievokpkq4kpapdcs4ztgnk7ov76zvnu3dgtn7ehiqtk3agzxuzqle
   behaviours/pause.py: bafybeifzn3vqxbjj6lqiwmcclejoukr3oyhdevdkalqymtwfkdni3aoke4
-  behaviours/portfolio_validation.py: bafybeib3rjrz5rrhtige4x2vx6jfijfg37kpphxen27dsqj7udqqk3xmom
-  behaviours/position_monitor.py: bafybeibvrgy4dufcjgs335hnjvw7zkb3b3xdmdxajpodgv7eq6z6sjpplu
+  behaviours/portfolio_validation.py: bafybeihijspuno7bcnryf3f6lxoh6zy7ydwjym3jd7e6m6sc77k6b7lezy
+  behaviours/position_monitor.py: bafybeicfaqo6giox4wfkytgxp7rhezjgtnot7icy36h3vsuixgpiipvvry
   behaviours/risk_evaluation.py: bafybeigxaezxhlrb3jx37pa35djvsu5lrkrmu6lh34uef3577z2fe4su2m
   behaviours/round_behaviour.py: bafybeia5v7snxhsnztps7tsmvjtauqbvek6khvjlihi334mo2i7ann3wna
   behaviours/setup.py: bafybeihxgs26vlo75emurowxrprh56mjqhktfr6geaeqv2gahafluxac5a
   behaviours/signal_aggregation.py: bafybeidlukwyfptwig55c6yrh6wlfydeyw46uz45rxlugcgg3gupuvgyje
-  behaviours/trade_construction.py: bafybeigr2dukpz6whha724u2h6qxsb2ys7jnwav2zcyl2tu6avsctnzbsi
+  behaviours/trade_construction.py: bafybeiguxt2p5la2hejvduf3ksboc5axep6rjknxo5iqo3eoldojy3b5jm
   dialogues.py: bafybeiexxmjsjczvf2bxad7qbecllm3srjhlqkejigerkbldtdtzzuyuke
   handlers.py: bafybeigzo2yaakfaw4r6djrwobxaqvynh65dmzsq7fs7vw73liqqsreuk4
-  models.py: bafybeiakblji64pjonqlfrunwnbomo6piulu7pnhd7t4ju2mfkx64jiakq
+  models.py: bafybeiawwu4gnk6dezn5wlseeygqgmiwphbdjadwe7axsppchm4dsy3oji
   tests/__init__.py: bafybeigb2ji4vkcap3hokcedggjwsrah7te2nxjhkorwf3ibwgyaa2glma
   tests/test_coingecko_model.py: bafybeicjnqiclfi6r7sbsyjgwlzj3ugmeukii5fp23esdtsanof3lvyn6i
   tests/test_coingecko_model_integration.py: bafybeid6mzsia3wocixdedmr6tcbb2v34oq2fkjqyz2cab4mysjvqbydfi
@@ -137,7 +137,7 @@ models:
       max_positions: 7
       max_slippage_bps: 150
       max_total_exposure: 80.0
-      min_capital_buffer: 500.0
+      buffer_ratio: 0.05
       min_position_size_usd: 100.0
       min_position_size_usdc: 100.0
       price_collection_timeout: 15
