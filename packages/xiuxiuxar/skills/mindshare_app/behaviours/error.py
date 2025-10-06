@@ -39,6 +39,10 @@ class HandleErrorRound(BaseState):
     NON_RETRYABLE_ERRORS = {
         "configuration_error": False,
         "invalid_price_error": False,
+        "cowswap_fee_error": False,  # Position size too small for fees
+        "ticker_timeout_error": False,  # Exceeded max ticker retry attempts
+        "price_sanity_check_failed": False,  # Price validation failed
+        "trade_construction_error": False,  # General construction errors
     }
 
     def __init__(self, **kwargs: Any) -> None:
@@ -53,6 +57,17 @@ class HandleErrorRound(BaseState):
         # Check error context to determine if this is a retryable error
         error_context = getattr(self.context, "error_context", {})
         error_type = error_context.get("error_type", "unknown_error")
+        error_message = error_context.get("error_message", "No error message")
+        originating_round = error_context.get("originating_round", "Unknown")
+
+        # Log detailed error information once
+        self.context.logger.error(
+            f"Handling error from {originating_round}: " f"Type: {error_type}, Message: {error_message}"
+        )
+
+        # Log additional error details if present
+        if "error_details" in error_context:
+            self.context.logger.error(f"Error details: {error_context['error_details']}")
 
         if error_type in self.NON_RETRYABLE_ERRORS:
             self.context.logger.info(f"Non-retryable error detected: {error_type}. Moving to paused round for cycling.")
@@ -64,5 +79,8 @@ class HandleErrorRound(BaseState):
             # Default to non-retryable for unknown errors
             self.context.logger.warning(f"Unknown error type: {error_type}. Treating as non-retryable.")
             self._event = MindshareabciappEvents.RETRIES_EXCEEDED
+
+        # Clear error context to prevent re-processing
+        self.context.error_context = {}
 
         self._is_done = True

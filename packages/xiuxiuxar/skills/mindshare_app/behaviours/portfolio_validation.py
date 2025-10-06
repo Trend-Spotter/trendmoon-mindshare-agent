@@ -149,7 +149,6 @@ class PortfolioValidationRound(BaseState):
             "total_exposure": 0.0,
             "max_exposure_per_position": self.context.params.max_exposure_per_position,
             "max_total_exposure": self.context.params.max_total_exposure,
-            "min_capital_buffer": self.context.params.min_capital_buffer,
         }
 
         self.validation_initialized = True
@@ -357,17 +356,23 @@ class PortfolioValidationRound(BaseState):
     def _check_available_capital(self) -> bool:
         """Check if there is enough available capital to open a new position."""
         available_capital = self.portfolio_metrics["available_capital_usdc"]
-        min_capital_buffer = self.portfolio_metrics["min_capital_buffer"]
+        total_exposure = self.portfolio_metrics["total_exposure"]
 
-        if available_capital <= min_capital_buffer:
+        # Calculate NAV = Available Cash + Existing Positions
+        nav = available_capital + total_exposure
+
+        # Calculate dynamic buffer: buffer = NAV * BUFFER_RATIO (5%)
+        dynamic_buffer = nav * self.context.params.buffer_ratio
+
+        if available_capital <= dynamic_buffer:
             self.validation_result = (
-                f"Insufficient available capital (${available_capital:.2f} <= ${min_capital_buffer:.2f})"
+                f"Insufficient available capital (${available_capital:.2f} <= ${dynamic_buffer:.2f} buffer)"
             )
             self.context.logger.info(self.validation_result)
             return False
 
         min_position_size = self.context.params.min_position_size_usdc
-        available_for_trading = available_capital - min_capital_buffer
+        available_for_trading = available_capital - dynamic_buffer
 
         if available_for_trading < min_position_size:
             self.validation_result = (
@@ -377,7 +382,8 @@ class PortfolioValidationRound(BaseState):
             return False
 
         self.context.logger.info(
-            f"Available capital check: PASSED - {available_capital:.2f} > {min_capital_buffer:.2f}"
+            "Available capital check: "
+            f"PASSED - ${available_capital:.2f} > ${dynamic_buffer:.2f} buffer (5% of ${nav:.2f} NAV)"
         )
         return True
 
@@ -401,7 +407,11 @@ class PortfolioValidationRound(BaseState):
 
         max_exposure_per_position = self.portfolio_metrics["max_exposure_per_position"]
         max_new_position_value = (total_portfolio_value * max_exposure_per_position) / 100
-        available_for_trading = available_capital - self.portfolio_metrics["min_capital_buffer"]
+
+        # Calculate dynamic buffer
+        dynamic_buffer = total_portfolio_value * self.context.params.buffer_ratio
+        available_for_trading = available_capital - dynamic_buffer
+
         if max_new_position_value > available_for_trading:
             self.context.logger.info(
                 f"Position size will be limited by available capital (${available_for_trading:.2f}) "
@@ -441,12 +451,21 @@ class PortfolioValidationRound(BaseState):
     @property
     def can_add_position(self) -> bool:
         """Check if we can add a new position based on current constraints."""
+        available_capital = self.portfolio_metrics["available_capital_usdc"]
+        total_exposure = self.portfolio_metrics["total_exposure"]
+        nav = available_capital + total_exposure
+        dynamic_buffer = nav * self.context.params.buffer_ratio
+
         return (
             self.portfolio_metrics["current_positions"] < self.portfolio_metrics["max_positions"]
-            and self.portfolio_metrics["available_capital_usdc"] > self.portfolio_metrics["min_capital_buffer"]
+            and available_capital > dynamic_buffer
         )
 
     @property
     def available_trading_capital(self) -> float:
-        """Get the amount of capital available for new trades."""
-        return max(0, self.portfolio_metrics["available_capital_usdc"] - self.portfolio_metrics["min_capital_buffer"])
+        """Get the amount of capital available for new trades.
+
+        This returns the TOTAL available capital WITHOUT subtracting the buffer.
+        The buffer will be calculated dynamically in trade_construction based on NAV.
+        """
+        return self.portfolio_metrics["available_capital_usdc"]

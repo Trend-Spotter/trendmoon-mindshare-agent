@@ -46,6 +46,7 @@ class PositionMonitoringRound(BaseState):
         # Pending orders tracking
         self.pending_trades: list[dict[str, Any]] = []
         self.pending_orders_checked: bool = False
+        self.pending_orders_request_submitted: bool = False
 
     def setup(self) -> None:
         """Perform the setup."""
@@ -57,14 +58,16 @@ class PositionMonitoringRound(BaseState):
         self.monitoring_initialized = False
         self.pending_trades = []
         self.pending_orders_checked = False
+        self.pending_orders_request_submitted = False
         super().setup()
 
     def act(self) -> None:
         """Perform the act."""
-        self.context.logger.info(f"Entering {self._state} state.")
-
         try:
-            self._initialize_monitoring()
+            # Only log on first entry
+            if not self.monitoring_initialized:
+                self.context.logger.info(f"Entering {self._state} state.")
+                self._initialize_monitoring()
 
             # First, check pending orders if not done yet
             if not self.pending_orders_checked:
@@ -122,8 +125,8 @@ class PositionMonitoringRound(BaseState):
 
         self.context.logger.info(f"Initialized monitoring for {len(self.pending_positions)} positions")
 
-        self._is_done = True
-        self._event = MindshareabciappEvents.POSITIONS_CHECKED
+        # Don't mark as done here - let the act() method handle completion
+        # after checking pending orders and monitoring positions
 
     def _monitor_single_position(self, position: dict[str, Any]) -> None:
         """Monitor a single position for exit conditions."""
@@ -460,27 +463,39 @@ class PositionMonitoringRound(BaseState):
             self.context.logger.exception(f"Failed to update positions storage: {e}")
 
     def _check_pending_orders(self) -> None:
-        """Check status of pending orders."""
-        self.pending_trades = self._load_pending_trades()
+        """Check status of pending orders using async pattern."""
+        # Step 1: Submit request if not already submitted
+        if not self.pending_orders_request_submitted:
+            self.pending_trades = self._load_pending_trades()
 
-        if not self.pending_trades:
-            self.context.logger.info("No pending orders to check")
+            if not self.pending_trades:
+                self.context.logger.info("No pending orders to check")
+                self.pending_orders_checked = True
+                return
+
+            # Extract CoWSwap order IDs to monitor
+            cowswap_order_ids = []
+            for trade in self.pending_trades:
+                cowswap_order_id = trade.get("cowswap_order_id")
+                if cowswap_order_id:
+                    cowswap_order_ids.append(cowswap_order_id)
+
+            if cowswap_order_ids:
+                self.context.logger.info(f"Checking status of {len(cowswap_order_ids)} pending CoWSwap orders")
+                self.monitor_cowswap_orders(cowswap_order_ids)
+                self.pending_orders_request_submitted = True
+                return  # Exit early, wait for response
+            self.context.logger.info("No CoWSwap order IDs found in pending trades")
             self.pending_orders_checked = True
             return
 
-        # Extract CoWSwap order IDs to monitor
-        cowswap_order_ids = []
-        for trade in self.pending_trades:
-            cowswap_order_id = trade.get("cowswap_order_id")
-            if cowswap_order_id:
-                cowswap_order_ids.append(cowswap_order_id)
+        # Step 2: Check if response received (will be processed by validation func)
+        # The validation function sets pending_orders_checked = True when response is processed
+        if self.pending_orders_checked:
+            return
 
-        if cowswap_order_ids:
-            self.context.logger.info(f"Checking status of {len(cowswap_order_ids)} pending CoWSwap orders")
-            self.monitor_cowswap_orders(cowswap_order_ids)
-        else:
-            self.context.logger.info("No CoWSwap order IDs found in pending trades")
-            self.pending_orders_checked = True
+        # Still waiting for response
+        self.context.logger.debug("Waiting for pending orders response...")
 
     def _process_order_updates(self, order_updates: dict[str, dict[str, Any]]) -> None:
         """Process order updates from CoWSwap monitoring."""
