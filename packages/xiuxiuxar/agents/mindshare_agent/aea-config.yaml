@@ -32,7 +32,7 @@ protocols:
 - valory/ledger_api:1.0.0:bafybeic5qfhodpwqjdkwxs4gzummpc3dxbpn4egg7s7f2gibfopa4nxz4i
 skills:
 - eightballer/prometheus:0.1.0:bafybeibfuwvdxxnxnm2gghg4t2c7ucdxhmu2xlrpdkk46t5rx7qskbx7ui
-- xiuxiuxar/mindshare_app:0.1.0:bafybeib3wagzeuctkmnn27qldsh4fefbhuzuhcc5jucs6bmzswqvp2wyie
+- xiuxiuxar/mindshare_app:0.1.0:bafybeicc4heb5lnnvr5xwfzzfpo5ht6oi6plzhidzy4di7luoeas2d2y6m
 customs: []
 default_ledger: ethereum
 required_ledgers:
@@ -124,7 +124,7 @@ models:
       max_positions: ${int:7}
       max_total_exposure: ${float:80.0}
       buffer_ratio: ${float:0.05}
-      min_position_size_usd: ${float:100.0}
+      min_position_size_usd: ${float:10.0}
       reset_pause_duration: ${int:300}
       safe_contract_addresses: ${str:{"ethereum":"0x0000000000000000000000000000000000000000","base":"0x0000000000000000000000000000000000000000"}}
       store_path: ${str:./persistent_data}

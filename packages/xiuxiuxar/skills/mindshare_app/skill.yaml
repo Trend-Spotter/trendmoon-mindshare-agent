@@ -138,8 +138,8 @@ models:
       max_slippage_bps: 150
       max_total_exposure: 80.0
       buffer_ratio: 0.05
-      min_position_size_usd: 100.0
-      min_position_size_usdc: 100.0
+      min_position_size_usd: 10.0
+      min_position_size_usdc: 10.0
       price_collection_timeout: 15
       reset_pause_duration: 300
       safe_contract_addresses: '{"ethereum":"0x0000000000000000000000000000000000000000","arbitrum":"0x0000000000000000000000000000000000000000","base":"0x0000000000000000000000000000000000000000","optimism":"0x0000000000000000000000000000000000000000","mode":"0x0000000000000000000000000000000000000000"}'
