@@ -762,7 +762,6 @@ class CheckStakingKPIRound(BaseState):
                         "operation": SafeOperation.CALL.value,
                         "safe_tx_gas": SAFE_TX_GAS,
                         "base_gas": 0,
-                        "gas_price": 1,
                         "gas_token": NULL_ADDRESS,
                         "refund_receiver": NULL_ADDRESS,
                     }
