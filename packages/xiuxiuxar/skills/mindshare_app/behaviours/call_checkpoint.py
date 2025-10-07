@@ -1256,7 +1256,7 @@ class CallCheckpointRound(BaseState):
                 self._event = MindshareabciappEvents.CHECKPOINT_PREPARED
             else:
                 self.context.logger.info("Checkpoint not reached yet")
-                self._event = MindshareabciappEvents.CHECKPOINT_NOT_REACHED
+                self._event = MindshareabciappEvents.NEXT_CHECKPOINT_NOT_REACHED_YET
         else:
             self.context.logger.error("Unknown staking state")
             self._event = MindshareabciappEvents.ERROR
