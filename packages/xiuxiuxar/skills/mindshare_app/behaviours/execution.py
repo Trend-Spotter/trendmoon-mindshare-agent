@@ -849,7 +849,6 @@ class ExecutionRound(BaseState):
                     "operation": operation,
                     "safe_tx_gas": SAFE_TX_GAS,
                     "base_gas": 0,
-                    "gas_price": 0,
                     "gas_token": NULL_ADDRESS,
                     "refund_receiver": NULL_ADDRESS,
                 }
@@ -997,7 +996,7 @@ class ExecutionRound(BaseState):
                 receipt = message.transaction_receipt.receipt
 
                 if receipt.get("status") == 1:
-                    self.context.logger.info("✅ Transaction successful on chain!")
+                    self.context.logger.info("Transaction successful on chain!")
                     self._clear_dialogue(dialogue)
                     self._complete_operation()
                     return True

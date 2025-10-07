@@ -87,12 +87,15 @@ class CallCheckpointRound(BaseState):
         self.is_checkpoint_reached: bool = False
         self.checkpoint_preparation_complete: bool = False
         self.safe_tx_hash_prepared: bool = False
+        self.safe_tx_execution_submitted: bool = False
         self.checkpoint_tx_signing_submitted: bool = False
         self.checkpoint_tx_broadcast_submitted: bool = False
         self.checkpoint_tx_executed: bool = False
+        self.checkpoint_tx_hash: bytes | None = None
         self.checkpoint_tx_raw_data: bytes | None = None
         self.checkpoint_tx_signed_data: bytes | None = None
         self.checkpoint_tx_final_hash: str | None = None
+        self.checkpoint_data: bytes | None = None
 
     def setup(self) -> None:
         """Perform the setup."""
@@ -110,12 +113,15 @@ class CallCheckpointRound(BaseState):
         self.is_checkpoint_reached = False
         self.checkpoint_preparation_complete = False
         self.safe_tx_hash_prepared = False
+        self.safe_tx_execution_submitted = False
         self.checkpoint_tx_signing_submitted = False
         self.checkpoint_tx_broadcast_submitted = False
         self.checkpoint_tx_executed = False
+        self.checkpoint_tx_hash = None
         self.checkpoint_tx_raw_data = None
         self.checkpoint_tx_signed_data = None
         self.checkpoint_tx_final_hash = None
+        self.checkpoint_data = None
         for k in self.supported_protocols:
             self.supported_protocols[k] = []
 
@@ -134,10 +140,7 @@ class CallCheckpointRound(BaseState):
             if not self._handle_checkpoint_preparation():
                 return
 
-            if not self._handle_transaction_signing():
-                return
-
-            if not self._handle_transaction_broadcast():
+            if not self._handle_transaction_lifecycle():
                 return
 
             self._finalize_checkpoint_check()
@@ -189,29 +192,37 @@ class CallCheckpointRound(BaseState):
 
         return True
 
-    def _handle_transaction_signing(self) -> bool:
-        """Handle transaction signing phase. Returns True if should continue."""
+    def _handle_transaction_lifecycle(self) -> bool:
+        """Handle transaction execution, signing, and broadcast phases. Returns True if should continue."""
+        # Handle execution phase
+        if self._should_execute_transaction():
+            self._execute_safe_tx()
+            return False
+
+        if self.safe_tx_execution_submitted and not self.checkpoint_tx_raw_data:
+            self._check_execution_responses()
+            if not self.checkpoint_tx_raw_data:
+                return False
+
+        # Handle signing phase
         if self._should_sign_transaction():
             self._sign_checkpoint_transaction()
             return False
 
         if self.checkpoint_tx_signing_submitted and not self.checkpoint_tx_signed_data:
             self._check_signing_responses()
-            return bool(self.checkpoint_tx_signed_data)
+            if not self.checkpoint_tx_signed_data:
+                return False
 
-        return True
-
-    def _handle_transaction_broadcast(self) -> bool:
-        """Handle transaction broadcast phase. Returns True if should continue."""
+        # Handle broadcast phase - combined initiate and check
         if self.checkpoint_tx_signed_data and not self.checkpoint_tx_broadcast_submitted:
             self._broadcast_checkpoint_transaction()
             return False
 
         if self.checkpoint_tx_broadcast_submitted and not self.checkpoint_tx_executed:
             self._check_broadcast_responses()
-            return bool(self.checkpoint_tx_executed)
 
-        return True
+        return bool(self.checkpoint_tx_executed) if self.checkpoint_tx_broadcast_submitted else True
 
     def _should_check_checkpoint_timing(self) -> bool:
         """Check if checkpoint timing should be verified."""
@@ -229,9 +240,13 @@ class CallCheckpointRound(BaseState):
             and not self.checkpoint_preparation_complete
         )
 
+    def _should_execute_transaction(self) -> bool:
+        """Check if transaction should be executed."""
+        return self.safe_tx_hash_prepared and self.checkpoint_tx_hash and not self.safe_tx_execution_submitted
+
     def _should_sign_transaction(self) -> bool:
         """Check if transaction should be signed."""
-        return self.safe_tx_hash_prepared and self.checkpoint_tx_raw_data and not self.checkpoint_tx_signing_submitted
+        return self.checkpoint_tx_raw_data and not self.checkpoint_tx_signing_submitted
 
     def _handle_error(self, error: Exception) -> None:
         """Handle errors that occur during act()."""
@@ -553,10 +568,10 @@ class CallCheckpointRound(BaseState):
 
     def _process_safe_tx_preparation_response(self, response: dict) -> None:
         """Process Safe transaction preparation response."""
-        safe_tx_raw_data = response["safe_tx_raw_data"]
-        self.checkpoint_tx_raw_data = safe_tx_raw_data
+        safe_tx_hash = response["safe_tx_raw_data"]
+        self.checkpoint_tx_hash = safe_tx_hash
         self.safe_tx_hash_prepared = True
-        self.context.logger.info("Safe transaction raw data received and ready for signing")
+        self.context.logger.info("Safe transaction hash received and ready for execution")
 
     def _prepare_safe_tx_hash(self, data: bytes) -> str | None:
         """Prepare safe transaction hash and full transaction."""
@@ -578,28 +593,22 @@ class CallCheckpointRound(BaseState):
             if not staking_token_contract_address:
                 return None
 
-            # Submit contract call to get the raw Safe transaction
+            # Submit contract call to get the Safe transaction hash
             dialogue = self.submit_msg(
                 performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,
                 connection_id=LEDGER_API_ADDRESS,
                 contract_address=safe_address,
                 contract_id=str(GnosisSafeContract.contract_id),
-                callable="get_raw_safe_transaction",
+                callable="get_raw_safe_transaction_hash",
                 ledger_id="ethereum",
                 kwargs=ContractApiMessage.Kwargs(
                     {
-                        "sender_address": self.context.agent_address,
-                        "owners": (self.context.agent_address,),
                         "to_address": staking_token_contract_address,
                         "value": ETHER_VALUE,
                         "data": data,
-                        "signatures_by_owner": {self.context.agent_address: self._get_preapproved_signature()},
                         "operation": SafeOperation.CALL.value,
                         "safe_tx_gas": SAFE_TX_GAS,
-                        "base_gas": 0,
-                        "gas_price": 1,
-                        "gas_token": NULL_ADDRESS,
-                        "refund_receiver": NULL_ADDRESS,
+                        "gas_price": 0,
                     }
                 ),
             )
@@ -639,6 +648,108 @@ class CallCheckpointRound(BaseState):
         except Exception as e:
             self.context.logger.exception(f"Error validating Safe tx preparation response: {e}")
             return False
+
+    def _execute_safe_tx(self) -> None:
+        """Execute Safe transaction with pre-approved signature."""
+        try:
+            if isinstance(self.context.params.safe_contract_addresses, str):
+                try:
+                    safe_addresses = json.loads(self.context.params.safe_contract_addresses)
+                except json.JSONDecodeError:
+                    safe_addresses = {}
+
+            safe_address = safe_addresses.get(self.context.params.staking_chain)
+            if not safe_address:
+                self.context.logger.error(
+                    f"No safe address found for staking chain {self.context.params.staking_chain}"
+                )
+                return
+
+            staking_token_contract_address = self.context.params.staking_token_contract_address
+            if not staking_token_contract_address:
+                self.context.logger.error("No staking token contract address configured")
+                return
+
+            dialogue = self.submit_msg(
+                performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,
+                connection_id=LEDGER_API_ADDRESS,
+                contract_address=safe_address,
+                contract_id=str(GnosisSafeContract.contract_id),
+                callable="get_raw_safe_transaction",
+                ledger_id="ethereum",
+                kwargs=ContractApiMessage.Kwargs(
+                    {
+                        "sender_address": self.context.agent_address,
+                        "owners": (self.context.agent_address,),
+                        "to_address": staking_token_contract_address,
+                        "value": ETHER_VALUE,
+                        "data": self.checkpoint_data,
+                        "signatures_by_owner": {self.context.agent_address: self._get_preapproved_signature()},
+                        "operation": SafeOperation.CALL.value,
+                        "safe_tx_gas": SAFE_TX_GAS,
+                        "base_gas": 0,
+                        "gas_token": NULL_ADDRESS,
+                        "refund_receiver": NULL_ADDRESS,
+                    }
+                ),
+            )
+
+            dialogue.validation_func = self._validate_execution_response
+            dialogue.request_type = "safe_tx_execution"
+            self.pending_contract_calls.append(dialogue)
+
+            self.safe_tx_execution_submitted = True
+            self.context.logger.info("Executing Safe transaction for checkpoint")
+
+        except Exception as e:
+            self.context.logger.exception(f"Failed to execute safe transaction: {e}")
+
+    def _validate_execution_response(self, message: Message, dialogue: ContractApiDialogue) -> bool:
+        """Validate Safe transaction execution response."""
+        try:
+            if message.performative == ContractApiMessage.Performative.RAW_TRANSACTION:
+                raw_tx = message.raw_transaction
+                if raw_tx:
+                    self.contract_responses[dialogue.dialogue_label.dialogue_reference[0]] = {
+                        "safe_tx_raw_data": raw_tx,
+                        "request_type": "safe_tx_execution",
+                    }
+                    self.context.logger.info("Received Safe transaction raw data for checkpoint")
+                    return True
+
+            if message.performative == ContractApiMessage.Performative.ERROR:
+                self.context.logger.error(f"Contract API error for Safe tx execution: {message.message}")
+                return False
+
+            self.context.logger.debug(f"Safe tx execution: received unexpected performative {message.performative}")
+            return True
+
+        except Exception as e:
+            self.context.logger.exception(f"Error validating Safe tx execution response: {e}")
+            return False
+
+    def _check_execution_responses(self) -> None:
+        """Check for execution responses."""
+        try:
+            for dialogue in list(self.pending_contract_calls):
+                request_id = dialogue.dialogue_label.dialogue_reference[0]
+                if request_id in self.contract_responses:
+                    response = self.contract_responses[request_id]
+                    request_type = response.get("request_type")
+
+                    if request_type == "safe_tx_execution":
+                        self._process_execution_response(response)
+                        self.pending_contract_calls.remove(dialogue)
+
+        except Exception as e:
+            self.context.logger.exception(f"Error checking execution responses: {e}")
+            self._handle_error(e)
+
+    def _process_execution_response(self, response: dict) -> None:
+        """Process Safe transaction execution response."""
+        safe_tx_raw_data = response["safe_tx_raw_data"]
+        self.checkpoint_tx_raw_data = safe_tx_raw_data
+        self.context.logger.info("Safe transaction raw data received and ready for signing")
 
     def _sign_checkpoint_transaction(self) -> None:
         """Sign the checkpoint transaction."""
