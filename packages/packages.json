@@ -1,8 +1,8 @@
 {
     "dev": {
-        "skill/xiuxiuxar/mindshare_app/0.1.0": "bafybeibgt4ixvad3dg6umviuq56bqkabltokpdyfjetd6lpmbmaxff7o7a",
-        "agent/xiuxiuxar/mindshare_agent/0.1.0": "bafybeiezcr7nbzd53wv3k52te42lzt5dmval55x6xnrdwdfjkzafnmimhi",
-        "service/xiuxiuxar/mindshare_agent/0.1.0": "bafybeibrhaezwbsreajfkk24vqwqxzsutz6aejinhvqdz2w6dzawwma4sy"
+        "skill/xiuxiuxar/mindshare_app/0.1.0": "bafybeic7npxzhqqhnrbmdounzdngsz74enrf6uvhvmlrk4buwxa4cjieqe",
+        "agent/xiuxiuxar/mindshare_agent/0.1.0": "bafybeibnlkkabthqzbdyen2j4yfuoj7d646zrkovrtwf2aq57depw7wgke",
+        "service/xiuxiuxar/mindshare_agent/0.1.0": "bafybeibc2wkiw5lee4c23fcnytjjiqmsay3zx6ykedk6abblysvcyylpuy"
     },
     "third_party": {
         "protocol/valory/contract_api/1.0.0": "bafybeidpch6cvuweq5x4h6ummnnw5xynmfsbj3sxm2m63seuqizrmvpd3e",
