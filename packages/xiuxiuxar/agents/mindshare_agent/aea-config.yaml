@@ -32,7 +32,7 @@ protocols:
 - valory/ledger_api:1.0.0:bafybeic5qfhodpwqjdkwxs4gzummpc3dxbpn4egg7s7f2gibfopa4nxz4i
 skills:
 - eightballer/prometheus:0.1.0:bafybeibfuwvdxxnxnm2gghg4t2c7ucdxhmu2xlrpdkk46t5rx7qskbx7ui
-- xiuxiuxar/mindshare_app:0.1.0:bafybeifab254lf3adsm6sv7f4xcpigyj5prfs4cvrzr5fxp7dthn4fwnri
+- xiuxiuxar/mindshare_app:0.1.0:bafybeid6fkoydje3gzbpzcot4h5d74grh6xytmkqhwhujfcte6xr2ya3zy
 customs: []
 default_ledger: ethereum
 required_ledgers:
@@ -73,7 +73,8 @@ dependencies:
   hexbytes:
     version: '>=1.3.1,<2.0.0'
   open-autonomy: {}
-  open-aea-ledger-ethereum: {}
+  open-aea-ledger-ethereum:
+    version: ==2.0.5
   open-aea-test-autonomy: {}
   packaging:
     version: '>=23.1,<24.0'
@@ -82,13 +83,14 @@ dependencies:
   requests:
     version: '>=2.28.1,<2.31.2'
   web3:
-    version: '>=5.0.0'
+    version: '>=7,<8'
   pandas:
-    version: '>=2.3.1'
+    version: ==2.3.2
   httpx: {}
   pandas-ta-classic:
-    version: '>=0.3.14b2'
-  open-aea-ledger-cosmos: {}
+    version: ==0.3.14b2
+  open-aea-ledger-cosmos:
+    version: ==2.0.5
   rich:
     version: '>=14.1.0,<15.0.0'
   cowdao-cowpy: {}
