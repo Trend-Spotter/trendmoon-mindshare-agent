@@ -174,7 +174,7 @@ class CallCheckpointRound(BaseState):
             self._check_if_checkpoint_reached()
             if not self.is_checkpoint_reached:
                 self.context.logger.info("Next checkpoint not reached yet")
-                self._event = MindshareabciappEvents.CHECKPOINT_NOT_REACHED
+                self._event = MindshareabciappEvents.NEXT_CHECKPOINT_NOT_REACHED_YET
                 self._is_done = True
                 return False
 
