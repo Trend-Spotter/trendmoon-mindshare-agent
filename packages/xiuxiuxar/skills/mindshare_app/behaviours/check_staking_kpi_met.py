@@ -946,7 +946,30 @@ class CheckStakingKPIRound(BaseState):
                 return True
 
             if message.performative == LedgerApiMessage.Performative.ERROR:
-                self.context.logger.error(f"Vanity transaction broadcast failed: {message.message}")
+                error_msg = message.message
+                self.context.logger.error(f"Vanity transaction broadcast failed: {error_msg}")
+
+                # Handle "already known" error - transaction was already broadcast
+                if isinstance(error_msg, dict) and error_msg.get("message") == "already known":
+                    self.context.logger.info(
+                        "Transaction already broadcast to chain, treating as successful. "
+                        f"Using prepared hash: {self.vanity_tx_hex}"
+                    )
+
+                    # Update KPI state with the prepared hash
+                    kpi_state = self._load_kpi_state()
+                    kpi_state["vanity_tx_broadcast"] = True
+                    kpi_state["vanity_tx_final_hash"] = self.vanity_tx_hex
+                    kpi_state["vanity_tx_broadcast_timestamp"] = datetime.now(UTC).isoformat()
+                    self._save_kpi_state(kpi_state)
+
+                    # Mark as executed so we can proceed to finalization
+                    self.vanity_tx_final_hash = self.vanity_tx_hex
+                    self.vanity_tx_executed = True
+
+                    return True
+
+                # For other errors, fail validation
                 return False
 
             # Log unexpected performatives but don't fail validation
