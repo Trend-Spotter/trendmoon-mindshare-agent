@@ -111,6 +111,70 @@ class HttpHandler(Handler):
 
         self._send_ok_response(http_msg, http_dialogue, data)
 
+    def _handle_get_portfolio(self, http_msg: HttpMessage, http_dialogue: HttpDialogue) -> None:
+        """Handle a Http request of verb GET for portfolio metrics."""
+        try:
+            if not self.context.store_path:
+                self._send_error_response(http_msg, http_dialogue, 503, "Store path not available")
+                return
+
+            # Read portfolio snapshot (updated by portfolio_validation round)
+            snapshot_file = self.context.store_path / "portfolio_snapshot.json"
+            if not snapshot_file.exists():
+                self._send_error_response(http_msg, http_dialogue, 404, "Portfolio snapshot not available")
+                return
+
+            with open(snapshot_file, encoding=DEFAULT_ENCODING) as f:
+                snapshot_data = json.load(f)
+
+            # Read positions.json for detailed position information
+            positions_file = self.context.store_path / "positions.json"
+            open_positions = []
+
+            if positions_file.exists():
+                with open(positions_file, encoding=DEFAULT_ENCODING) as f:
+                    positions_data = json.load(f)
+
+                # Filter and format open positions for API response
+                for pos in positions_data.get("positions", []):
+                    if pos.get("status") == "open":
+                        open_positions.append(
+                            {
+                                "position_id": pos.get("position_id"),
+                                "symbol": pos.get("symbol"),
+                                "entry_price": pos.get("entry_price"),
+                                "current_price": pos.get("current_price"),
+                                "token_quantity": pos.get("token_quantity"),
+                                "position_size_usdc": pos.get("position_size_usdc"),
+                                "current_value_usdc": pos.get("current_value_usdc", pos.get("position_size_usdc")),
+                                "unrealized_pnl": pos.get("unrealized_pnl", 0.0),
+                                "pnl_percentage": pos.get("pnl_percentage", 0.0),
+                                "entry_time": pos.get("entry_time"),
+                                "last_updated": pos.get("last_updated"),
+                            }
+                        )
+
+            # Build response
+            portfolio_data = {
+                "timestamp": snapshot_data.get("timestamp"),
+                "current_portfolio_value": snapshot_data.get("current_portfolio_value", 0.0),
+                "available_capital_usdc": snapshot_data.get("available_capital_usdc", 0.0),
+                "positions_value_usdc": snapshot_data.get("total_exposure", 0.0),
+                "num_open_positions": snapshot_data.get("current_positions", 0),
+                "num_total_positions": snapshot_data.get("total_positions", 0),
+                "total_unrealized_pnl": snapshot_data.get("total_unrealized_pnl", 0.0),
+                "open_positions": open_positions,
+            }
+
+            self._send_ok_response(http_msg, http_dialogue, portfolio_data)
+
+        except json.JSONDecodeError as e:
+            self.context.logger.exception(f"Failed to parse portfolio data: {e}")
+            self._send_error_response(http_msg, http_dialogue, 500, "Invalid portfolio data")
+        except Exception as e:
+            self.context.logger.exception(f"Error handling portfolio request: {e}")
+            self._send_error_response(http_msg, http_dialogue, 500, "Internal server error")
+
     def _send_ok_response(self, http_msg: HttpMessage, http_dialogue: HttpDialogue, data: dict) -> None:
         """Send an OK response with JSON data."""
         if self.enable_cors:
@@ -131,6 +195,34 @@ class HttpHandler(Handler):
             body=json.dumps(data, indent=2).encode(DEFAULT_ENCODING),
         )
         self.context.logger.info(f"responding with healthcheck: {http_response}")
+        self.context.outbox.put_message(message=http_response)
+
+    def _send_error_response(
+        self, http_msg: HttpMessage, http_dialogue: HttpDialogue, status_code: int, error_message: str
+    ) -> None:
+        """Send an error response with JSON error data."""
+        if self.enable_cors:
+            cors_headers = "Access-Control-Allow-Origin: *\n"
+            cors_headers += "Access-Control-Allow-Methods: GET, POST\n"
+            cors_headers += "Access-Control-Allow-Headers: Content-Type,Accept\n"
+            headers = cors_headers + "Content-Type: application/json\n" + http_msg.headers
+        else:
+            headers = "Content-Type: application/json\n" + http_msg.headers
+
+        error_data = {
+            "error": error_message,
+            "status_code": status_code,
+        }
+
+        http_response = http_dialogue.reply(
+            performative=HttpMessage.Performative.RESPONSE,
+            target_message=http_msg,
+            version=http_msg.version,
+            status_code=status_code,
+            status_text=error_message,
+            headers=headers,
+            body=json.dumps(error_data, indent=2).encode(DEFAULT_ENCODING),
+        )
         self.context.outbox.put_message(message=http_response)
 
     def _handle_unidentified_dialogue(self, http_msg: HttpMessage) -> None:
@@ -154,6 +246,8 @@ class HttpHandler(Handler):
         if http_msg.method == "get":
             if "healthcheck" in http_msg.url:
                 self._handle_get_healthcheck(http_msg, http_dialogue)
+            elif "portfolio" in http_msg.url:
+                self._handle_get_portfolio(http_msg, http_dialogue)
             elif "metrics" in http_msg.url:
                 self._handle_get(http_msg, http_dialogue)
             else:

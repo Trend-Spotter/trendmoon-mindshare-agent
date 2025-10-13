@@ -74,6 +74,15 @@ class SetupRound(BaseState):
             "signals.json": {"signals": [], "last_signal": None},
             "performance.json": {"trades": [], "metrics": {}},
             "state.json": {"last_round": None, "error_count": 0},
+            "portfolio_snapshot.json": {
+                "timestamp": None,
+                "available_capital_usdc": 0.0,
+                "total_exposure": 0.0,
+                "current_positions": 0,
+                "total_positions": 0,
+                "total_unrealized_pnl": 0.0,
+                "current_portfolio_value": 0.0,
+            },
         }
 
         for filename, default_content in files_to_initialize.items():
