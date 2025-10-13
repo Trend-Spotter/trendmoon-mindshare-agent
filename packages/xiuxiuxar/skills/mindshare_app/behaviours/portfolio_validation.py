@@ -20,6 +20,7 @@
 
 import json
 from typing import Any
+from datetime import UTC, datetime
 
 from aea.protocols.base import Message
 from autonomy.deploy.constants import DEFAULT_ENCODING
@@ -109,6 +110,9 @@ class PortfolioValidationRound(BaseState):
 
             can_trade = all(validation_checks)
             self._log_validation_summary()
+
+            # Save portfolio snapshot for API access
+            self._save_portfolio_snapshot()
 
             if can_trade:
                 self.context.logger.info("Portfolio validation passed - can proceed with new trades")
@@ -469,3 +473,30 @@ class PortfolioValidationRound(BaseState):
         The buffer will be calculated dynamically in trade_construction based on NAV.
         """
         return self.portfolio_metrics["available_capital_usdc"]
+
+    def _save_portfolio_snapshot(self) -> None:
+        """Save current portfolio metrics to persistent storage for API access."""
+        if not self.context.store_path:
+            return
+
+        try:
+            snapshot_file = self.context.store_path / "portfolio_snapshot.json"
+
+            snapshot_data = {
+                "timestamp": datetime.now(UTC).isoformat(),
+                "available_capital_usdc": self.portfolio_metrics["available_capital_usdc"],
+                "total_exposure": self.portfolio_metrics["total_exposure"],
+                "current_positions": self.portfolio_metrics["current_positions"],
+                "total_positions": self.portfolio_metrics.get("total_positions", len(self.open_positions)),
+                "total_unrealized_pnl": sum(pos.get("unrealized_pnl", 0) for pos in self.open_positions),
+                "current_portfolio_value": self.portfolio_metrics["available_capital_usdc"]
+                + self.portfolio_metrics["total_exposure"],
+            }
+
+            with open(snapshot_file, "w", encoding=DEFAULT_ENCODING) as f:
+                json.dump(snapshot_data, f, indent=2)
+
+            self.context.logger.debug(f"Saved portfolio snapshot: ${snapshot_data['current_portfolio_value']:.2f}")
+
+        except Exception as e:
+            self.context.logger.exception(f"Failed to save portfolio snapshot: {e}")
