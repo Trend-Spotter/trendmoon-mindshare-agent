@@ -173,6 +173,10 @@ class CallCheckpointRound(BaseState):
         if self._should_check_checkpoint_timing():
             self._check_if_checkpoint_reached()
             if not self.is_checkpoint_reached:
+                if len(self.pending_contract_calls) > 0:
+                    self._check_contract_responses()
+                    return False
+
                 self.context.logger.info("Next checkpoint not reached yet")
                 self._event = MindshareabciappEvents.NEXT_CHECKPOINT_NOT_REACHED_YET
                 self._is_done = True
