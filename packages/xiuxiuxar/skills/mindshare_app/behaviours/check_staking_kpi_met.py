@@ -260,15 +260,11 @@ class CheckStakingKPIRound(BaseState):
     def _validate_nonce_response(self, message: Message, dialogue: ContractApiDialogue) -> bool:
         """Validate nonce response message."""
         try:
-            self.context.logger.info(
-                f"Nonce validation - Performative: {message.performative}, "
-                f"Has state: {hasattr(message, 'state')}, "
-                f"Message type: {type(message).__name__}"
-            )
-
             if message.performative == ContractApiMessage.Performative.STATE:
                 if hasattr(message, "state") and message.state:
-                    nonce = message.state.body.get("safe_nonce") or message.state.body.get("nonce")
+                    nonce = message.state.body.get("safe_nonce")
+                    if nonce is None:
+                        nonce = message.state.body.get("nonce")
                     if nonce is not None:
                         # Store the response
                         self.contract_responses[dialogue.dialogue_label.dialogue_reference[0]] = {
@@ -278,23 +274,9 @@ class CheckStakingKPIRound(BaseState):
                         }
                         self.context.logger.info(f"Received current nonce: {nonce}")
                         return True
-                    self.context.logger.warning(
-                        f"STATE message received but nonce not found in state body: {message.state.body}"
-                    )
-                else:
-                    self.context.logger.warning(
-                        f"STATE performative but state attribute missing or None. Message: {message}"
-                    )
 
             elif message.performative == ContractApiMessage.Performative.ERROR:
                 self.context.logger.warning(f"Contract API error: {message.message}")
-                return True  # Return True to avoid validation warning for errors
-
-            else:
-                self.context.logger.warning(
-                    f"Unexpected performative for nonce response: {message.performative}. "
-                    f"Expected STATE or ERROR. Message: {message}"
-                )
 
             return False
 
