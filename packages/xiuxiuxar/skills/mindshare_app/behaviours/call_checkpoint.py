@@ -475,7 +475,7 @@ class CallCheckpointRound(BaseState):
         current_timestamp = int(datetime.now(UTC).timestamp())
         self.is_checkpoint_reached = self.next_checkpoint_ts <= current_timestamp
 
-        self.context.logger.info(
+        self.context.logger.debug(
             f"Checkpoint check: current={current_timestamp}, next_checkpoint={self.next_checkpoint_ts}, "
             f"reached={self.is_checkpoint_reached}"
         )
