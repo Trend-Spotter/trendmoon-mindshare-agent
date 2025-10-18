@@ -26,7 +26,13 @@ fingerprint:
   behaviours/signal_aggregation.py: bafybeidlukwyfptwig55c6yrh6wlfydeyw46uz45rxlugcgg3gupuvgyje
   behaviours/trade_construction.py: bafybeiguxt2p5la2hejvduf3ksboc5axep6rjknxo5iqo3eoldojy3b5jm
   dialogues.py: bafybeiexxmjsjczvf2bxad7qbecllm3srjhlqkejigerkbldtdtzzuyuke
-  handlers.py: bafybeiceoy2uz3e4dwoyuiir2njpzh7hghs4zxzmpuzk6m5b6jpoxgeevu
+  handlers.py: bafybeiegaz3kvywh4rx7z7wy7ucz6hy6f37rhyfeyzojljronbokyhrxbe
+  mindshare-ui-build/README.md: bafybeidinv6vqmijsim25cqvvljkml6r4uilvmhvveh7nhq5dienmovz6a
+  mindshare-ui-build/assets/agent-agentsfun-logo-Cl82UKSm.png: bafybeia3nla5pruiurpwvzex6bbsgset4k2foerma2iwy5zxmtjidur454
+  mindshare-ui-build/assets/agent-mindshare-logo-UIn1JV3L.png: bafybeidoegvulmrpxr3djmuftyw2yojhk6hs6p3koyexuvucnwnpmcputq
+  mindshare-ui-build/assets/index-BdttZvoz.js: bafybeih3jkpawpprc7naz7xj67r3dtfmqlqdyv6wyk3wxhrncfkdmwru3m
+  mindshare-ui-build/favicon.ico: bafybeigoxdaiyjbhlh3hq7b5myaowqlc22poxirhfjqzesxk4erea2e3pu
+  mindshare-ui-build/index.html: bafybeihleegnavb65pqm2dwr3o4hm2hjgfxbwwyoqzvyphwfrstznt44fu
   models.py: bafybeiawwu4gnk6dezn5wlseeygqgmiwphbdjadwe7axsppchm4dsy3oji
   tests/__init__.py: bafybeigb2ji4vkcap3hokcedggjwsrah7te2nxjhkorwf3ibwgyaa2glma
   tests/test_coingecko_model.py: bafybeicjnqiclfi6r7sbsyjgwlzj3ugmeukii5fp23esdtsanof3lvyn6i
