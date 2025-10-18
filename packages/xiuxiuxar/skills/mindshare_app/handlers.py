@@ -18,8 +18,13 @@
 
 """This module contains the handler for the Mindshare app skill."""
 
+import re
 import json
+from enum import Enum
 from typing import TYPE_CHECKING, cast
+from pathlib import Path
+from urllib.parse import urlparse
+from collections.abc import Callable
 
 from aea.skills.base import Handler
 from aea.protocols.base import Message
@@ -51,9 +56,17 @@ from packages.xiuxiuxar.skills.mindshare_app.dialogues import (
 
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
     from packages.xiuxiuxar.skills.mindshare_app.models import Requests, HealthCheckService
+
+MINDSHARE_AGENT_PROFILE_PATH = "mindshare-ui-build"
+
+
+class HttpMethod(Enum):
+    """Http methods."""
+
+    GET = "get"
+    HEAD = "head"
+    POST = "post"
 
 
 class MinshareAppHandlerError(Exception):
@@ -67,35 +80,64 @@ class HttpHandler(Handler):
 
     def setup(self) -> None:
         """Implement the setup."""
+        hostname_regex = r".*(localhost|127.0.0.1|0.0.0.0)(:\d+)?"
+        self.handler_url_regex = rf"{hostname_regex}\/.*"
+
+        healthcheck_url_regex = rf"{hostname_regex}\/healthcheck"
+        portfolio_url_regex = rf"{hostname_regex}\/portfolio"
+        static_files_regex = rf"{hostname_regex}\/(.*)"
+
+        self.routes = {
+            (HttpMethod.GET.value, HttpMethod.HEAD.value): [
+                (healthcheck_url_regex, self._handle_get_healthcheck),
+                (portfolio_url_regex, self._handle_get_portfolio),
+                (static_files_regex, self._handle_get_static_file),
+            ],
+        }
 
     def handle(self, message: Message) -> None:
         """Implement the reaction to an envelope."""
         http_msg = cast("HttpMessage", message)
 
-        # recover dialogue
-        http_dialogues = cast("HttpDialogues", self.context.http_dialogues)
-        http_dialogue = cast("HttpDialogue", http_dialogues.update(http_msg))
-        if http_dialogue is None:
-            self._handle_unidentified_dialogue(http_msg)
+        if http_msg.performative == HttpMessage.Performative.RESPONSE:
+            # recover dialogue
+            http_dialogues = cast("HttpDialogues", self.context.http_dialogues)
+            http_dialogue = cast("HttpDialogue", http_dialogues.update(http_msg))
+            if http_dialogue is None:
+                self._handle_unidentified_dialogue(http_msg)
+                return
+            self._handle_response(http_msg, http_dialogue)
             return
 
-        # handle message
-        if http_msg.performative == HttpMessage.Performative.REQUEST:
-            self._handle_request(http_msg, http_dialogue)
-        elif http_msg.performative == HttpMessage.Performative.RESPONSE:
-            self._handle_response(http_msg, http_dialogue)
-        else:
+        if http_msg.performative != HttpMessage.Performative.REQUEST:
+            # recover dialogue
+            http_dialogues = cast("HttpDialogues", self.context.http_dialogues)
+            http_dialogue = cast("HttpDialogue", http_dialogues.update(http_msg))
+            if http_dialogue is None:
+                self._handle_unidentified_dialogue(http_msg)
+                return
             self._handle_invalid(http_msg, http_dialogue)
+            return
+
+        handler, kwargs = self._get_handler(http_msg.url, http_msg.method)
+        if not handler:
+            self.context.logger.info(f"No route matched for {http_msg.method} {http_msg.url}")
+            return
+
+        http_dialogues = cast("HttpDialogues", self.context.http_dialogues)
+        http_dialogue = cast("HttpDialogue", http_dialogues.update(http_msg))
+
+        if http_dialogue is None:
+            self.context.logger.info(f"Received invalid http message={http_msg}, unidentified dialogue.")
+            return
+
+        self.context.logger.info(f"Received http request with method={http_msg.method}, url={http_msg.url}")
+        handler(http_msg, http_dialogue, **kwargs)
 
     def _handle_get_healthcheck(self, http_msg: HttpMessage, http_dialogue: HttpDialogue) -> None:
         """Handle a Http request of verb GET for healthcheck."""
-        # Get health check service
         health_service = cast("HealthCheckService", self.context.health_check_service)
-
-        # Get FSM status
         fsm_status = health_service.get_fsm_status()
-
-        # Build complete health check response
         data = {
             "is_healthy": fsm_status["is_transitioning_fast"],
             "seconds_since_last_transition": fsm_status["seconds_since_last_transition"],
@@ -175,15 +217,36 @@ class HttpHandler(Handler):
             self.context.logger.exception(f"Error handling portfolio request: {e}")
             self._send_error_response(http_msg, http_dialogue, 500, "Internal server error")
 
-    def _send_ok_response(self, http_msg: HttpMessage, http_dialogue: HttpDialogue, data: dict) -> None:
-        """Send an OK response with JSON data."""
+    def _send_ok_response(
+        self,
+        http_msg: HttpMessage,
+        http_dialogue: HttpDialogue,
+        data: dict | list | str | bytes,
+        content_type: str | None = None,
+    ) -> None:
+        """Send an OK response with the provided data."""
+        body_bytes: bytes
+        headers: str
+
+        if isinstance(data, bytes):
+            body_bytes = data
+            header_content_type = (
+                f"Content-Type: {content_type}\n" if content_type else "Content-Type: application/octet-stream\n"
+            )
+        elif isinstance(data, str):
+            body_bytes = data.encode(DEFAULT_ENCODING)
+            header_content_type = f"Content-Type: {content_type}\n" if content_type else "Content-Type: text/html\n"
+        else:
+            body_bytes = json.dumps(data, indent=2).encode(DEFAULT_ENCODING)
+            header_content_type = "Content-Type: application/json\n"
+
         if self.enable_cors:
             cors_headers = "Access-Control-Allow-Origin: *\n"
-            cors_headers += "Access-Control-Allow-Methods: GET, POST\n"
+            cors_headers += "Access-Control-Allow-Methods: GET, POST, HEAD\n"
             cors_headers += "Access-Control-Allow-Headers: Content-Type,Accept\n"
-            headers = cors_headers + "Content-Type: application/json\n" + http_msg.headers
+            headers = cors_headers + header_content_type + http_msg.headers
         else:
-            headers = "Content-Type: application/json\n" + http_msg.headers
+            headers = header_content_type + http_msg.headers
 
         http_response = http_dialogue.reply(
             performative=HttpMessage.Performative.RESPONSE,
@@ -192,9 +255,9 @@ class HttpHandler(Handler):
             status_code=200,
             status_text="Success",
             headers=headers,
-            body=json.dumps(data, indent=2).encode(DEFAULT_ENCODING),
+            body=body_bytes,
         )
-        self.context.logger.info(f"responding with healthcheck: {http_response}")
+        self.context.logger.info(f"responding with: {http_response}")
         self.context.outbox.put_message(message=http_response)
 
     def _send_error_response(
@@ -237,59 +300,6 @@ class HttpHandler(Handler):
             error_data={"http_message": http_msg.encode()},
         )
         self.context.outbox.put_message(message=default_msg)
-
-    def _handle_request(self, http_msg: HttpMessage, http_dialogue: HttpDialogue) -> None:
-        """Handle a Http request."""
-        self.context.logger.info(
-            f"received http request with method={http_msg.method}, url={http_msg.url} and body={http_msg.body}"
-        )
-        if http_msg.method == "get":
-            if "healthcheck" in http_msg.url:
-                self._handle_get_healthcheck(http_msg, http_dialogue)
-            elif "portfolio" in http_msg.url:
-                self._handle_get_portfolio(http_msg, http_dialogue)
-            elif "metrics" in http_msg.url:
-                self._handle_get(http_msg, http_dialogue)
-            else:
-                self._handle_get(http_msg, http_dialogue)
-        else:
-            self._handle_invalid(http_msg, http_dialogue)
-
-    def _handle_get(self, http_msg: HttpMessage, http_dialogue: HttpDialogue) -> None:
-        """Handle a Http request of verb GET."""
-        if self.enable_cors:
-            cors_headers = "Access-Control-Allow-Origin: *\n"
-            cors_headers += "Access-Control-Allow-Methods: POST\n"
-            cors_headers += "Access-Control-Allow-Headers: Content-Type,Accept\n"
-            headers = cors_headers + http_msg.headers
-        else:
-            headers = http_msg.headers
-
-        http_response = http_dialogue.reply(
-            performative=HttpMessage.Performative.RESPONSE,
-            target_message=http_msg,
-            version=http_msg.version,
-            status_code=200,
-            status_text="Success",
-            headers=headers,
-            body=json.dumps(self.context.shared_state).encode(DEFAULT_ENCODING),
-        )
-        self.context.logger.info(f"responding with: {http_response}")
-        self.context.outbox.put_message(message=http_response)
-
-    def _handle_post(self, http_msg: HttpMessage, http_dialogue: HttpDialogue) -> None:
-        """Handle a Http request of verb POST."""
-        http_response = http_dialogue.reply(
-            performative=HttpMessage.Performative.RESPONSE,
-            target_message=http_msg,
-            version=http_msg.version,
-            status_code=200,
-            status_text="Success",
-            headers=http_msg.headers,
-            body=http_msg.body,
-        )
-        self.context.logger.info(f"responding with: {http_response}")
-        self.context.outbox.put_message(message=http_response)
 
     def _handle_response(self, http_msg: HttpMessage, http_dialogue: HttpDialogue) -> None:
         """Handle HTTP response messages by routing them to the FSM behavior."""
@@ -353,6 +363,106 @@ class HttpHandler(Handler):
         """Initialise the handler."""
         self.enable_cors = kwargs.pop("enable_cors", False)
         super().__init__(**kwargs)
+
+    def _get_content_type(self, file_extension: str) -> str:
+        """Get the appropriate content type based on file extension."""
+        content_types = {
+            ".html": "text/html",
+            ".css": "text/css",
+            ".js": "application/javascript",
+            ".json": "application/json",
+            ".png": "image/png",
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+            ".gif": "image/gif",
+            ".svg": "image/svg+xml",
+            ".ico": "image/x-icon",
+            ".txt": "text/plain",
+            ".pdf": "application/pdf",
+            ".woff": "font/woff",
+            ".woff2": "font/woff2",
+            ".ttf": "font/ttf",
+            ".eot": "application/vnd.ms-fontobject",
+        }
+        return content_types.get(file_extension.lower(), "application/octet-stream")
+
+    def _handle_get_static_file(self, http_msg: HttpMessage, http_dialogue: HttpDialogue) -> None:
+        """Handle a HTTP GET request for a static file."""
+        try:
+            # Extract the requested path from the URL
+            requested_path = urlparse(http_msg.url).path.lstrip("/")
+
+            # If the path is empty or just "/", serve index.html
+            if not requested_path or requested_path == "":
+                requested_path = "index.html"
+
+            self.context.logger.info(f"Serving static file: {requested_path}")
+
+            # Construct the file path
+            file_path = Path(Path(__file__).parent, MINDSHARE_AGENT_PROFILE_PATH, requested_path)
+
+            self.context.logger.info(f"Resolved file path: {file_path}")
+
+            # If the file exists and is a file, send it as a response
+            if file_path.exists() and file_path.is_file():
+                # Determine content type based on file extension
+                content_type = self._get_content_type(file_path.suffix)
+
+                with open(file_path, "rb") as file:
+                    file_content = file.read()
+
+                self.context.logger.info(f"Serving file {file_path} with content-type: {content_type}")
+                # Send the file content as a response
+                self._send_ok_response(http_msg, http_dialogue, file_content, content_type)
+            else:
+                self.context.logger.info(f"File not found: {file_path}, serving index.html as fallback")
+                # If the file doesn't exist or is not a file, return the index.html file
+                index_path = Path(Path(__file__).parent, MINDSHARE_AGENT_PROFILE_PATH, "index.html")
+                with open(index_path, encoding=DEFAULT_ENCODING) as file:
+                    index_html = file.read()
+
+                self._send_ok_response(http_msg, http_dialogue, index_html, "text/html")
+        except FileNotFoundError as e:
+            self.context.logger.exception(f"FileNotFoundError when serving static file: {e}")
+            self._handle_not_found(http_msg, http_dialogue)
+        except Exception as e:
+            self.context.logger.exception(f"Error serving static file: {e}")
+            self._handle_not_found(http_msg, http_dialogue)
+
+    def _handle_not_found(self, http_msg: HttpMessage, http_dialogue: HttpDialogue) -> None:
+        """Handle a HTTP request for a resource that was not found."""
+        http_response = http_dialogue.reply(
+            performative=HttpMessage.Performative.RESPONSE,
+            target_message=http_msg,
+            version=http_msg.version,
+            status_code=404,
+            status_text="Not Found",
+            headers=http_msg.headers,
+            body=b"",
+        )
+
+        self.context.logger.info(f"Responding with: {http_response}")
+        self.context.outbox.put_message(message=http_response)
+
+    def _get_handler(self, url: str, method: str) -> tuple[Callable | None, dict]:
+        """Check if a URL is meant to be handled in this handler."""
+        if not re.match(self.handler_url_regex, url):
+            self.context.logger.info(f"The url {url} does not match the HttpHandler's pattern")
+            return None, {}
+
+        for methods, routes in self.routes.items():
+            if method not in methods:
+                continue
+
+            for route in routes:
+                m = re.match(route[0], url)
+                if m:
+                    return route[1], m.groupdict()
+
+        self.context.logger.info(
+            f"The message [{method}] {url} is intended for the HttpHandler but did not match any valid pattern"
+        )
+        return self._handle_invalid, {}
 
 
 class LedgerApiHandler(Handler):
