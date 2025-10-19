@@ -33,7 +33,7 @@ fingerprint:
   mindshare-ui-build/assets/index-BdttZvoz.js: bafybeih3jkpawpprc7naz7xj67r3dtfmqlqdyv6wyk3wxhrncfkdmwru3m
   mindshare-ui-build/favicon.ico: bafybeigoxdaiyjbhlh3hq7b5myaowqlc22poxirhfjqzesxk4erea2e3pu
   mindshare-ui-build/index.html: bafybeihleegnavb65pqm2dwr3o4hm2hjgfxbwwyoqzvyphwfrstznt44fu
-  models.py: bafybeiawwu4gnk6dezn5wlseeygqgmiwphbdjadwe7axsppchm4dsy3oji
+  models.py: bafybeibssxkysb3vnq35wgq7sbxoyvsbjak7zpcpjzbqqhortfw3akezgi
   tests/__init__.py: bafybeigb2ji4vkcap3hokcedggjwsrah7te2nxjhkorwf3ibwgyaa2glma
   tests/test_coingecko_model.py: bafybeicjnqiclfi6r7sbsyjgwlzj3ugmeukii5fp23esdtsanof3lvyn6i
   tests/test_coingecko_model_integration.py: bafybeid6mzsia3wocixdedmr6tcbb2v34oq2fkjqyz2cab4mysjvqbydfi
@@ -121,6 +121,10 @@ models:
     class_name: Requests
   params:
     args:
+      setup:
+        all_participants: []
+        consensus_threshold: null
+        safe_contract_address: '0x0000000000000000000000000000000000000000'
       coingecko_api_key: test_key
       trendmoon_api_key: test_key
       coingecko_rate_limit_per_minute: 30

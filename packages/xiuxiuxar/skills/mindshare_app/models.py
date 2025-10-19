@@ -39,7 +39,7 @@ if TYPE_CHECKING:
         MindshareabciappFsmBehaviour,
     )
 
-MARGIN = 5
+MARGIN = 300  # high margin to accommodate for fresh OHLCV data collection time.
 MINUTE_UNIX = 60
 
 
