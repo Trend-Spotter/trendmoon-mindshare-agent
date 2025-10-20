@@ -96,6 +96,19 @@ class CallCheckpointRound(BaseState):
         self.checkpoint_tx_signed_data: bytes | None = None
         self.checkpoint_tx_final_hash: str | None = None
         self.checkpoint_data: bytes | None = None
+        # Failure tracking flags
+        self.staking_state_check_failed: bool = False
+        self.next_checkpoint_check_failed: bool = False
+        self.checkpoint_preparation_failed: bool = False
+        self.safe_tx_preparation_failed: bool = False
+        self.safe_tx_execution_failed: bool = False
+        self.checkpoint_signing_failed: bool = False
+        self.checkpoint_broadcast_failed: bool = False
+        self.liveness_ratio_check_failed: bool = False
+        self.liveness_period_check_failed: bool = False
+        self.ts_checkpoint_check_failed: bool = False
+        self.multisig_nonces_check_failed: bool = False
+        self.service_info_check_failed: bool = False
 
     def setup(self) -> None:
         """Perform the setup."""
@@ -122,6 +135,19 @@ class CallCheckpointRound(BaseState):
         self.checkpoint_tx_signed_data = None
         self.checkpoint_tx_final_hash = None
         self.checkpoint_data = None
+        # Reset failure tracking flags
+        self.staking_state_check_failed = False
+        self.next_checkpoint_check_failed = False
+        self.checkpoint_preparation_failed = False
+        self.safe_tx_preparation_failed = False
+        self.safe_tx_execution_failed = False
+        self.checkpoint_signing_failed = False
+        self.checkpoint_broadcast_failed = False
+        self.liveness_ratio_check_failed = False
+        self.liveness_period_check_failed = False
+        self.ts_checkpoint_check_failed = False
+        self.multisig_nonces_check_failed = False
+        self.service_info_check_failed = False
         for k in self.supported_protocols:
             self.supported_protocols[k] = []
 
@@ -331,7 +357,8 @@ class CallCheckpointRound(BaseState):
 
             if message.performative == ContractApiMessage.Performative.ERROR:
                 self.context.logger.error(f"Contract API error for staking state: {message.message}")
-                return False
+                self.staking_state_check_failed = True
+                return True
 
             # Accept unexpected intermediate messages to avoid validation warnings
             self.context.logger.debug(f"Staking state: received unexpected performative {message.performative}")
@@ -344,6 +371,30 @@ class CallCheckpointRound(BaseState):
     def _check_contract_responses(self) -> None:
         """Check if contract responses have arrived and process them."""
         try:
+            # Check for staking state failure
+            if self.staking_state_check_failed:
+                self.context.logger.error("Staking state check failed, transitioning to error handling")
+                self.context.error_context = {
+                    "error_type": "checkpoint_staking_state_error",
+                    "error_message": "Failed to retrieve staking state from contract API",
+                    "originating_round": str(self._state),
+                }
+                self._event = MindshareabciappEvents.ERROR
+                self._is_done = True
+                return
+
+            # Check for next checkpoint failure
+            if self.next_checkpoint_check_failed:
+                self.context.logger.error("Next checkpoint check failed, transitioning to error handling")
+                self.context.error_context = {
+                    "error_type": "checkpoint_next_checkpoint_error",
+                    "error_message": "Failed to retrieve next checkpoint timestamp from contract API",
+                    "originating_round": str(self._state),
+                }
+                self._event = MindshareabciappEvents.ERROR
+                self._is_done = True
+                return
+
             for dialogue in self.pending_contract_calls.copy():
                 request_nonce = dialogue.dialogue_label.dialogue_reference[0]
 
@@ -446,7 +497,8 @@ class CallCheckpointRound(BaseState):
 
             if message.performative == ContractApiMessage.Performative.ERROR:
                 self.context.logger.error(f"Contract API error for next checkpoint: {message.message}")
-                return False
+                self.next_checkpoint_check_failed = True
+                return True
 
             # Accept unexpected intermediate messages to avoid validation warnings
             self.context.logger.debug(f"Next checkpoint: received unexpected performative {message.performative}")
@@ -526,7 +578,8 @@ class CallCheckpointRound(BaseState):
 
             if message.performative == ContractApiMessage.Performative.ERROR:
                 self.context.logger.error(f"Contract API error for checkpoint preparation: {message.message}")
-                return False
+                self.checkpoint_preparation_failed = True
+                return True
 
             # Accept unexpected intermediate messages to avoid validation warnings
             self.context.logger.debug(
@@ -541,6 +594,30 @@ class CallCheckpointRound(BaseState):
     def _check_checkpoint_preparation_responses(self) -> None:
         """Check if checkpoint preparation responses have arrived."""
         try:
+            # Check for checkpoint preparation failure
+            if self.checkpoint_preparation_failed:
+                self.context.logger.error("Checkpoint preparation failed, transitioning to error handling")
+                self.context.error_context = {
+                    "error_type": "checkpoint_preparation_error",
+                    "error_message": "Failed to prepare checkpoint transaction",
+                    "originating_round": str(self._state),
+                }
+                self._event = MindshareabciappEvents.ERROR
+                self._is_done = True
+                return
+
+            # Check for safe tx preparation failure
+            if self.safe_tx_preparation_failed:
+                self.context.logger.error("Safe transaction preparation failed, transitioning to error handling")
+                self.context.error_context = {
+                    "error_type": "checkpoint_safe_tx_preparation_error",
+                    "error_message": "Failed to prepare Safe transaction hash",
+                    "originating_round": str(self._state),
+                }
+                self._event = MindshareabciappEvents.ERROR
+                self._is_done = True
+                return
+
             for dialogue in self.pending_contract_calls.copy():
                 request_nonce = dialogue.dialogue_label.dialogue_reference[0]
 
@@ -643,7 +720,8 @@ class CallCheckpointRound(BaseState):
 
             if message.performative == ContractApiMessage.Performative.ERROR:
                 self.context.logger.error(f"Contract API error for Safe tx preparation: {message.message}")
-                return False
+                self.safe_tx_preparation_failed = True
+                return True
 
             # Accept unexpected intermediate messages to avoid validation warnings
             self.context.logger.debug(f"Safe tx preparation: received unexpected performative {message.performative}")
@@ -723,7 +801,8 @@ class CallCheckpointRound(BaseState):
 
             if message.performative == ContractApiMessage.Performative.ERROR:
                 self.context.logger.error(f"Contract API error for Safe tx execution: {message.message}")
-                return False
+                self.safe_tx_execution_failed = True
+                return True
 
             self.context.logger.debug(f"Safe tx execution: received unexpected performative {message.performative}")
             return True
@@ -735,6 +814,18 @@ class CallCheckpointRound(BaseState):
     def _check_execution_responses(self) -> None:
         """Check for execution responses."""
         try:
+            # Check for safe tx execution failure
+            if self.safe_tx_execution_failed:
+                self.context.logger.error("Safe transaction execution failed, transitioning to error handling")
+                self.context.error_context = {
+                    "error_type": "checkpoint_execution_error",
+                    "error_message": "Failed to execute Safe transaction for checkpoint",
+                    "originating_round": str(self._state),
+                }
+                self._event = MindshareabciappEvents.ERROR
+                self._is_done = True
+                return
+
             for dialogue in list(self.pending_contract_calls):
                 request_id = dialogue.dialogue_label.dialogue_reference[0]
                 if request_id in self.contract_responses:
@@ -798,7 +889,8 @@ class CallCheckpointRound(BaseState):
             if message.performative == SigningMessage.Performative.ERROR:
                 error_code = message.error_code if hasattr(message, "error_code") else "unknown"
                 self.context.logger.error(f"Checkpoint transaction signing failed with error: {error_code}")
-                return False
+                self.checkpoint_signing_failed = True
+                return True
 
             # Log unexpected performatives but don't fail validation
             self.context.logger.debug(
@@ -837,20 +929,47 @@ class CallCheckpointRound(BaseState):
                 self.context.logger.info(f"Checkpoint transaction broadcast successful: {tx_hash}")
                 return True
 
-            self.context.logger.error(f"Checkpoint transaction broadcast failed: {message.performative}")
-            return False
+            if message.performative == LedgerApiMessage.Performative.ERROR:
+                error_msg = message.message if hasattr(message, "message") else str(message.performative)
+                self.context.logger.error(f"Checkpoint transaction broadcast failed: {error_msg}")
+                self.checkpoint_broadcast_failed = True
+                return True
+
+            self.context.logger.debug(f"Checkpoint broadcast: received unexpected performative {message.performative}")
+            return True
 
         except Exception as e:
             self.context.logger.exception(f"Error processing checkpoint broadcast response: {e}")
-            return False
+            self.checkpoint_broadcast_failed = True
+            return True
 
     def _check_signing_responses(self) -> None:
         """Check for signing responses."""
-        # Signing responses are handled directly by the validation function
+        # Check for checkpoint signing failure
+        if self.checkpoint_signing_failed:
+            self.context.logger.error("Checkpoint transaction signing failed, transitioning to error handling")
+            self.context.error_context = {
+                "error_type": "checkpoint_signing_error",
+                "error_message": "Failed to sign checkpoint transaction",
+                "originating_round": str(self._state),
+            }
+            self._event = MindshareabciappEvents.ERROR
+            self._is_done = True
+            return
 
     def _check_broadcast_responses(self) -> None:
         """Check for broadcast responses."""
-        # Broadcast responses are handled directly by the validation function
+        # Check for checkpoint broadcast failure
+        if self.checkpoint_broadcast_failed:
+            self.context.logger.error("Checkpoint transaction broadcast failed, transitioning to error handling")
+            self.context.error_context = {
+                "error_type": "checkpoint_broadcast_error",
+                "error_message": "Failed to broadcast checkpoint transaction to blockchain",
+                "originating_round": str(self._state),
+            }
+            self._event = MindshareabciappEvents.ERROR
+            self._is_done = True
+            return
 
     def _save_staking_state_to_state_json(self) -> None:
         """Save staking state information to state.json."""
@@ -933,7 +1052,8 @@ class CallCheckpointRound(BaseState):
 
             if message.performative == ContractApiMessage.Performative.ERROR:
                 self.context.logger.error(f"Contract API error for liveness ratio: {message.message}")
-                return False
+                self.liveness_ratio_check_failed = True
+                return True
 
             # Accept unexpected intermediate messages to avoid validation warnings
             self.context.logger.debug(f"Liveness ratio: received unexpected performative {message.performative}")
@@ -946,6 +1066,18 @@ class CallCheckpointRound(BaseState):
     def _get_liveness_period_async(self) -> None:
         """Get liveness period asynchronously."""
         try:
+            # Check if liveness ratio check failed
+            if self.liveness_ratio_check_failed:
+                self.context.logger.error("Liveness ratio check failed, transitioning to error handling")
+                self.context.error_context = {
+                    "error_type": "checkpoint_liveness_ratio_error",
+                    "error_message": "Failed to retrieve liveness ratio from contract API",
+                    "originating_round": str(self._state),
+                }
+                self._event = MindshareabciappEvents.ERROR
+                self._is_done = True
+                return
+
             if not self.context.params.staking_token_contract_address:
                 return
 
@@ -984,7 +1116,8 @@ class CallCheckpointRound(BaseState):
 
             if message.performative == ContractApiMessage.Performative.ERROR:
                 self.context.logger.error(f"Contract API error for liveness period: {message.message}")
-                return False
+                self.liveness_period_check_failed = True
+                return True
 
             # Accept unexpected intermediate messages to avoid validation warnings
             self.context.logger.debug(f"Liveness period: received unexpected performative {message.performative}")
@@ -997,6 +1130,18 @@ class CallCheckpointRound(BaseState):
     def _get_ts_checkpoint_async(self) -> None:
         """Get timestamp checkpoint asynchronously."""
         try:
+            # Check if liveness period check failed
+            if self.liveness_period_check_failed:
+                self.context.logger.error("Liveness period check failed, transitioning to error handling")
+                self.context.error_context = {
+                    "error_type": "checkpoint_liveness_period_error",
+                    "error_message": "Failed to retrieve liveness period from contract API",
+                    "originating_round": str(self._state),
+                }
+                self._event = MindshareabciappEvents.ERROR
+                self._is_done = True
+                return
+
             if not self.context.params.staking_token_contract_address:
                 return
 
@@ -1035,7 +1180,8 @@ class CallCheckpointRound(BaseState):
 
             if message.performative == ContractApiMessage.Performative.ERROR:
                 self.context.logger.error(f"Contract API error for ts checkpoint: {message.message}")
-                return False
+                self.ts_checkpoint_check_failed = True
+                return True
 
             # Accept unexpected intermediate messages to avoid validation warnings
             self.context.logger.debug(f"TS checkpoint: received unexpected performative {message.performative}")
@@ -1048,6 +1194,18 @@ class CallCheckpointRound(BaseState):
     def _perform_min_tx_calculation(self) -> None:
         """Perform the actual calculation of minimum required transactions."""
         try:
+            # Check if ts checkpoint check failed
+            if self.ts_checkpoint_check_failed:
+                self.context.logger.error("Timestamp checkpoint check failed, transitioning to error handling")
+                self.context.error_context = {
+                    "error_type": "checkpoint_ts_checkpoint_error",
+                    "error_message": "Failed to retrieve timestamp checkpoint from contract API",
+                    "originating_round": str(self._state),
+                }
+                self._event = MindshareabciappEvents.ERROR
+                self._is_done = True
+                return
+
             # Collect all required data from responses
             liveness_ratio = None
             liveness_period = None
@@ -1138,7 +1296,8 @@ class CallCheckpointRound(BaseState):
 
             if message.performative == ContractApiMessage.Performative.ERROR:
                 self.context.logger.error(f"Contract API error for multisig nonces: {message.message}")
-                return False
+                self.multisig_nonces_check_failed = True
+                return True
 
             # Accept unexpected intermediate messages to avoid validation warnings
             self.context.logger.debug(f"Multisig nonces: received unexpected performative {message.performative}")
@@ -1151,6 +1310,18 @@ class CallCheckpointRound(BaseState):
     def _get_service_info_async(self) -> None:
         """Get service info asynchronously."""
         try:
+            # Check if multisig nonces check failed
+            if self.multisig_nonces_check_failed:
+                self.context.logger.error("Multisig nonces check failed, transitioning to error handling")
+                self.context.error_context = {
+                    "error_type": "checkpoint_multisig_nonces_error",
+                    "error_message": "Failed to retrieve multisig nonces from contract API",
+                    "originating_round": str(self._state),
+                }
+                self._event = MindshareabciappEvents.ERROR
+                self._is_done = True
+                return
+
             if not self.context.params.staking_token_contract_address or not self.context.params.on_chain_service_id:
                 self.context.logger.warning("Missing staking token contract address or service ID")
                 return
@@ -1199,7 +1370,8 @@ class CallCheckpointRound(BaseState):
 
             if message.performative == ContractApiMessage.Performative.ERROR:
                 self.context.logger.error(f"Contract API error for service info: {message.message}")
-                return False
+                self.service_info_check_failed = True
+                return True
 
             # Accept unexpected intermediate messages to avoid validation warnings
             self.context.logger.debug(f"Service info: received unexpected performative {message.performative}")
@@ -1212,6 +1384,18 @@ class CallCheckpointRound(BaseState):
     def _calculate_multisig_nonces_since_checkpoint(self) -> None:
         """Calculate multisig nonces since last checkpoint."""
         try:
+            # Check if service info check failed
+            if self.service_info_check_failed:
+                self.context.logger.error("Service info check failed, transitioning to error handling")
+                self.context.error_context = {
+                    "error_type": "checkpoint_service_info_error",
+                    "error_message": "Failed to retrieve service info from contract API",
+                    "originating_round": str(self._state),
+                }
+                self._event = MindshareabciappEvents.ERROR
+                self._is_done = True
+                return
+
             # Get current nonce and last checkpoint nonce from responses
             current_nonce = None
             last_checkpoint_nonce = None

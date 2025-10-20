@@ -48,6 +48,18 @@ class HandleErrorRound(BaseState):
         "vanity_tx_hash_error": False,  # Failed to retrieve safe transaction hash from contract API
         "vanity_tx_execution_error": False,  # Failed to get raw safe transaction from contract API
         "vanity_tx_signing_error": False,  # Failed to sign vanity transaction
+        "checkpoint_staking_state_error": False,  # Failed to retrieve staking state from contract API
+        "checkpoint_next_checkpoint_error": False,  # Failed to retrieve next checkpoint timestamp
+        "checkpoint_preparation_error": False,  # Failed to prepare checkpoint transaction
+        "checkpoint_safe_tx_preparation_error": False,  # Failed to prepare Safe transaction hash
+        "checkpoint_execution_error": False,  # Failed to execute Safe transaction for checkpoint
+        "checkpoint_signing_error": False,  # Failed to sign checkpoint transaction
+        "checkpoint_broadcast_error": False,  # Failed to broadcast checkpoint transaction to blockchain
+        "checkpoint_liveness_ratio_error": False,  # Failed to retrieve liveness ratio from contract API
+        "checkpoint_liveness_period_error": False,  # Failed to retrieve liveness period from contract API
+        "checkpoint_ts_checkpoint_error": False,  # Failed to retrieve timestamp checkpoint from contract API
+        "checkpoint_multisig_nonces_error": False,  # Failed to retrieve multisig nonces from contract API
+        "checkpoint_service_info_error": False,  # Failed to retrieve service info from contract API
     }
 
     def __init__(self, **kwargs: Any) -> None:
