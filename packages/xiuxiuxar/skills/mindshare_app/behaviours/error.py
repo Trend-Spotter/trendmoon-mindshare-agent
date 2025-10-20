@@ -43,6 +43,11 @@ class HandleErrorRound(BaseState):
         "ticker_timeout_error": False,  # Exceeded max ticker retry attempts
         "price_sanity_check_failed": False,  # Price validation failed
         "trade_construction_error": False,  # General construction errors
+        "vanity_tx_broadcast_error": False,  # Vanity transaction broadcast failed after 3 retries
+        "nonce_check_error": False,  # Failed to retrieve safe nonce from contract API
+        "vanity_tx_hash_error": False,  # Failed to retrieve safe transaction hash from contract API
+        "vanity_tx_execution_error": False,  # Failed to get raw safe transaction from contract API
+        "vanity_tx_signing_error": False,  # Failed to sign vanity transaction
     }
 
     def __init__(self, **kwargs: Any) -> None:

@@ -74,6 +74,12 @@ class CheckStakingKPIRound(BaseState):
         self.agent_balance_check_submitted: bool = False
         self.agent_balance: int | None = None
         self.has_required_funds: bool = False
+        self.vanity_tx_broadcast_retries: int = 0
+        self.vanity_tx_broadcast_failed: bool = False
+        self.nonce_check_failed: bool = False
+        self.vanity_tx_hash_failed: bool = False
+        self.vanity_tx_execution_failed: bool = False
+        self.vanity_tx_signing_failed: bool = False
 
     def setup(self) -> None:
         """Perform the setup."""
@@ -98,6 +104,12 @@ class CheckStakingKPIRound(BaseState):
         self.agent_balance_check_submitted = False
         self.agent_balance = None
         self.has_required_funds = False
+        self.vanity_tx_broadcast_retries = 0
+        self.vanity_tx_broadcast_failed = False
+        self.nonce_check_failed = False
+        self.vanity_tx_hash_failed = False
+        self.vanity_tx_execution_failed = False
+        self.vanity_tx_signing_failed = False
         for k in self.supported_protocols:
             self.supported_protocols[k] = []
 
@@ -180,6 +192,32 @@ class CheckStakingKPIRound(BaseState):
 
     def _handle_vanity_tx_execution(self) -> bool:
         """Handle vanity transaction execution. Returns True if should exit early."""
+        # Check if broadcast failed after max retries
+        if self.vanity_tx_broadcast_failed:
+            self.context.logger.error("Vanity transaction broadcast failed after max retries")
+            self.context.error_context = {
+                "error_type": "vanity_tx_broadcast_error",
+                "error_message": (
+                    f"Failed to broadcast vanity transaction after {self.vanity_tx_broadcast_retries} attempts"
+                ),
+                "originating_round": str(self._state),
+            }
+            self._event = MindshareabciappEvents.ERROR
+            self._is_done = True
+            return True
+
+        # Check if signing failed
+        if self.vanity_tx_signing_failed:
+            self.context.logger.error("Vanity transaction signing failed")
+            self.context.error_context = {
+                "error_type": "vanity_tx_signing_error",
+                "error_message": "Failed to sign vanity transaction",
+                "originating_round": str(self._state),
+            }
+            self._event = MindshareabciappEvents.ERROR
+            self._is_done = True
+            return True
+
         # Step 1: Submit the raw transaction request
         if self.vanity_tx_prepared and self.vanity_tx_hex and not self.vanity_tx_execution_submitted:
             self._execute_vanity_tx_async()
@@ -276,12 +314,17 @@ class CheckStakingKPIRound(BaseState):
                         return True
 
             elif message.performative == ContractApiMessage.Performative.ERROR:
-                self.context.logger.warning(f"Contract API error: {message.message}")
+                self.context.logger.error(f"Nonce check failed - Contract API error: {message.message}")
+                self.nonce_check_failed = True
+                self.staking_kpi_check_complete = True
+                return True
 
             return False
 
         except Exception as e:
             self.context.logger.exception(f"Error validating nonce response: {e}")
+            self.nonce_check_failed = True
+            self.staking_kpi_check_complete = True
             return False
 
     def _check_contract_responses(self) -> None:
@@ -303,6 +346,18 @@ class CheckStakingKPIRound(BaseState):
 
                     # Remove from pending
                     self.pending_contract_calls.remove(dialogue)
+
+            # Check if nonce check failed
+            if self.nonce_check_failed:
+                self.context.logger.error("Nonce check failed, transitioning to error handling")
+                self.context.error_context = {
+                    "error_type": "nonce_check_error",
+                    "error_message": "Failed to retrieve safe nonce from contract API",
+                    "originating_round": str(self._state),
+                }
+                self._event = MindshareabciappEvents.ERROR
+                self._is_done = True
+                return
 
             # If no pending calls, mark as complete
             if not self.pending_contract_calls and not self.staking_kpi_check_complete:
@@ -666,12 +721,17 @@ class CheckStakingKPIRound(BaseState):
                         return True
 
             elif message.performative == ContractApiMessage.Performative.ERROR:
-                self.context.logger.warning(f"Contract API error: {message.message}")
+                self.context.logger.error(f"Vanity tx hash request failed - Contract API error: {message.message}")
+                self.vanity_tx_hash_failed = True
+                self.vanity_tx_prepared = True
+                return True
 
             return False
 
         except Exception as e:
             self.context.logger.exception(f"Error validating vanity tx response: {e}")
+            self.vanity_tx_hash_failed = True
+            self.vanity_tx_prepared = True
             return False
 
     def _check_vanity_tx_responses(self) -> None:
@@ -694,6 +754,18 @@ class CheckStakingKPIRound(BaseState):
 
                     # Remove from pending
                     self.pending_contract_calls.remove(dialogue)
+
+            # Check if vanity tx hash request failed
+            if self.vanity_tx_hash_failed:
+                self.context.logger.error("Vanity tx hash request failed, transitioning to error handling")
+                self.context.error_context = {
+                    "error_type": "vanity_tx_hash_error",
+                    "error_message": "Failed to retrieve safe transaction hash from contract API",
+                    "originating_round": str(self._state),
+                }
+                self._event = MindshareabciappEvents.ERROR
+                self._is_done = True
+                return
 
             # If no pending calls, mark as prepared
             if not self.pending_contract_calls and not self.vanity_tx_prepared:
@@ -806,12 +878,15 @@ class CheckStakingKPIRound(BaseState):
                         return True
 
             elif message.performative == ContractApiMessage.Performative.ERROR:
-                self.context.logger.warning(f"Contract API error: {message.message}")
+                self.context.logger.error(f"Vanity tx execution request failed - Contract API error: {message.message}")
+                self.vanity_tx_execution_failed = True
+                return True
 
             return False
 
         except Exception as e:
             self.context.logger.exception(f"Error validating vanity tx execution response: {e}")
+            self.vanity_tx_execution_failed = True
             return False
 
     def _check_vanity_tx_execution_responses(self) -> None:
@@ -849,6 +924,18 @@ class CheckStakingKPIRound(BaseState):
 
                     # Remove from pending
                     self.pending_contract_calls.remove(dialogue)
+
+            # Check if vanity tx execution request failed
+            if self.vanity_tx_execution_failed:
+                self.context.logger.error("Vanity tx execution request failed, transitioning to error handling")
+                self.context.error_context = {
+                    "error_type": "vanity_tx_execution_error",
+                    "error_message": "Failed to get raw safe transaction from contract API",
+                    "originating_round": str(self._state),
+                }
+                self._event = MindshareabciappEvents.ERROR
+                self._is_done = True
+                return
 
         except Exception as e:
             self.context.logger.exception(f"Error checking vanity tx execution responses: {e}")
@@ -898,7 +985,8 @@ class CheckStakingKPIRound(BaseState):
             if message.performative == SigningMessage.Performative.ERROR:
                 error_code = message.error_code if hasattr(message, "error_code") else "unknown"
                 self.context.logger.error(f"Vanity transaction signing failed with error: {error_code}")
-                return False
+                self.vanity_tx_signing_failed = True
+                return True
 
             # Log unexpected performatives but don't fail validation
             self.context.logger.debug(
@@ -909,6 +997,7 @@ class CheckStakingKPIRound(BaseState):
 
         except Exception as e:
             self.context.logger.exception(f"Error processing vanity signing response: {e}")
+            self.vanity_tx_signing_failed = True
             return False
 
     def _broadcast_vanity_transaction(self) -> None:
@@ -971,7 +1060,26 @@ class CheckStakingKPIRound(BaseState):
 
                     return True
 
-                # For other errors, fail validation
+                # Handle retryable errors
+                self.vanity_tx_broadcast_retries += 1
+
+                if self.vanity_tx_broadcast_retries < 3:
+                    # Retry - reset state to try broadcasting again
+                    self.context.logger.warning(
+                        f"Vanity transaction broadcast failed (attempt {self.vanity_tx_broadcast_retries}/3). "
+                        f"Error: {error_msg}. Retrying..."
+                    )
+                    # Reset state to retry the signing and broadcasting steps
+                    self.vanity_tx_broadcast_submitted = False
+                    self.vanity_tx_signing_submitted = False
+                    # Keep the raw transaction data so we can retry
+                    return True  # Return True to avoid validation warning
+                # Max retries exceeded
+                self.context.logger.error(
+                    f"Vanity transaction broadcast failed after {self.vanity_tx_broadcast_retries} attempts. "
+                    f"Final error: {error_msg}"
+                )
+                self.vanity_tx_broadcast_failed = True
                 return False
 
             # Log unexpected performatives but don't fail validation
