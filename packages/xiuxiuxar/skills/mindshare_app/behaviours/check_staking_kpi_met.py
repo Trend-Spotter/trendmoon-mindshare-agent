@@ -106,6 +106,7 @@ class CheckStakingKPIRound(BaseState):
         self.has_required_funds = False
         self.vanity_tx_broadcast_retries = 0
         self.vanity_tx_broadcast_failed = False
+        self.vanity_tx_retry_needed = False
         self.nonce_check_failed = False
         self.vanity_tx_hash_failed = False
         self.vanity_tx_execution_failed = False
@@ -190,7 +191,7 @@ class CheckStakingKPIRound(BaseState):
 
         return False
 
-    def _handle_vanity_tx_execution(self) -> bool:
+    def _handle_vanity_tx_execution(self) -> bool:  # noqa: PLR0911
         """Handle vanity transaction execution. Returns True if should exit early."""
         # Check if broadcast failed after max retries
         if self.vanity_tx_broadcast_failed:
@@ -232,6 +233,12 @@ class CheckStakingKPIRound(BaseState):
         # Step 3: Wait for signing to complete (validation function handles this)
         if self.vanity_tx_signing_submitted and not self.vanity_tx_broadcast_submitted:
             # Signing validation function will trigger broadcast
+            return True
+
+        # Step 3.5: Handle broadcast retry after failure
+        if self.vanity_tx_retry_needed and self.vanity_tx_signed_data:
+            self.vanity_tx_retry_needed = False
+            self._broadcast_vanity_transaction()
             return True
 
         # Step 4: Wait for broadcast to complete (validation function sets vanity_tx_executed)
@@ -1064,15 +1071,14 @@ class CheckStakingKPIRound(BaseState):
                 self.vanity_tx_broadcast_retries += 1
 
                 if self.vanity_tx_broadcast_retries < 3:
-                    # Retry - reset state to try broadcasting again
+                    # Retry - set flag to trigger rebroadcast on next act() cycle
                     self.context.logger.warning(
                         f"Vanity transaction broadcast failed (attempt {self.vanity_tx_broadcast_retries}/3). "
                         f"Error: {error_msg}. Retrying..."
                     )
-                    # Reset state to retry the signing and broadcasting steps
-                    self.vanity_tx_broadcast_submitted = False
-                    self.vanity_tx_signing_submitted = False
-                    # Keep the raw transaction data so we can retry
+                    # Don't reset state flags - this was causing infinite loop
+                    # Instead, set retry flag to trigger rebroadcast in act() flow
+                    self.vanity_tx_retry_needed = True
                     return True  # Return True to avoid validation warning
                 # Max retries exceeded
                 self.context.logger.error(
