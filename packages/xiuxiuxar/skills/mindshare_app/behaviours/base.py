@@ -249,6 +249,7 @@ ALLOWED_ASSETS: dict[str, list[dict[str, str]]] = {
             "address": "0x768BE13e1680b5ebE0024C42c896E3dB59ec0149",
             "symbol": "SKI",
             "coingecko_id": "ski-mask-dog",
+            "decimals": 9,
         },
         {
             "address": "0x2d57c47bc5d2432feeedf2c9150162a9862d3ccf",

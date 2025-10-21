@@ -96,6 +96,19 @@ class ExecutionRound(BaseState):
         # Dialogue tracking
         self.pending_dialogues: dict[str, str] = {}
 
+        # Failure tracking flags
+        self.approve_request_failed: bool = False
+        self.swap_request_failed: bool = False
+        self.cow_approval_failed: bool = False
+        self.cow_order_failed: bool = False
+        self.cow_monitoring_failed: bool = False
+        self.multisend_failed: bool = False
+        self.safe_hash_failed: bool = False
+        self.execution_failed: bool = False
+        self.signing_failed: bool = False
+        self.broadcast_failed: bool = False
+        self.receipt_failed: bool = False
+
     def setup(self) -> None:
         """Setup the execution round."""
         super().setup()
@@ -115,6 +128,19 @@ class ExecutionRound(BaseState):
 
         self.active_operation = None
         self.pending_dialogues = {}
+
+        # Reset failure tracking flags
+        self.approve_request_failed = False
+        self.swap_request_failed = False
+        self.cow_approval_failed = False
+        self.cow_order_failed = False
+        self.cow_monitoring_failed = False
+        self.multisend_failed = False
+        self.safe_hash_failed = False
+        self.execution_failed = False
+        self.signing_failed = False
+        self.broadcast_failed = False
+        self.receipt_failed = False
 
         for protocol in self.supported_protocols:
             self.supported_protocols[protocol] = []
@@ -300,8 +326,30 @@ class ExecutionRound(BaseState):
         else:
             self._continue_balancer_operation(state)
 
+    def _check_balancer_failures(self) -> bool:
+        """Check for Balancer operation failures and handle them. Returns True if failure detected."""
+        failures = {
+            self.approve_request_failed: "ERC20 approval request failed",
+            self.swap_request_failed: "Swap request failed",
+            self.multisend_failed: "Multisend construction failed",
+            self.safe_hash_failed: "Safe transaction hash request failed",
+            self.execution_failed: "Safe transaction execution failed",
+            self.signing_failed: "Transaction signing failed",
+            self.broadcast_failed: "Transaction broadcast failed",
+            self.receipt_failed: "Transaction failed on chain",
+        }
+
+        for failed, reason in failures.items():
+            if failed:
+                self._fail_operation(reason)
+                return True
+        return False
+
     def _continue_balancer_operation(self, state: str) -> None:
         """Continue processing Balancer multisend operation."""
+        if self._check_balancer_failures():
+            return
+
         if state == "approve_pending":
             self._request_approve_data()
         elif state == "swap_pending":
@@ -319,8 +367,30 @@ class ExecutionRound(BaseState):
         elif state == "receipt_pending":
             self._request_receipt(self.active_operation["tx_digest"])
 
+    def _check_cowswap_failures(self) -> bool:
+        """Check for CoWSwap operation failures and handle them. Returns True if failure detected."""
+        failures = {
+            self.cow_approval_failed: "CoW approval request failed",
+            self.cow_order_failed: "CoW order submission failed",
+            self.cow_monitoring_failed: "CoW order monitoring failed",
+            self.safe_hash_failed: "Safe transaction hash request failed",
+            self.execution_failed: "Safe transaction execution failed",
+            self.signing_failed: "Transaction signing failed",
+            self.broadcast_failed: "Transaction broadcast failed",
+            self.receipt_failed: "Transaction failed on chain",
+        }
+
+        for failed, reason in failures.items():
+            if failed:
+                self._fail_operation(reason)
+                return True
+        return False
+
     def _continue_cowswap_operation(self, state: str) -> None:
         """Continue processing CoWSwap operation."""
+        if self._check_cowswap_failures():
+            return
+
         if state == "approve_pending":
             self._request_cow_approval_transaction()
         elif state == "approval_confirmed":
@@ -386,11 +456,13 @@ class ExecutionRound(BaseState):
                     return True
 
             self.context.logger.error(f"Invalid approve response: {message.performative}")
-            return False
+            self.approve_request_failed = True
+            return True
 
         except Exception as e:
             self.context.logger.exception(f"Error processing approve response: {e}")
-            return False
+            self.approve_request_failed = True
+            return True
 
     # =========== DCXT Swap ===========
 
@@ -432,11 +504,13 @@ class ExecutionRound(BaseState):
                         return True
 
             self.context.logger.error(f"Invalid swap response: {message.performative}")
-            return False
+            self.swap_request_failed = True
+            return True
 
         except Exception as e:
             self.context.logger.exception(f"Error processing swap response: {e}")
-            return False
+            self.swap_request_failed = True
+            return True
 
     # =========== Exchange Selection ===========
 
@@ -501,11 +575,13 @@ class ExecutionRound(BaseState):
                     return True
 
             self.context.logger.error(f"Invalid CoW approval response: {message.performative}")
-            return False
+            self.cow_approval_failed = True
+            return True
 
         except Exception as e:
             self.context.logger.exception(f"Error processing CoW approval response: {e}")
-            return False
+            self.cow_approval_failed = True
+            return True
 
     def _submit_cow_order(self) -> None:
         """Submit order to CoW Protocol via API after approval confirmed."""
@@ -558,11 +634,13 @@ class ExecutionRound(BaseState):
                     return True
 
             self.context.logger.error(f"Invalid CoW order response: {message.performative}")
-            return False
+            self.cow_order_failed = True
+            return True
 
         except Exception as e:
             self.context.logger.exception(f"Error processing CoW order response: {e}")
-            return False
+            self.cow_order_failed = True
+            return True
 
     def _append_order_id_to_pending_trades(self, original_order_id: str, cowswap_order_id: str) -> None:
         """Append the CoWSwap order ID to pending_trades.json for easy reference in position monitoring."""
@@ -673,11 +751,14 @@ class ExecutionRound(BaseState):
                 # Continue monitoring on error - don't fail the operation
                 return True
 
-            return False
+            self.context.logger.error(f"Unexpected CoW monitoring performative: {message.performative}")
+            self.cow_monitoring_failed = True
+            return True
 
         except Exception as e:
             self.context.logger.exception(f"Error validating CoW monitoring response: {e}")
-            return False
+            self.cow_monitoring_failed = True
+            return True
 
     # =========== Multisend construction ===========
 
@@ -724,11 +805,13 @@ class ExecutionRound(BaseState):
                 return True
 
             self.context.logger.error(f"Invalid multisend response: {message.performative}")
-            return False
+            self.multisend_failed = True
+            return True
 
         except Exception as e:
             self.context.logger.exception(f"Error processing multisend response: {e}")
-            return False
+            self.multisend_failed = True
+            return True
 
     # =========== Safe transaction ===========
 
@@ -808,11 +891,13 @@ class ExecutionRound(BaseState):
                 return True
 
             self.context.logger.error(f"Invalid safe hash response: {message.performative}")
-            return False
+            self.safe_hash_failed = True
+            return True
 
         except Exception as e:
             self.context.logger.exception(f"Error processing safe hash response: {e}")
-            return False
+            self.safe_hash_failed = True
+            return True
 
     def _execute_safe_tx(self) -> None:
         """Execute Safe transaction with pre-approved signature."""
@@ -873,11 +958,13 @@ class ExecutionRound(BaseState):
                 return True
 
             self.context.logger.error(f"Invalid execution response: {message.performative}")
-            return False
+            self.execution_failed = True
+            return True
 
         except Exception as e:
             self.context.logger.exception(f"Error processing execution response: {e}")
-            return False
+            self.execution_failed = True
+            return True
 
     # =========== Transaction signing ===========
 
@@ -928,11 +1015,13 @@ class ExecutionRound(BaseState):
                 return True
 
             self.context.logger.error(f"Signing failed: {message.performative}")
-            return False
+            self.signing_failed = True
+            return True
 
         except Exception as e:
             self.context.logger.exception(f"Error processing signing response: {e}")
-            return False
+            self.signing_failed = True
+            return True
 
     # =========== Transaction broadcasting ===========
 
@@ -968,11 +1057,13 @@ class ExecutionRound(BaseState):
                 return True
 
             self.context.logger.error(f"Broadcast failed: {message.performative}")
-            return False
+            self.broadcast_failed = True
+            return True
 
         except Exception as e:
             self.context.logger.exception(f"Error processing broadcast response: {e}")
-            return False
+            self.broadcast_failed = True
+            return True
 
     # =========== Receipt verification ===========
 
@@ -1001,12 +1092,17 @@ class ExecutionRound(BaseState):
                     self._complete_operation()
                     return True
                 self.context.logger.error(f"Transaction failed on chain: {receipt}")
-                self._fail_operation("Transaction reverted on chain")
-                return False
+                self.receipt_failed = True
+                return True
+
+            self.context.logger.error(f"Invalid receipt response: {message.performative}")
+            self.receipt_failed = True
+            return True
 
         except Exception as e:
             self.context.logger.exception(f"Error processing receipt: {e}")
-            return False
+            self.receipt_failed = True
+            return True
 
     # =========== Operation completion ===========
 
