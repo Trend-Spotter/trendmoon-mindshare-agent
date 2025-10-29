@@ -133,7 +133,7 @@ models:
       min_position_size_usd: ${float:10.0}
       reset_pause_duration: ${int:300}
       safe_contract_addresses: ${str:{"ethereum":"0x0000000000000000000000000000000000000000","base":"0x0000000000000000000000000000000000000000"}}
-      store_path: ${str:./persistent_data}
+      store_path: ${str:/data}
       stop_loss_pct: ${float:0.84}
       trading_strategy: ${str:balanced}
       trailing_stop_loss_activation_level: ${float:1.25}
