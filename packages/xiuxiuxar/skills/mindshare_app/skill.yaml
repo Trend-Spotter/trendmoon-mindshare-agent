@@ -143,12 +143,12 @@ models:
       data_sufficiency_threshold: 0.5
       max_exposure_per_position: 20.0
       max_position_size_usdc: 10000.0
-      max_positions: 7
+      max_positions: 5
       max_slippage_bps: 150
       max_total_exposure: 80.0
       buffer_ratio: 0.05
-      min_position_size_usd: 10.0
-      min_position_size_usdc: 10.0
+      min_position_size_usd: 2.0
+      min_position_size_usdc: 2.0
       price_collection_timeout: 15
       reset_pause_duration: 300
       safe_contract_addresses: '{"ethereum":"0x0000000000000000000000000000000000000000","arbitrum":"0x0000000000000000000000000000000000000000","base":"0x0000000000000000000000000000000000000000","optimism":"0x0000000000000000000000000000000000000000","mode":"0x0000000000000000000000000000000000000000"}'
