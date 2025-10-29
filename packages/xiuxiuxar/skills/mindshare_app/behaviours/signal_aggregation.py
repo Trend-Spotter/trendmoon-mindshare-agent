@@ -293,7 +293,7 @@ class SignalAggregationRound(BaseState):
                 self.context.logger.info(f"  {signal['symbol']}: p_trade={signal['p_trade']:.3f}")
 
     def _store_aggregated_signal(self) -> None:
-        """Store the aggregated signal for the next round."""
+        """Store the aggregated signal and candidate signals for the next round."""
         try:
             # Store in context for immediate access
             self.context.aggregated_trade_signal = self.aggregated_signal
@@ -303,7 +303,7 @@ class SignalAggregationRound(BaseState):
                 signals_file = self.context.store_path / "signals.json"
 
                 # Load existing signals
-                signals_data = {"signals": [], "last_signal": None}
+                signals_data = {"signals": [], "last_signal": None, "candidate_signals": []}
                 if signals_file.exists():
                     with open(signals_file, encoding=DEFAULT_ENCODING) as f:
                         signals_data = json.load(f)
@@ -311,9 +311,17 @@ class SignalAggregationRound(BaseState):
                 # Add new signal
                 signals_data["signals"].append(self.aggregated_signal)
                 signals_data["last_signal"] = self.aggregated_signal
+
+                # Store all candidate signals
+                # Sort candidates by p_trade and num_conditions_met
+                sorted_candidates = sorted(
+                    self.candidate_signals, key=operator.itemgetter("p_trade", "num_conditions_met"), reverse=True
+                )
+                signals_data["candidate_signals"] = sorted_candidates
+
                 signals_data["last_updated"] = datetime.now(UTC).isoformat()
 
-                # Keep only last 100 signals
+                # Keep only last 100 signals in history
                 if len(signals_data["signals"]) > 100:
                     signals_data["signals"] = signals_data["signals"][-100:]
 
@@ -321,7 +329,11 @@ class SignalAggregationRound(BaseState):
                 with open(signals_file, "w", encoding=DEFAULT_ENCODING) as f:
                     json.dump(signals_data, f, indent=2)
 
-                self.context.logger.info(f"Stored aggregated signal for {self.aggregated_signal['symbol']}")
+                num_runner_ups = max(0, len(sorted_candidates) - 1)
+                self.context.logger.info(
+                    f"Stored aggregated signal for {self.aggregated_signal['symbol']} "
+                    f"with {num_runner_ups} runner-up(s)"
+                )
 
         except Exception as e:
             self.context.logger.exception(f"Failed to store aggregated signal: {e}")

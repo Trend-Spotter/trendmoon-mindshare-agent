@@ -39,6 +39,7 @@ class RiskEvaluationRound(BaseState):
         self._state = MindshareabciappStates.RISKEVALUATIONROUND
         self.evaluation_intitalized: bool = False
         self.trade_signal: dict[str, Any] = {}
+        self.candidate_signals: list[dict[str, Any]] = []
         self.risk_assessment: dict[str, Any] = {}
         self.approved_trade_proposal: dict[str, Any] = {}
         self.open_positions: list[dict[str, Any]] = []
@@ -48,6 +49,7 @@ class RiskEvaluationRound(BaseState):
         self._is_done = False
         self.evaluation_intitalized = False
         self.trade_signal = {}
+        self.candidate_signals = []
         self.risk_assessment = {}
         self.approved_trade_proposal = {}
         self.open_positions = []
@@ -71,26 +73,50 @@ class RiskEvaluationRound(BaseState):
                 self._is_done = True
                 return
 
-            evaluation_steps = [
-                (self._check_trading_pair_duplication, "Failed trading pair duplication check"),
-                (self._calculate_volatility_metrics, "Failed to calculate volatility metrics"),
-                (self._apply_risk_vetoes, "Failed to apply risk vetoes"),
-                (self._calculate_risk_levels, "Failed to calculate risk levels"),
-                (self._validate_risk_parameters, "Failed to validate risk parameters"),
-            ]
+            # Try to evaluate the main signal first
+            if self._evaluate_signal(self.trade_signal, signal_type="main"):
+                self._create_approved_trade_proposal()
+                self._store_approved_trade_proposal()
+                self.context.logger.info("Risk evaluation passed - trade approved")
+                self._event = MindshareabciappEvents.APPROVED
+                self._is_done = True
+                return
 
-            for step_func, error_msg in evaluation_steps:
-                if not step_func():
-                    self.context.logger.error(error_msg)
-                    self._event = MindshareabciappEvents.REJECTED
-                    self._is_done = True
-                    return
+            # If main signal failed, try runner-up signals
+            if len(self.candidate_signals) > 1:
+                self.context.logger.info(
+                    f"Main signal failed evaluation, trying {len(self.candidate_signals) - 1} runner-up signal(s)"
+                )
 
-            self._create_approved_trade_proposal()
-            self._store_approved_trade_proposal()
+                # Skip the first candidate (it's the main signal we just tried)
+                for idx, candidate in enumerate(self.candidate_signals[1:], start=1):
+                    self.context.logger.info(
+                        f"Evaluating runner-up #{idx}: {candidate.get('symbol')} "
+                        f"(p_trade={candidate.get('p_trade', 0):.3f})"
+                    )
 
-            self.context.logger.info("Risk evaluation passed - trade approved")
-            self._event = MindshareabciappEvents.APPROVED
+                    # Reset risk assessment for new signal
+                    self._initialize_risk_evaluation()
+
+                    if self._evaluate_signal(candidate, signal_type=f"runner-up #{idx}"):
+                        # Update the trade signal to the successful runner-up
+                        self.trade_signal = candidate
+                        # Update context to reflect the selected signal
+                        self.context.aggregated_trade_signal = candidate
+
+                        self._create_approved_trade_proposal()
+                        self._store_approved_trade_proposal()
+
+                        self.context.logger.info(
+                            f"Runner-up #{idx} ({candidate.get('symbol')}) passed evaluation - trade approved"
+                        )
+                        self._event = MindshareabciappEvents.APPROVED
+                        self._is_done = True
+                        return
+
+            # All signals failed evaluation
+            self.context.logger.info("All signals failed risk evaluation")
+            self._event = MindshareabciappEvents.REJECTED
             self._is_done = True
 
         except Exception as e:
@@ -102,6 +128,33 @@ class RiskEvaluationRound(BaseState):
             }
             self._event = MindshareabciappEvents.ERROR
             self._is_done = True
+
+    def _evaluate_signal(self, signal: dict[str, Any], signal_type: str = "main") -> bool:
+        """Evaluate a single trade signal through all risk checks."""
+        # Temporarily set trade_signal to the signal being evaluated
+        original_signal = self.trade_signal
+        self.trade_signal = signal
+
+        try:
+            evaluation_steps = [
+                (self._check_trading_pair_duplication, "trading pair duplication check"),
+                (self._calculate_volatility_metrics, "volatility metrics calculation"),
+                (self._apply_risk_vetoes, "risk vetoes"),
+                (self._calculate_risk_levels, "risk levels calculation"),
+                (self._validate_risk_parameters, "risk parameters validation"),
+            ]
+
+            for step_func, step_name in evaluation_steps:
+                if not step_func():
+                    self.context.logger.info(f"{signal_type} signal failed at: {step_name}")
+                    return False
+
+            self.context.logger.info(f"{signal_type} signal passed all risk checks")
+            return True
+
+        finally:
+            # Always restore original signal - it gets updated in act() if evaluation succeeds
+            self.trade_signal = original_signal
 
     def _initialize_risk_evaluation(self) -> None:
         """Initialize the risk evaluation."""
@@ -189,13 +242,15 @@ class RiskEvaluationRound(BaseState):
         return True
 
     def _load_trade_signal(self) -> bool:
-        """Load the trade signal from the previous round."""
+        """Load the trade signal and candidate signals from the previous round."""
         try:
             if hasattr(self.context, "aggregated_trade_signal") and self.context.aggregated_trade_signal:
                 self.trade_signal = self.context.aggregated_trade_signal
                 self.context.logger.info(
                     f"Loaded aggregated trade signal for {self.trade_signal.get('symbol', 'Unknown')}"
                 )
+                # Try to load candidate signals from storage even if main signal is in context
+                self._load_candidate_signals_from_storage()
                 return True
 
             if not self.context.store_path:
@@ -217,12 +272,38 @@ class RiskEvaluationRound(BaseState):
                 return False
 
             self.trade_signal = latest_signal
-            self.context.logger.info(f"Loaded aggregated trade signal for {self.trade_signal.get('symbol', 'Unknown')}")
+
+            # Load candidate signals (including the main signal)
+            self.candidate_signals = signals_data.get("candidate_signals", [])
+
+            num_runner_ups = max(0, len(self.candidate_signals) - 1)
+            self.context.logger.info(
+                f"Loaded aggregated trade signal for {self.trade_signal.get('symbol', 'Unknown')} "
+                f"with {num_runner_ups} runner-up(s)"
+            )
             return True
 
         except Exception as e:
             self.context.logger.exception(f"Error loading trade signal: {e}")
             return False
+
+    def _load_candidate_signals_from_storage(self) -> None:
+        """Load candidate signals from storage file."""
+        try:
+            if not self.context.store_path:
+                return
+
+            signals_file = self.context.store_path / "signals.json"
+            if not signals_file.exists():
+                return
+
+            with open(signals_file, encoding=DEFAULT_ENCODING) as f:
+                signals_data = json.load(f)
+
+            self.candidate_signals = signals_data.get("candidate_signals", [])
+
+        except (OSError, json.JSONDecodeError, KeyError) as e:
+            self.context.logger.debug(f"Could not load candidate signals from storage: {e}")
 
     def _calculate_volatility_metrics(self) -> bool:
         """Calculate the volatility metrics using ATR-based approach."""
