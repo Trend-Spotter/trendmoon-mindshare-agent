@@ -176,9 +176,9 @@ class PortfolioValidationRound(BaseState):
                 self.portfolio_metrics["current_positions"] = len(self.open_positions)
                 self.portfolio_metrics["total_portfolio_value"] = positions_data.get("total_portfolio_value", 0.0)
 
-                # Use current_value_usdc if available (updated by position monitor), fallback to entry_value_usdc
+                # Use current_value_usdc if available (updated by position monitor), fallback to position_size_usdc
                 total_exposure = sum(
-                    pos.get("current_value_usdc", pos.get("entry_value_usdc", 0.0)) for pos in self.open_positions
+                    pos.get("current_value_usdc", pos.get("position_size_usdc", 0.0)) for pos in self.open_positions
                 )
                 self.portfolio_metrics["total_exposure"] = total_exposure
 
@@ -446,7 +446,7 @@ class PortfolioValidationRound(BaseState):
             self.context.logger.info("Current Positions:")
             for pos in self.open_positions:
                 symbol = pos.get("symbol", "Unknown")
-                value = pos.get("entry_value_usdc", 0)
+                value = pos.get("position_size_usdc", 0)
                 pnl = pos.get("unrealized_pnl", 0)
                 self.context.logger.info(f"  {symbol}: ${value:.2f} (P&L: ${pnl:.2f})")
 

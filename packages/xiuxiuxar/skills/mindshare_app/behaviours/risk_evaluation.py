@@ -231,9 +231,9 @@ class RiskEvaluationRound(BaseState):
 
             # Log details of existing positions
             for i, pos in enumerate(existing_positions):
-                entry_value = pos.get("entry_value_usdc", 0)
+                entry_value = pos.get("position_size_usdc", 0)
                 pnl = pos.get("unrealized_pnl", 0)
-                side = pos.get("side", "unknown")
+                side = pos.get("direction", "unknown")
                 self.context.logger.info(f"  Existing position {i + 1}: {side} ${entry_value:.2f} (P&L: ${pnl:.2f})")
 
             return False

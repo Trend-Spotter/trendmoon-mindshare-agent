@@ -205,9 +205,9 @@ class PositionMonitoringRound(BaseState):
         """Monitor a single position for exit conditions."""
         symbol = position["symbol"]
         entry_price = position["entry_price"]
-        stop_loss = position.get("stop_loss")
-        take_profit = position.get("take_profit")
-        position_size = position["position_size"]
+        stop_loss = position.get("stop_loss_price")
+        take_profit = position.get("take_profit_price")
+        token_quantity = position["token_quantity"]
 
         # Get current price from collected data
         current_price = self._get_current_price(symbol)
@@ -216,11 +216,11 @@ class PositionMonitoringRound(BaseState):
             return {**position, "exit_signal": False}
 
         # Calculate current P&L
-        unrealized_pnl = (current_price - entry_price) * position_size
+        unrealized_pnl = (current_price - entry_price) * token_quantity
         pnl_percentage = ((current_price - entry_price) / entry_price) * 100
 
         # Calculate current market value in USDC
-        current_value_usdc = current_price * position_size
+        current_value_usdc = current_price * token_quantity
 
         rsi = self._get_current_rsi(symbol)
 
@@ -326,11 +326,11 @@ class PositionMonitoringRound(BaseState):
             return position
 
         trailing_distance = position.get("trailing_distance", 0.05)  # 5% default
-        current_stop = position.get("stop_loss")
+        current_stop = position.get("stop_loss_price")
 
         new_stop = current_price * (1 - trailing_distance)
         if current_stop is None or new_stop > current_stop:
-            position["stop_loss"] = new_stop
+            position["stop_loss_price"] = new_stop
             self.context.logger.info(f"Updated trailing stop for {position['symbol']}: {new_stop:.6f}")
 
         return position
@@ -438,7 +438,7 @@ class PositionMonitoringRound(BaseState):
             # Summary statistics
             open_positions = [pos for pos in all_positions if pos.get("status") == "open"]
             total_unrealized_pnl = sum(pos.get("unrealized_pnl", 0) for pos in open_positions)
-            total_portfolio_value = sum(pos.get("entry_value_usdc", 0) for pos in open_positions)
+            total_portfolio_value = sum(pos.get("position_size_usdc", 0) for pos in open_positions)
 
             # Save updated data
             updated_data = {
