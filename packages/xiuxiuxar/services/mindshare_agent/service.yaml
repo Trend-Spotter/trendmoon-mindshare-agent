@@ -13,7 +13,9 @@ agent: xiuxiuxar/mindshare_agent:0.1.0:bafybeidmcyiynylx3aekpyzeajtxv37ak5tqdftw
 number_of_agents: 1
 deployment:
   agent:
-    ports: {}
+    ports:
+      0:
+        8716: 8716
     volumes:
       ./data: /data
 ---
