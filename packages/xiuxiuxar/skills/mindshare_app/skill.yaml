@@ -16,15 +16,15 @@ fingerprint:
   behaviours/check_staking_kpi_met.py: bafybeihk4rue5wvtttpf3cbnd4pdoqwraya2754hh2o74tey52dyduqtj4
   behaviours/data_collection.py: bafybeiat7aswh27zdtmbymb6k7lsq4cadvqjk5dbwfq3padvw6sdmfwytq
   behaviours/error.py: bafybeibg2lxpighwlnb5d6twjykzw33aoviov2eqq34ozn447ml56ssga4
-  behaviours/execution.py: bafybeih362ptv5ymwbfja6szvnu7hir4gwhap62ybj5xz42s7cpm6wovka
+  behaviours/execution.py: bafybeicy6qdq4cispfkw3qui7wr54ovl5h6smsplcz5clx77flkgm3xbki
   behaviours/pause.py: bafybeifzn3vqxbjj6lqiwmcclejoukr3oyhdevdkalqymtwfkdni3aoke4
-  behaviours/portfolio_validation.py: bafybeicum25qyvzadswkcuwqy6s5glkciugcqkluwx7n5zp57tf2tbk25q
+  behaviours/portfolio_validation.py: bafybeia6grckfqwyzpzv6pqzo6ijwvxcfqllxm6vvislxtmxkakbvs5bwm
   behaviours/position_monitor.py: bafybeienvt63lpzmlpt6qzaxh6yeyxo4bmeledibdh7ynahooups7clj4u
   behaviours/risk_evaluation.py: bafybeicccodelbjh6uhrf2e56rfahtgmxymjo3hgpqjobthbr7h32ne53y
   behaviours/round_behaviour.py: bafybeia5v7snxhsnztps7tsmvjtauqbvek6khvjlihi334mo2i7ann3wna
   behaviours/setup.py: bafybeie3qiutwdixqdg456ewy4g54pp45mk4223srbyke7ntjdbtoe7gwq
   behaviours/signal_aggregation.py: bafybeidwu6zmy7m6mp2gm7vtdony67dw636kx5bylg4afcaimtco4unoxm
-  behaviours/trade_construction.py: bafybeiguxt2p5la2hejvduf3ksboc5axep6rjknxo5iqo3eoldojy3b5jm
+  behaviours/trade_construction.py: bafybeihd5hqdujvbozydmpbg6qytynv7z6xryd62qemeava6p75mhn5xdu
   dialogues.py: bafybeiexxmjsjczvf2bxad7qbecllm3srjhlqkejigerkbldtdtzzuyuke
   handlers.py: bafybeiegaz3kvywh4rx7z7wy7ucz6hy6f37rhyfeyzojljronbokyhrxbe
   mindshare-ui-build/README.md: bafybeidinv6vqmijsim25cqvvljkml6r4uilvmhvveh7nhq5dienmovz6a
@@ -33,7 +33,7 @@ fingerprint:
   mindshare-ui-build/assets/index-BdttZvoz.js: bafybeih3jkpawpprc7naz7xj67r3dtfmqlqdyv6wyk3wxhrncfkdmwru3m
   mindshare-ui-build/favicon.ico: bafybeigoxdaiyjbhlh3hq7b5myaowqlc22poxirhfjqzesxk4erea2e3pu
   mindshare-ui-build/index.html: bafybeihleegnavb65pqm2dwr3o4hm2hjgfxbwwyoqzvyphwfrstznt44fu
-  models.py: bafybeibssxkysb3vnq35wgq7sbxoyvsbjak7zpcpjzbqqhortfw3akezgi
+  models.py: bafybeibvr44sxrazbhhyooh6bewmuk3c2mm2qejapl73kuldubzq7gj73q
   tests/__init__.py: bafybeigb2ji4vkcap3hokcedggjwsrah7te2nxjhkorwf3ibwgyaa2glma
   tests/test_coingecko_model.py: bafybeicjnqiclfi6r7sbsyjgwlzj3ugmeukii5fp23esdtsanof3lvyn6i
   tests/test_coingecko_model_integration.py: bafybeid6mzsia3wocixdedmr6tcbb2v34oq2fkjqyz2cab4mysjvqbydfi
@@ -136,6 +136,7 @@ models:
       staking_threshold_period: 5
       min_num_of_safe_tx_required: 5
       staking_token_contract_address: '0x8b8a86A056D3145Ec2ecc30FB52C3aF2e6daB7C5'
+      base_usdc_address: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913'
       on_chain_service_id: null
       service_id: mindshare
       cowswap_slippage_tolerance: 0.005

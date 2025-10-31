@@ -808,6 +808,7 @@ class Params(Model):
         self.on_chain_service_id = kwargs.pop("on_chain_service_id", None)
 
         # Trading
+        self.base_usdc_address = kwargs.pop("base_usdc_address", "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913")
         self.data_sufficiency_threshold = kwargs.pop("data_sufficiency_threshold", 0.5)
         self.safe_contract_addresses = kwargs.pop("safe_contract_addresses", {})
         self.store_path = kwargs.pop("store_path", "./persistent_data")

@@ -229,9 +229,14 @@ class ExecutionRound(BaseState):
         """Create an exit order from position data."""
         symbol = position.get("symbol")
         quantity = position.get("token_quantity", 0)
+        contract_address = position.get("contract_address")
 
         if quantity <= 0:
             self.context.logger.warning(f"Invalid token quantity for {symbol}: {quantity}")
+            return None
+
+        if not contract_address:
+            self.context.logger.warning(f"Missing contract_address for {symbol}")
             return None
 
         # Select best exchange for this exit trade
@@ -240,6 +245,8 @@ class ExecutionRound(BaseState):
         order = Order(
             id=f"exit_{symbol}_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}",
             symbol=f"{symbol}/USDC",
+            asset_a=contract_address,  # Token being sold
+            asset_b=self.context.params.base_usdc_address,  # USDC being bought
             side=OrderSide.SELL,
             amount=quantity,  # Amount in token units (human readable)
             price=position.get("exit_price", position.get("current_price", 0)),
@@ -428,10 +435,15 @@ class ExecutionRound(BaseState):
         exchange_id = self.active_operation.get("exchange_id", "balancer")
         spender = self._get_spender_for_exchange(exchange_id)
 
+        # Determine which token needs approval based on order side
+        # BUY orders: approve asset_b (USDC being spent)
+        # SELL orders: approve asset_a (token being sold)
+        token_to_approve = order.asset_b if order.side == OrderSide.BUY else order.asset_a
+
         dialogue = self.submit_msg(
             performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,
             connection_id=LEDGER_API_ADDRESS,
-            contract_address=order.asset_b,
+            contract_address=token_to_approve,
             contract_id=str(ERC20.contract_id),
             ledger_id="ethereum",
             callable="build_approval_tx",
@@ -446,7 +458,7 @@ class ExecutionRound(BaseState):
         dialogue.validation_func = self._validate_approve_response
         self._track_dialogue(dialogue, "approve")
 
-        self.context.logger.info(f"Requested ERC20 approval for {order.asset_b}")
+        self.context.logger.info(f"Requested ERC20 approval for {token_to_approve}")
 
     def _validate_approve_response(self, message: Message, dialogue: BaseDialogue) -> bool:
         """Process ERC20 approval response."""
@@ -563,7 +575,7 @@ class ExecutionRound(BaseState):
         dialogue.validation_func = self._validate_cow_approval_response
         self._track_dialogue(dialogue, "approve")
 
-        self.context.logger.info(f"Requested CoW ERC20 approval for {order.asset_b}")
+        self.context.logger.info(f"Requested CoW ERC20 approval for {token_address}")
 
     def _validate_cow_approval_response(self, message: Message, dialogue: BaseDialogue) -> bool:
         """Process CoW ERC20 approval response and prepare for Safe execution."""
@@ -779,8 +791,13 @@ class ExecutionRound(BaseState):
         if not swap_data.startswith("0x"):
             swap_data = "0x" + swap_data
 
+        # Determine which token was approved based on order side
+        # BUY orders: approve asset_b (USDC being spent)
+        # SELL orders: approve asset_a (token being sold)
+        token_approved = order.asset_b if order.side == OrderSide.BUY else order.asset_a
+
         payload = [
-            {"operation": MultiSendOperation.CALL, "to": order.asset_b, "value": 0, "data": approve_data},
+            {"operation": MultiSendOperation.CALL, "to": token_approved, "value": 0, "data": approve_data},
             {"operation": MultiSendOperation.CALL, "to": BALANCER_VAULT, "value": 0, "data": swap_data},
         ]
 
@@ -1290,10 +1307,15 @@ class ExecutionRound(BaseState):
             # Create new position record
             position_id = f"pos_{symbol}_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}"
 
+            # Extract contract address based on order side
+            # For BUY orders: asset_a is the token being bought
+            # For SELL orders: asset_b is the token being bought (but this shouldn't happen for entries)
+            contract_address = order.asset_a if order.side == OrderSide.BUY else order.asset_b
+
             new_position = {
                 "position_id": position_id,
                 "symbol": symbol,
-                "contract_address": getattr(order, "contract_address", ""),
+                "contract_address": contract_address,
                 "direction": "long",  # Assuming all entries are long positions for now
                 "status": "open",
                 "entry_price": executed_price,

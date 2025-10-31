@@ -228,7 +228,7 @@ class PortfolioValidationRound(BaseState):
                 return
 
             usdc_addresses = {
-                "base": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+                "base": self.context.params.base_usdc_address,
             }
 
             usdc_address = usdc_addresses.get(chain)

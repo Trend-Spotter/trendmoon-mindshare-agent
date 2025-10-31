@@ -724,7 +724,7 @@ class TradeConstructionRound(BaseState):
                 "max_execution_time": 300,  # 5 minutes
                 "partial_fills_allowed": True,
                 # Order configuration for DCXT
-                "sell_token": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",  # USDC on Base
+                "sell_token": self.context.params.base_usdc_address,  # USDC on Base
                 "buy_token": token_info["address"],
                 "sell_amount_usdc": position_size_usdc,
                 "min_buy_amount": token_quantity * (1 - slippage_tolerance),
