@@ -85,6 +85,9 @@ class ExecutionRound(BaseState):
         self.completed_orders: list[Order] = []
         self.failed_orders: list[Order] = []
 
+        # Order metadata storage (position_id, exit_reason, etc.)
+        self.order_metadata: dict[str, dict[str, Any]] = {}
+
         # Execution context
         self.execution_type: str = ""  # "entry" or "exit"
         self.execution_initialized: bool = False
@@ -125,6 +128,7 @@ class ExecutionRound(BaseState):
         self.submitted_orders = []
         self.completed_orders = []
         self.failed_orders = []
+        self.order_metadata = {}
 
         self.active_operation = None
         self.pending_dialogues = {}
@@ -246,9 +250,11 @@ class ExecutionRound(BaseState):
             timestamp=datetime.now(UTC).timestamp(),
         )
 
-        # Add metadata
-        order.position_id = position.get("position_id")
-        order.exit_reason = position.get("exit_reason", "unknown")
+        # Store metadata separately (Order model doesn't have these fields)
+        self.order_metadata[order.id] = {
+            "position_id": position.get("position_id"),
+            "exit_reason": position.get("exit_reason", "unknown"),
+        }
 
         return order
 
@@ -1189,6 +1195,10 @@ class ExecutionRound(BaseState):
             self.submitted_orders.remove(order)
         self.failed_orders.append(order)
 
+        # Clean up metadata for failed order
+        if order.id in self.order_metadata:
+            del self.order_metadata[order.id]
+
         self.context.logger.error(f"Order {order.id} failed: {reason}")
 
         # CLear operation
@@ -1203,8 +1213,11 @@ class ExecutionRound(BaseState):
     def _finalize_exit(self, order: Order, partial_fill: bool = False) -> None:
         """Update position after exit."""
         try:
-            # Find the original position
-            position_id = getattr(order, "position_id", None)
+            # Get metadata from order_metadata dictionary
+            metadata = self.order_metadata.get(order.id, {})
+            position_id = metadata.get("position_id")
+            exit_reason = metadata.get("exit_reason", "manual")
+
             if not position_id:
                 self.context.logger.warning(f"No position_id found for exit order {order.id}")
                 return
@@ -1229,7 +1242,7 @@ class ExecutionRound(BaseState):
                 "status": "closed" if not partial_fill else "partially_closed",
                 "exit_price": executed_price,
                 "exit_time": datetime.fromtimestamp(order.timestamp, UTC).isoformat(),
-                "exit_reason": getattr(order, "exit_reason", "manual"),
+                "exit_reason": exit_reason,
                 "executed_quantity": executed_quantity,
                 "realized_pnl": realized_pnl,
                 "realized_pnl_percentage": realized_pnl_percentage,
@@ -1241,6 +1254,10 @@ class ExecutionRound(BaseState):
             # Update positions storage
             self._update_position_in_storage(closed_position)
 
+            # Clean up metadata to prevent memory leaks
+            if order.id in self.order_metadata:
+                del self.order_metadata[order.id]
+
             self.context.logger.info(
                 f"{'Partially ' if partial_fill else ''}Closed position {original_position.get('symbol')} with "
                 f"P&L: ${realized_pnl:.2f} ({realized_pnl_percentage:.2f}%)"
@@ -1248,6 +1265,9 @@ class ExecutionRound(BaseState):
 
         except Exception as e:
             self.context.logger.exception(f"Failed to finalize position exit: {e}")
+            # Clean up metadata even on error
+            if order.id in self.order_metadata:
+                del self.order_metadata[order.id]
 
     def _create_position(self, order: Order, partial_fill: bool = False) -> None:
         try:
@@ -1468,6 +1488,14 @@ class ExecutionRound(BaseState):
             order.status = OrderStatus.FAILED
             order.info = "Timeout"
             self.failed_orders.append(order)
+            # Clean up metadata for timed out orders
+            if order.id in self.order_metadata:
+                del self.order_metadata[order.id]
+
+        # Clean up metadata for any pending orders that won't be executed
+        for order in self.pending_orders:
+            if order.id in self.order_metadata:
+                del self.order_metadata[order.id]
 
         self.submitted_orders.clear()
         self.pending_orders.clear()
