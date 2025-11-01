@@ -1180,6 +1180,13 @@ class ExecutionRound(BaseState):
     def _validate_broadcast_response(self, message: LedgerApiMessage, dialogue: BaseDialogue) -> bool:
         """Process broadcast response."""
         try:
+            # Guard against stale callbacks
+            if not self.active_operation:
+                self.context.logger.warning(
+                    "Received broadcast response but no active operation - ignoring stale callback"
+                )
+                return True
+
             if message.performative == LedgerApiMessage.Performative.TRANSACTION_DIGEST:
                 tx_hash = message.transaction_digest.body
                 self.active_operation["tx_hash"] = tx_hash
@@ -1192,7 +1199,25 @@ class ExecutionRound(BaseState):
                 self._auto_continue()
                 return True
 
+            # Enhanced error logging
             self.context.logger.error(f"Broadcast failed: {message.performative}")
+            self.context.logger.error(f"Full message: {message}")
+
+            # Log error details if available
+            if hasattr(message, "message"):
+                self.context.logger.error(f"Error message: {message.message}")
+            if hasattr(message, "data"):
+                self.context.logger.error(f"Error data: {message.data}")
+
+            # Log current operation context
+            if self.active_operation:
+                order = self.active_operation.get("order")
+                tx_digest = self.active_operation.get("tx_digest")
+                self.context.logger.error(
+                    f"Failed for order: {order.id if order else 'unknown'}, "
+                    f"tx_digest: {tx_digest}, state: {self.active_operation.get('state')}"
+                )
+
             self.broadcast_failed = True
             return True
 
@@ -1219,6 +1244,13 @@ class ExecutionRound(BaseState):
     def _validate_receipt_response(self, message: LedgerApiMessage, dialogue: BaseDialogue) -> bool:
         """Process receipt response."""
         try:
+            # Guard against stale callbacks
+            if not self.active_operation:
+                self.context.logger.warning(
+                    "Received receipt response but no active operation - ignoring stale callback"
+                )
+                return True
+
             if message.performative == LedgerApiMessage.Performative.TRANSACTION_RECEIPT:
                 receipt = message.transaction_receipt.receipt
 
@@ -1244,6 +1276,11 @@ class ExecutionRound(BaseState):
 
     def _complete_operation(self) -> None:
         """Mark operation as complete and update positions."""
+        # Guard against being called without active operation
+        if not self.active_operation:
+            self.context.logger.warning("_complete_operation called but no active operation")
+            return
+
         exchange_id = self.active_operation.get("exchange_id", "balancer")
 
         # For CoWSwap, completion depends on the current state
