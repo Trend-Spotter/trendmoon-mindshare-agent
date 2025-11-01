@@ -1550,9 +1550,17 @@ class ExecutionRound(BaseState):
 
     def _process_responses(self) -> None:
         """Process any pending protocol responses."""
-        order_messages = self.supported_protocols.get(OrdersMessage.protocol_id, [])
-        if order_messages:
-            self._process_order_response(order_messages.pop(0))
+        # Process all protocol types to avoid infinite loops
+        for protocol_id, messages in self.supported_protocols.items():
+            if messages:
+                if protocol_id == OrdersMessage.protocol_id:
+                    self._process_order_response(messages.pop(0))
+                else:
+                    # For ContractApi and LedgerApi, validation functions handle processing
+                    # Just pop the message to clear it from the queue
+                    messages.pop(0)
+                    self.context.logger.debug(f"Cleared message from protocol {protocol_id}")
+                return  # Process one message per act() cycle
 
     def _process_order_response(self, message: OrdersMessage) -> None:
         """Process an order response message."""
