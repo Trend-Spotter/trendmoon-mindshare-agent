@@ -911,6 +911,11 @@ class ExecutionRound(BaseState):
 
     def _request_safe_hash(self) -> None:
         """Request Safe transaction hash."""
+        # Check for duplicate request
+        if any(dialogue_type == "safe_hash" for dialogue_type in self.pending_dialogues.values()):
+            self.context.logger.info("Safe hash dialogue already in progress, skipping request")
+            return
+
         safe_address = self._get_safe_address()
         exchange_id = self.active_operation.get("exchange_id", "balancer")
 
@@ -920,6 +925,13 @@ class ExecutionRound(BaseState):
             approve_data = self.active_operation["approve_data"]
 
             token_address = order.asset_b if order.side == OrderSide.BUY else order.asset_a
+
+            # Log detailed request information for debugging
+            self.context.logger.info(
+                f"Safe hash request - Order: {order.id}, Side: {order.side}, "
+                f"Token: {token_address}, Asset_a: {order.asset_a}, Asset_b: {order.asset_b}, "
+                f"Approve data: {approve_data[:100]}..."
+            )
 
             dialogue = self.submit_msg(
                 performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,
@@ -974,6 +986,13 @@ class ExecutionRound(BaseState):
     def _validate_safe_hash_response(self, message: ContractApiMessage, dialogue: BaseDialogue) -> bool:
         """Process Safe hash response."""
         try:
+            # Guard against stale callbacks
+            if not self.active_operation:
+                self.context.logger.warning(
+                    "Received safe hash response but no active operation - ignoring stale callback"
+                )
+                return True
+
             if message.performative == ContractApiMessage.Performative.RAW_TRANSACTION:
                 self.active_operation["safe_hash"] = message.raw_transaction
                 self.active_operation["state"] = "execution_pending"
@@ -984,7 +1003,25 @@ class ExecutionRound(BaseState):
                 self._auto_continue()
                 return True
 
+            # Enhanced error logging
             self.context.logger.error(f"Invalid safe hash response: {message.performative}")
+            self.context.logger.error(f"Full message: {message}")
+
+            # Log error details if available
+            if hasattr(message, "message"):
+                self.context.logger.error(f"Error message: {message.message}")
+            if hasattr(message, "data"):
+                self.context.logger.error(f"Error data: {message.data}")
+
+            # Log current operation context
+            if self.active_operation:
+                order = self.active_operation.get("order")
+                self.context.logger.error(
+                    f"Failed for order: {order.id if order else 'unknown'}, "
+                    f"side: {order.side if order else 'unknown'}, "
+                    f"state: {self.active_operation.get('state')}"
+                )
+
             self.safe_hash_failed = True
             return True
 
@@ -995,6 +1032,11 @@ class ExecutionRound(BaseState):
 
     def _execute_safe_tx(self) -> None:
         """Execute Safe transaction with pre-approved signature."""
+        # Check for duplicate request
+        if any(dialogue_type == "execution" for dialogue_type in self.pending_dialogues.values()):
+            self.context.logger.info("Execution dialogue already in progress, skipping request")
+            return
+
         safe_address = self._get_safe_address()
         call_data = self.active_operation["original_data"]
         exchange_id = self.active_operation.get("exchange_id", "balancer")
