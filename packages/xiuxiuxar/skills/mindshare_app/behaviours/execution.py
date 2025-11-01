@@ -1199,6 +1199,18 @@ class ExecutionRound(BaseState):
                 self._auto_continue()
                 return True
 
+            # Check if we already have a tx_hash - if so, this is a stale callback after successful broadcast
+            existing_tx_hash = self.active_operation.get("tx_hash")
+            if existing_tx_hash:
+                # Transaction was already broadcast successfully, ignore subsequent error responses
+                error_msg = message.message if hasattr(message, "message") else "unknown error"
+                self.context.logger.warning(
+                    f"Received error response after successful broadcast (tx_hash: {existing_tx_hash}), "
+                    f"ignoring stale callback: {error_msg}"
+                )
+                return True
+
+            # Only treat as failure if we haven't gotten a tx_hash yet
             # Enhanced error logging
             self.context.logger.error(f"Broadcast failed: {message.performative}")
             self.context.logger.error(f"Full message: {message}")
