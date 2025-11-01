@@ -36,6 +36,7 @@ from packages.valory.contracts.multisend.contract import MultiSendContract, Mult
 from packages.valory.connections.ledger.connection import (
     PUBLIC_ID as LEDGER_CONNECTION_PUBLIC_ID,
 )
+from packages.eightballer.contracts.erc_20.contract import Erc20
 from packages.valory.contracts.gnosis_safe.contract import SafeOperation, GnosisSafeContract
 from packages.valory.protocols.ledger_api.custom_types import Terms, TransactionDigest
 from packages.eightballer.protocols.orders.custom_types import Order, OrderSide, OrderType, OrderStatus
@@ -99,6 +100,11 @@ class ExecutionRound(BaseState):
         # Dialogue tracking
         self.pending_dialogues: dict[str, str] = {}
 
+        # Balance tracking for exit orders
+        self.pending_balance_queries: dict[str, str] = {}  # token_address -> dialogue_ref
+        self.token_balances: dict[str, float] = {}  # token_address -> balance (human-readable)
+        self.balance_queries_complete: bool = False
+
         # Failure tracking flags
         self.approve_request_failed: bool = False
         self.swap_request_failed: bool = False
@@ -133,6 +139,11 @@ class ExecutionRound(BaseState):
         self.active_operation = None
         self.pending_dialogues = {}
 
+        # Reset balance tracking
+        self.pending_balance_queries = {}
+        self.token_balances = {}
+        self.balance_queries_complete = False
+
         # Reset failure tracking flags
         self.approve_request_failed = False
         self.swap_request_failed = False
@@ -149,7 +160,7 @@ class ExecutionRound(BaseState):
         for protocol in self.supported_protocols:
             self.supported_protocols[protocol] = []
 
-    def act(self) -> None:
+    def act(self) -> None:  # noqa: PLR0911
         """Perform the act."""
         try:
             # Initialize if needed
@@ -157,6 +168,22 @@ class ExecutionRound(BaseState):
                 self._initialize_execution()
                 if self._is_done:
                     return
+
+            # For exit orders, wait for balance queries to complete before creating orders
+            if self.execution_type == "exit" and not self.pending_orders:
+                # If balance queries not complete yet, wait for them
+                if not self.balance_queries_complete:
+                    # Process any incoming messages (including balance responses)
+                    if self._has_pending_responses():
+                        self._process_responses()
+                        return
+                    # Still waiting for balance responses
+                    return
+
+                # Balance queries complete and no orders created yet - create them now
+                self._create_exit_orders_from_balances()
+                # Orders created, will be submitted in next act() cycle
+                return
 
             # Process any incoming messages
             if self._has_pending_responses():
@@ -210,10 +237,36 @@ class ExecutionRound(BaseState):
         """Prepare exit orders for open positions."""
         self.execution_type = "exit"
 
+        # First, query on-chain balances for all tokens we need to exit
+        unique_tokens = set()
+        for position in self.context.positions_to_exit:
+            contract_address = position.get("contract_address")
+            if contract_address:
+                unique_tokens.add(contract_address)
+
+        # If no valid tokens found, mark as complete immediately
+        if not unique_tokens:
+            self.context.logger.warning("No valid tokens found for exit (missing contract addresses)")
+            self.balance_queries_complete = True
+            return
+
+        # Submit balance queries for all unique tokens
+        for token_address in unique_tokens:
+            self._query_token_balance(token_address)
+
+        self.context.logger.info(f"Submitted balance queries for {len(unique_tokens)} tokens")
+        # Don't create orders yet - wait for balance queries to complete
+
+    def _create_exit_orders_from_balances(self) -> None:
+        """Create exit orders using actual on-chain balances."""
+        self.context.logger.info("Creating exit orders using actual on-chain balances")
+
         for position in self.context.positions_to_exit:
             order = self._create_exit_order(position)
             if order:
                 self.pending_orders.append(order)
+
+        self.context.logger.info(f"Created {len(self.pending_orders)} exit orders")
 
     def _setup_entry_execution(self) -> None:
         """Prepare entry orders for new position."""
@@ -226,18 +279,36 @@ class ExecutionRound(BaseState):
     # =========== ORDER CREATION ===========
 
     def _create_exit_order(self, position: dict[str, Any]) -> Order | None:
-        """Create an exit order from position data."""
+        """Create an exit order from position data using actual on-chain balance."""
         symbol = position.get("symbol")
-        quantity = position.get("token_quantity", 0)
         contract_address = position.get("contract_address")
-
-        if quantity <= 0:
-            self.context.logger.warning(f"Invalid token quantity for {symbol}: {quantity}")
-            return None
+        stored_quantity = position.get("token_quantity", 0)
 
         if not contract_address:
             self.context.logger.warning(f"Missing contract_address for {symbol}")
             return None
+
+        # Get actual on-chain balance
+        actual_balance = self.token_balances.get(contract_address, 0)
+
+        if actual_balance <= 0:
+            self.context.logger.warning(
+                f"No balance found for {symbol} ({contract_address}). "
+                f"Stored: {stored_quantity}, Actual: {actual_balance}"
+            )
+            return None
+
+        # Use actual balance and truncate to 4 decimals for precision
+        # Sell the entire balance to fully close the position
+        quantity = truncate_to_decimals(actual_balance, 4)
+
+        # Log comparison between stored and actual balance
+        balance_diff = stored_quantity - actual_balance
+        balance_diff_pct = (balance_diff / stored_quantity * 100) if stored_quantity > 0 else 0
+        self.context.logger.info(
+            f"Exit {symbol}: stored={stored_quantity:.6f}, actual={actual_balance:.6f}, "
+            f"diff={balance_diff:.6f} ({balance_diff_pct:.2f}%), selling={quantity:.4f}"
+        )
 
         # Select best exchange for this exit trade
         exchange_id = self._select_exchange_for_trade("exit", symbol, quantity)
@@ -248,7 +319,7 @@ class ExecutionRound(BaseState):
             asset_a=contract_address,  # Token being sold
             asset_b=self.context.params.base_usdc_address,  # USDC being bought
             side=OrderSide.SELL,
-            amount=quantity,  # Amount in token units (human readable)
+            amount=quantity,  # Amount in token units (human readable) - actual balance
             price=position.get("exit_price", position.get("current_price", 0)),
             type=OrderType.MARKET,
             exchange_id=exchange_id,
@@ -1644,6 +1715,110 @@ class ExecutionRound(BaseState):
         }
 
         self._complete(MindshareabciappEvents.FAILED)
+
+    # =========== Balance Query Methods ===========
+
+    def _query_token_balance(self, token_address: str) -> None:
+        """Query ERC20 token balance for the Safe address."""
+        safe_address = self._get_safe_address()
+        if not safe_address:
+            self.context.logger.error("No Safe address available for balance query")
+            return
+
+        self.context.logger.info(f"Querying balance for token {token_address}")
+
+        dialogue = self.submit_msg(
+            performative=ContractApiMessage.Performative.GET_STATE,
+            connection_id=LEDGER_API_ADDRESS,
+            contract_address=token_address,
+            contract_id=str(Erc20.contract_id),
+            ledger_id="ethereum",
+            callable="balance_of",
+            kwargs=ContractApiMessage.Kwargs({"account": safe_address, "chain_id": "base"}),
+        )
+
+        dialogue.validation_func = self._validate_balance_response
+        dialogue.token_address = token_address  # Store for reference
+        self._track_dialogue(dialogue, "balance")
+
+        # Track this balance query
+        ref = dialogue.dialogue_label.dialogue_reference[0]
+        self.pending_balance_queries[token_address] = ref
+
+    def _validate_balance_response(self, message: ContractApiMessage, dialogue: BaseDialogue) -> bool:
+        """Process ERC20 balance query response."""
+        try:
+            token_address = dialogue.token_address
+
+            if (
+                message.performative == ContractApiMessage.Performative.RAW_TRANSACTION
+                and hasattr(message, "raw_transaction")
+                and message.raw_transaction
+            ):
+                # balance_of returns {"int": balance}
+                balance_wei = message.raw_transaction.body.get("int", 0)
+
+                # Get token decimals from ALLOWED_ASSETS
+                decimals = self._get_token_decimals(token_address)
+
+                # Convert from wei to human-readable
+                balance_human = balance_wei / (10**decimals)
+
+                self.token_balances[token_address] = balance_human
+                self.context.logger.info(
+                    f"Retrieved balance for {token_address}: {balance_human} "
+                    f"(wei: {balance_wei}, decimals: {decimals})"
+                )
+
+                # Remove from pending queries
+                if token_address in self.pending_balance_queries:
+                    del self.pending_balance_queries[token_address]
+
+                # Check if all balance queries are complete
+                if not self.pending_balance_queries:
+                    self.balance_queries_complete = True
+                    self.context.logger.info("All balance queries complete")
+
+                self._clear_dialogue(dialogue)
+                return True
+
+            # Invalid response - store 0 balance and remove from pending
+            self.context.logger.error(f"Invalid balance response for {token_address}: {message.performative}")
+            self.token_balances[token_address] = 0
+            if token_address in self.pending_balance_queries:
+                del self.pending_balance_queries[token_address]
+
+            # Check if all queries complete (even with failures)
+            if not self.pending_balance_queries:
+                self.balance_queries_complete = True
+                self.context.logger.warning("All balance queries complete (some may have failed)")
+
+            return True
+
+        except Exception as e:
+            self.context.logger.exception(f"Error processing balance response: {e}")
+            # Store 0 balance for failed query and remove from pending
+            token_address = getattr(dialogue, "token_address", None)
+            if token_address:
+                self.token_balances[token_address] = 0
+                if token_address in self.pending_balance_queries:
+                    del self.pending_balance_queries[token_address]
+
+                # Check if all queries complete (even with failures)
+                if not self.pending_balance_queries:
+                    self.balance_queries_complete = True
+                    self.context.logger.warning("All balance queries complete (some may have failed)")
+
+            return True
+
+    def _get_token_decimals(self, token_address: str) -> int:
+        """Get token decimals from ALLOWED_ASSETS configuration."""
+        for token in ALLOWED_ASSETS["base"]:
+            if token.get("address", "").lower() == token_address.lower():
+                return token.get("decimals", 18)
+        # Default to 18 if not found
+        self.context.logger.warning(f"Token {token_address} not found in ALLOWED_ASSETS, using default 18 decimals")
+        return 18
 
     def _find_position_by_id(self, position_id: str) -> dict[str, Any] | None:
         """Find a position by its ID from persistent storage."""

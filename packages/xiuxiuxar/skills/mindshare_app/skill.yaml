@@ -16,7 +16,7 @@ fingerprint:
   behaviours/check_staking_kpi_met.py: bafybeihk4rue5wvtttpf3cbnd4pdoqwraya2754hh2o74tey52dyduqtj4
   behaviours/data_collection.py: bafybeiat7aswh27zdtmbymb6k7lsq4cadvqjk5dbwfq3padvw6sdmfwytq
   behaviours/error.py: bafybeibg2lxpighwlnb5d6twjykzw33aoviov2eqq34ozn447ml56ssga4
-  behaviours/execution.py: bafybeicy6qdq4cispfkw3qui7wr54ovl5h6smsplcz5clx77flkgm3xbki
+  behaviours/execution.py: bafybeia2jgq4zs5vjexid4vwjsf63z6u6m6do4nmq3zf4sz2sfj7jopw2i
   behaviours/pause.py: bafybeifzn3vqxbjj6lqiwmcclejoukr3oyhdevdkalqymtwfkdni3aoke4
   behaviours/portfolio_validation.py: bafybeia6grckfqwyzpzv6pqzo6ijwvxcfqllxm6vvislxtmxkakbvs5bwm
   behaviours/position_monitor.py: bafybeienvt63lpzmlpt6qzaxh6yeyxo4bmeledibdh7ynahooups7clj4u
