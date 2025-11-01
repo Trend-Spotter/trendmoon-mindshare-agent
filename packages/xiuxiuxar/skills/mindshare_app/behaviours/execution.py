@@ -1728,7 +1728,7 @@ class ExecutionRound(BaseState):
         self.context.logger.info(f"Querying balance for token {token_address}")
 
         dialogue = self.submit_msg(
-            performative=ContractApiMessage.Performative.GET_STATE,
+            performative=ContractApiMessage.Performative.GET_RAW_TRANSACTION,
             connection_id=LEDGER_API_ADDRESS,
             contract_address=token_address,
             contract_id=str(Erc20.contract_id),

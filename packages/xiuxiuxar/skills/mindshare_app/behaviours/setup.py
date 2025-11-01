@@ -280,21 +280,53 @@ class SetupRound(BaseState):
             # Use the fetched balance, or default to 0 if not available
             portfolio_value = self.usdc_balance if self.usdc_balance is not None else 0.0
 
+            # Read existing positions to get accurate counts
+            current_positions = 0
+            total_positions = 0
+            total_exposure = 0.0
+            total_unrealized_pnl = 0.0
+
+            positions_file = self.context.store_path / "positions.json"
+            if positions_file.exists():
+                try:
+                    with open(positions_file, encoding=DEFAULT_ENCODING) as f:
+                        positions_data = json.load(f)
+
+                    all_positions = positions_data.get("positions", [])
+                    open_positions = [pos for pos in all_positions if pos.get("status") == "open"]
+
+                    current_positions = len(open_positions)
+                    total_positions = len(all_positions)
+
+                    # Calculate total exposure and unrealized PnL from open positions
+                    total_exposure = sum(
+                        pos.get("current_value_usdc", pos.get("position_size_usdc", 0.0)) for pos in open_positions
+                    )
+                    total_unrealized_pnl = sum(pos.get("unrealized_pnl", 0.0) for pos in open_positions)
+
+                    self.context.logger.info(
+                        f"Found {current_positions} open positions (out of {total_positions} total) "
+                        f"with ${total_exposure:.2f} exposure"
+                    )
+                except (json.JSONDecodeError, KeyError) as e:
+                    self.context.logger.warning(f"Failed to read positions.json during setup: {e}")
+
             snapshot_data = {
                 "timestamp": datetime.now(UTC).isoformat(),
                 "available_capital_usdc": portfolio_value,
-                "total_exposure": 0.0,
-                "current_positions": 0,
-                "total_positions": 0,
-                "total_unrealized_pnl": 0.0,
-                "current_portfolio_value": portfolio_value,
+                "total_exposure": total_exposure,
+                "current_positions": current_positions,
+                "total_positions": total_positions,
+                "total_unrealized_pnl": total_unrealized_pnl,
+                "current_portfolio_value": portfolio_value + total_exposure,
             }
 
             with open(snapshot_file, "w", encoding=DEFAULT_ENCODING) as f:
                 json.dump(snapshot_data, f, indent=2)
 
             self.context.logger.info(
-                f"Saved initial portfolio snapshot: ${snapshot_data['current_portfolio_value']:.2f}"
+                f"Saved initial portfolio snapshot: ${snapshot_data['current_portfolio_value']:.2f} "
+                f"({current_positions} open positions)"
             )
 
         except Exception as e:
