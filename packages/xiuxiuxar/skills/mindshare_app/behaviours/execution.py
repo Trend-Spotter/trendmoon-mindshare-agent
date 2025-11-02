@@ -144,6 +144,10 @@ class ExecutionRound(BaseState):
         self.token_balances = {}
         self.balance_queries_complete = False
 
+        # Reset balance query retry tracking
+        if hasattr(self, "balance_query_retries"):
+            self.balance_query_retries = {}
+
         # Reset failure tracking flags
         self.approve_request_failed = False
         self.swap_request_failed = False
@@ -201,8 +205,24 @@ class ExecutionRound(BaseState):
         """Initialize execution round by determining what to execute."""
         self.context.logger.info(f"Entering {self._state} state.")
 
+        # Check for retry orders first (highest priority)
+        if hasattr(self.context, "orders_to_retry") and self.context.orders_to_retry:
+            self.execution_type = "retry"
+
+            for retry_info in self.context.orders_to_retry:
+                order = retry_info["order"]
+                retry_count = retry_info["retry_count"]
+
+                self.pending_orders.append(order)
+                self.context.logger.info(
+                    f"Retrying order {order.id} (attempt {retry_count}/3) " f"due to {retry_info['retry_reason']}"
+                )
+
+            # Clear retry list
+            self.context.orders_to_retry = []
+
         # Check if we have positions to exit (priority over new trades)
-        if hasattr(self.context, "positions_to_exit") and self.context.positions_to_exit:
+        elif hasattr(self.context, "positions_to_exit") and self.context.positions_to_exit:
             self._setup_exit_execution()
         elif hasattr(self.context, "constructed_trade") and self.context.constructed_trade:
             self._setup_entry_execution()
@@ -331,18 +351,37 @@ class ExecutionRound(BaseState):
             metadata = self.order_metadata.get(order.id, {})
             contract_address = metadata.get("contract_address")
 
-            if contract_address and not self.pending_balance_queries:
-                # Query balance if we haven't already
-                self._query_token_balance(contract_address)
-                # Put order back in pending queue while we wait for balance
-                self.pending_orders.insert(0, order)
-                return
+            # Initialize retry tracking if needed
+            if not hasattr(self, "balance_query_retries"):
+                self.balance_query_retries = {}
 
-            # Check if we have the balance response
-            if contract_address and contract_address not in self.token_balances:
-                # Still waiting for balance query response
-                self.pending_orders.insert(0, order)
-                return
+            if contract_address:
+                # Check if balance already available
+                if contract_address in self.token_balances:
+                    # Balance available, proceed with verification below
+                    pass
+                elif contract_address in self.pending_balance_queries:
+                    # Query in progress, wait
+                    self.pending_orders.insert(0, order)
+                    return
+                else:
+                    # Check retry limit
+                    retry_count = self.balance_query_retries.get(contract_address, 0)
+                    if retry_count >= 3:
+                        self.context.logger.error(
+                            f"Balance query failed after 3 attempts for {contract_address}, "
+                            f"failing order {order.id}"
+                        )
+                        order.status = OrderStatus.FAILED
+                        order.info = "Balance query timeout"
+                        self.failed_orders.append(order)
+                        return
+
+                    # Submit query and track retry
+                    self._query_token_balance(contract_address)
+                    self.balance_query_retries[contract_address] = retry_count + 1
+                    self.pending_orders.insert(0, order)
+                    return
 
             # We have the balance, verify and adjust order amount if needed
             if contract_address:
@@ -726,11 +765,43 @@ class ExecutionRound(BaseState):
 
                 # Check if this is a retryable liquidity error
                 if "NoLiquidity" in error_msg or "no route found" in error_msg:
+                    order = self.active_operation["order"]
+
+                    # Initialize retry list in context if needed
+                    if not hasattr(self.context, "orders_to_retry"):
+                        self.context.orders_to_retry = []
+
+                    # Track retry count
+                    retry_count = getattr(order, "retry_count", 0) + 1
+                    if retry_count > 3:
+                        self.context.logger.error(
+                            f"CoW order {order.id} exceeded retry limit (3 attempts), marking as failed"
+                        )
+                        self.cow_order_failed = True
+                        return True
+
+                    order.retry_count = retry_count
+
                     self.context.logger.warning(
-                        f"CoW order {self.active_operation['order'].id} failed due to insufficient liquidity. "
-                        f"Will retry in next round. Error: {error_msg}"
+                        f"CoW order {order.id} failed due to insufficient liquidity. "
+                        f"Will retry in next round (attempt {retry_count}/3). Error: {error_msg}"
                     )
-                    # Clear the active operation and emit ORDER_PLACED to retry later
+
+                    # Store for retry in next round
+                    self.context.orders_to_retry.append(
+                        {
+                            "order": order,
+                            "retry_reason": "NoLiquidity",
+                            "retry_count": retry_count,
+                            "original_timestamp": order.timestamp,
+                        }
+                    )
+
+                    # Remove from submitted orders
+                    if order in self.submitted_orders:
+                        self.submitted_orders.remove(order)
+
+                    # Clear operation and transition
                     self.active_operation = None
                     self._clear_dialogue(dialogue)
                     self._complete(MindshareabciappEvents.ORDER_PLACED)
@@ -1419,7 +1490,7 @@ class ExecutionRound(BaseState):
 
         self.context.logger.error(f"Order {order.id} failed: {reason}")
 
-        # CLear operation
+        # Clear operation
         self.active_operation = None
 
         # Check completion
@@ -1497,7 +1568,7 @@ class ExecutionRound(BaseState):
             executed_usdc_amount = order.filled or order.amount
 
             # For buy orders, calculate token quantity from USDC amount and price
-            if order.side == "buy":
+            if order.side == OrderSide.BUY:
                 token_quantity = executed_usdc_amount / executed_price if executed_price > 0 else 0
                 position_size_usdc = executed_usdc_amount
             else:
