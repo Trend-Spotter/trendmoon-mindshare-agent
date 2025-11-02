@@ -104,6 +104,7 @@ class ExecutionRound(BaseState):
         self.pending_balance_queries: dict[str, str] = {}  # token_address -> dialogue_ref
         self.token_balances: dict[str, float] = {}  # token_address -> balance (human-readable)
         self.balance_queries_complete: bool = False
+        self.exit_orders_created: bool = False  # Track whether exit orders have been created
 
         # Failure tracking flags
         self.approve_request_failed: bool = False
@@ -170,7 +171,7 @@ class ExecutionRound(BaseState):
                     return
 
             # For exit orders, wait for balance queries to complete before creating orders
-            if self.execution_type == "exit" and not self.pending_orders:
+            if self.execution_type == "exit" and not self.exit_orders_created:
                 # If balance queries not complete yet, wait for them
                 if not self.balance_queries_complete:
                     # Process any incoming messages (including balance responses)
@@ -180,7 +181,7 @@ class ExecutionRound(BaseState):
                     # Still waiting for balance responses
                     return
 
-                # Balance queries complete and no orders created yet - create them now
+                # Balance queries complete and orders not yet created - create them now
                 self._create_exit_orders_from_balances()
                 # Orders created, will be submitted in next act() cycle
                 return
@@ -266,6 +267,7 @@ class ExecutionRound(BaseState):
             if order:
                 self.pending_orders.append(order)
 
+        self.exit_orders_created = True  # Mark that exit orders have been created
         self.context.logger.info(f"Created {len(self.pending_orders)} exit orders")
 
     def _setup_entry_execution(self) -> None:
