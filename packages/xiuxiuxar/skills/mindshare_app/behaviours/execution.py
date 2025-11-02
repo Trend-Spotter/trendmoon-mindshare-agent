@@ -203,9 +203,7 @@ class ExecutionRound(BaseState):
 
         # Check if we have positions to exit (priority over new trades)
         if hasattr(self.context, "positions_to_exit") and self.context.positions_to_exit:
-            # For exit orders, initialization is multi-step due to balance queries
-            if not self._initialize_exit_execution():
-                return  # Still waiting for balances, exit early
+            self._setup_exit_execution()
         elif hasattr(self.context, "constructed_trade") and self.context.constructed_trade:
             self._setup_entry_execution()
         else:
@@ -213,50 +211,25 @@ class ExecutionRound(BaseState):
             self._complete(MindshareabciappEvents.EXECUTED)
             return
 
-        # Only mark as initialized when orders are actually created
+        # Mark as initialized when orders are created
         self.execution_initialized = True
         self.execution_started_at = datetime.now(UTC)
         self.context.logger.info(
             f"Initialized {self.execution_type} execution with {len(self.pending_orders)} order(s)"
         )
 
-    def _initialize_exit_execution(self) -> bool:
-        """Initialize exit execution with balance queries. Returns True when ready, False if still waiting."""
+    def _setup_exit_execution(self) -> None:
+        """Prepare exit orders for positions (using stored quantities, verified during execution)."""
         self.execution_type = "exit"
 
-        # Step 1: Submit balance queries (first time only)
-        if not self.balance_queries_complete and not self.pending_balance_queries:
-            unique_tokens = set()
-            for position in self.context.positions_to_exit:
-                contract_address = position.get("contract_address")
-                if contract_address:
-                    unique_tokens.add(contract_address)
-
-            if not unique_tokens:
-                self.context.logger.warning("No valid tokens found for exit (missing contract addresses)")
-                return True  # Nothing to do, consider initialized
-
-            # Submit balance queries
-            for token_address in unique_tokens:
-                self._query_token_balance(token_address)
-
-            self.context.logger.info(f"Submitted balance queries for {len(unique_tokens)} tokens")
-            return False  # Not ready yet, need to wait for responses
-
-        # Step 2: Wait for balance query responses
-        if not self.balance_queries_complete:
-            self.context.logger.debug("Waiting for balance queries to complete")
-            return False  # Still waiting
-
-        # Step 3: Create exit orders with actual balances
-        self.context.logger.info("Creating exit orders using actual on-chain balances")
+        # Create exit orders immediately using stored quantities
+        # Actual on-chain balances will be verified during order execution
         for position in self.context.positions_to_exit:
             order = self._create_exit_order(position)
             if order:
                 self.pending_orders.append(order)
 
         self.context.logger.info(f"Created {len(self.pending_orders)} exit orders")
-        return True  # Initialization complete
 
     def _setup_entry_execution(self) -> None:
         """Prepare entry orders for new position."""
@@ -269,7 +242,7 @@ class ExecutionRound(BaseState):
     # =========== ORDER CREATION ===========
 
     def _create_exit_order(self, position: dict[str, Any]) -> Order | None:
-        """Create an exit order from position data using actual on-chain balance."""
+        """Create an exit order from position data using stored quantity (will be verified at execution time)."""
         symbol = position.get("symbol")
         contract_address = position.get("contract_address")
         stored_quantity = position.get("token_quantity", 0)
@@ -278,27 +251,15 @@ class ExecutionRound(BaseState):
             self.context.logger.warning(f"Missing contract_address for {symbol}")
             return None
 
-        # Get actual on-chain balance
-        actual_balance = self.token_balances.get(contract_address, 0)
-
-        if actual_balance <= 0:
-            self.context.logger.warning(
-                f"No balance found for {symbol} ({contract_address}). "
-                f"Stored: {stored_quantity}, Actual: {actual_balance}"
-            )
+        if stored_quantity <= 0:
+            self.context.logger.warning(f"No stored quantity for {symbol} ({contract_address})")
             return None
 
-        # Use actual balance and truncate to 4 decimals for precision
-        # Sell the entire balance to fully close the position
-        quantity = truncate_to_decimals(actual_balance, 4)
+        # Use stored quantity and truncate to 4 decimals for precision
+        # Note: Actual on-chain balance will be verified during order execution
+        quantity = truncate_to_decimals(stored_quantity, 4)
 
-        # Log comparison between stored and actual balance
-        balance_diff = stored_quantity - actual_balance
-        balance_diff_pct = (balance_diff / stored_quantity * 100) if stored_quantity > 0 else 0
-        self.context.logger.info(
-            f"Exit {symbol}: stored={stored_quantity:.6f}, actual={actual_balance:.6f}, "
-            f"diff={balance_diff:.6f} ({balance_diff_pct:.2f}%), selling={quantity:.4f}"
-        )
+        self.context.logger.info(f"Creating exit order for {symbol}: {quantity:.4f} tokens")
 
         # Select best exchange for this exit trade
         exchange_id = self._select_exchange_for_trade("exit", symbol, quantity)
@@ -309,7 +270,7 @@ class ExecutionRound(BaseState):
             asset_a=contract_address,  # Token being sold
             asset_b=self.context.params.base_usdc_address,  # USDC being bought
             side=OrderSide.SELL,
-            amount=quantity,  # Amount in token units (human readable) - actual balance
+            amount=quantity,  # Amount in token units (human readable) - stored quantity
             price=position.get("exit_price", position.get("current_price", 0)),
             type=OrderType.MARKET,
             exchange_id=exchange_id,
@@ -322,6 +283,7 @@ class ExecutionRound(BaseState):
         self.order_metadata[order.id] = {
             "position_id": position.get("position_id"),
             "exit_reason": position.get("exit_reason", "unknown"),
+            "contract_address": contract_address,  # Store for balance verification later
         }
 
         return order
@@ -363,11 +325,52 @@ class ExecutionRound(BaseState):
             return
 
         order = self.pending_orders.pop(0)
-        self.submitted_orders.append(order)
 
+        # For exit orders, verify on-chain balance before processing
+        if self.execution_type == "exit" and order.side == OrderSide.SELL:
+            metadata = self.order_metadata.get(order.id, {})
+            contract_address = metadata.get("contract_address")
+
+            if contract_address and not self.pending_balance_queries:
+                # Query balance if we haven't already
+                self._query_token_balance(contract_address)
+                # Put order back in pending queue while we wait for balance
+                self.pending_orders.insert(0, order)
+                return
+
+            # Check if we have the balance response
+            if contract_address and contract_address not in self.token_balances:
+                # Still waiting for balance query response
+                self.pending_orders.insert(0, order)
+                return
+
+            # We have the balance, verify and adjust order amount if needed
+            if contract_address:
+                actual_balance = self.token_balances.get(contract_address, 0)
+                stored_amount = order.amount
+
+                if actual_balance <= 0:
+                    self.context.logger.error(f"Cannot execute exit order {order.id}: zero balance for {order.symbol}")
+                    order.status = OrderStatus.FAILED
+                    order.info = "Zero on-chain balance"
+                    self.failed_orders.append(order)
+                    return
+
+                # Adjust order amount to actual balance if different
+                if abs(actual_balance - stored_amount) > 0.0001:  # Allow small rounding differences
+                    balance_diff_pct = (
+                        ((stored_amount - actual_balance) / stored_amount * 100) if stored_amount > 0 else 0
+                    )
+                    self.context.logger.info(
+                        f"Adjusting exit order {order.id}: stored={stored_amount:.6f}, "
+                        f"actual={actual_balance:.6f}, diff={balance_diff_pct:.2f}%"
+                    )
+                    order.amount = truncate_to_decimals(actual_balance, 4)
+
+        self.submitted_orders.append(order)
         self.context.logger.info(f"Processing order: {order.id} - {order.side} {order.amount} {order.symbol}")
 
-        # Create multisend operation
+        # Create operation
         self.active_operation = self._create_operation(order)
         self._continue_operation()
 
@@ -717,6 +720,27 @@ class ExecutionRound(BaseState):
                     self._auto_continue()
                     return True
 
+            # Check for ERROR performative (order creation failed)
+            if message.performative == OrdersMessage.Performative.ERROR:
+                error_msg = getattr(message, "error_msg", str(message))
+
+                # Check if this is a retryable liquidity error
+                if "NoLiquidity" in error_msg or "no route found" in error_msg:
+                    self.context.logger.warning(
+                        f"CoW order {self.active_operation['order'].id} failed due to insufficient liquidity. "
+                        f"Will retry in next round. Error: {error_msg}"
+                    )
+                    # Clear the active operation and emit ORDER_PLACED to retry later
+                    self.active_operation = None
+                    self._clear_dialogue(dialogue)
+                    self._complete(MindshareabciappEvents.ORDER_PLACED)
+                    return True
+
+                # Other errors are true failures
+                self.context.logger.error(f"CoW order submission failed: {error_msg}")
+                self.cow_order_failed = True
+                return True
+
             self.context.logger.error(f"Invalid CoW order response: {message.performative}")
             self.cow_order_failed = True
             return True
@@ -811,7 +835,22 @@ class ExecutionRound(BaseState):
                         break
 
                 if target_order is None:
-                    # Order not found in open orders - it has been filled or cancelled
+                    # Check if order was actually submitted to CowSwap
+                    # If original_order_id exists and differs from current ID, the order was accepted by CowSwap
+                    # If they're the same, CowSwap never accepted it (liquidity issue)
+                    original_order_id = self.active_operation.get("original_order_id")
+
+                    if not original_order_id or target_order_id == original_order_id:
+                        # Order ID wasn't updated, meaning CowSwap never accepted it
+                        self.context.logger.warning(
+                            f"CoW order {target_order_id} was never created on CowSwap "
+                            f"(likely due to liquidity issue). Marking as failed."
+                        )
+                        self.active_operation["state"] = "failed"
+                        self.cow_order_failed = True
+                        return True
+
+                    # Order not found - it has been filled or cancelled
                     self.context.logger.info(f"CoW order {target_order_id} no longer in open orders - assuming filled")
                     self._finalize_cow_order()
                 elif target_order.status in {OrderStatus.FILLED, OrderStatus.PARTIALLY_FILLED}:
