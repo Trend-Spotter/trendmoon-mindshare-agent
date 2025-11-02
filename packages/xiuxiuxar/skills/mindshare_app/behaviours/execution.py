@@ -104,7 +104,6 @@ class ExecutionRound(BaseState):
         self.pending_balance_queries: dict[str, str] = {}  # token_address -> dialogue_ref
         self.token_balances: dict[str, float] = {}  # token_address -> balance (human-readable)
         self.balance_queries_complete: bool = False
-        self.exit_orders_created: bool = False  # Track whether exit orders have been created
 
         # Failure tracking flags
         self.approve_request_failed: bool = False
@@ -161,7 +160,7 @@ class ExecutionRound(BaseState):
         for protocol in self.supported_protocols:
             self.supported_protocols[protocol] = []
 
-    def act(self) -> None:  # noqa: PLR0911
+    def act(self) -> None:
         """Perform the act."""
         try:
             # Initialize if needed
@@ -169,22 +168,6 @@ class ExecutionRound(BaseState):
                 self._initialize_execution()
                 if self._is_done:
                     return
-
-            # For exit orders, wait for balance queries to complete before creating orders
-            if self.execution_type == "exit" and not self.exit_orders_created:
-                # If balance queries not complete yet, wait for them
-                if not self.balance_queries_complete:
-                    # Process any incoming messages (including balance responses)
-                    if self._has_pending_responses():
-                        self._process_responses()
-                        return
-                    # Still waiting for balance responses
-                    return
-
-                # Balance queries complete and orders not yet created - create them now
-                self._create_exit_orders_from_balances()
-                # Orders created, will be submitted in next act() cycle
-                return
 
             # Process any incoming messages
             if self._has_pending_responses():
@@ -220,7 +203,9 @@ class ExecutionRound(BaseState):
 
         # Check if we have positions to exit (priority over new trades)
         if hasattr(self.context, "positions_to_exit") and self.context.positions_to_exit:
-            self._setup_exit_execution()
+            # For exit orders, initialization is multi-step due to balance queries
+            if not self._initialize_exit_execution():
+                return  # Still waiting for balances, exit early
         elif hasattr(self.context, "constructed_trade") and self.context.constructed_trade:
             self._setup_entry_execution()
         else:
@@ -228,47 +213,50 @@ class ExecutionRound(BaseState):
             self._complete(MindshareabciappEvents.EXECUTED)
             return
 
+        # Only mark as initialized when orders are actually created
         self.execution_initialized = True
         self.execution_started_at = datetime.now(UTC)
         self.context.logger.info(
             f"Initialized {self.execution_type} execution with {len(self.pending_orders)} order(s)"
         )
 
-    def _setup_exit_execution(self) -> None:
-        """Prepare exit orders for open positions."""
+    def _initialize_exit_execution(self) -> bool:
+        """Initialize exit execution with balance queries. Returns True when ready, False if still waiting."""
         self.execution_type = "exit"
 
-        # First, query on-chain balances for all tokens we need to exit
-        unique_tokens = set()
-        for position in self.context.positions_to_exit:
-            contract_address = position.get("contract_address")
-            if contract_address:
-                unique_tokens.add(contract_address)
+        # Step 1: Submit balance queries (first time only)
+        if not self.balance_queries_complete and not self.pending_balance_queries:
+            unique_tokens = set()
+            for position in self.context.positions_to_exit:
+                contract_address = position.get("contract_address")
+                if contract_address:
+                    unique_tokens.add(contract_address)
 
-        # If no valid tokens found, mark as complete immediately
-        if not unique_tokens:
-            self.context.logger.warning("No valid tokens found for exit (missing contract addresses)")
-            self.balance_queries_complete = True
-            return
+            if not unique_tokens:
+                self.context.logger.warning("No valid tokens found for exit (missing contract addresses)")
+                return True  # Nothing to do, consider initialized
 
-        # Submit balance queries for all unique tokens
-        for token_address in unique_tokens:
-            self._query_token_balance(token_address)
+            # Submit balance queries
+            for token_address in unique_tokens:
+                self._query_token_balance(token_address)
 
-        self.context.logger.info(f"Submitted balance queries for {len(unique_tokens)} tokens")
-        # Don't create orders yet - wait for balance queries to complete
+            self.context.logger.info(f"Submitted balance queries for {len(unique_tokens)} tokens")
+            return False  # Not ready yet, need to wait for responses
 
-    def _create_exit_orders_from_balances(self) -> None:
-        """Create exit orders using actual on-chain balances."""
+        # Step 2: Wait for balance query responses
+        if not self.balance_queries_complete:
+            self.context.logger.debug("Waiting for balance queries to complete")
+            return False  # Still waiting
+
+        # Step 3: Create exit orders with actual balances
         self.context.logger.info("Creating exit orders using actual on-chain balances")
-
         for position in self.context.positions_to_exit:
             order = self._create_exit_order(position)
             if order:
                 self.pending_orders.append(order)
 
-        self.exit_orders_created = True  # Mark that exit orders have been created
         self.context.logger.info(f"Created {len(self.pending_orders)} exit orders")
+        return True  # Initialization complete
 
     def _setup_entry_execution(self) -> None:
         """Prepare entry orders for new position."""
@@ -676,6 +664,11 @@ class ExecutionRound(BaseState):
 
     def _submit_cow_order(self) -> None:
         """Submit order to CoW Protocol via API after approval confirmed."""
+        # Check for duplicate submission
+        if any(dialogue_type == "cow_order" for dialogue_type in self.pending_dialogues.values()):
+            self.context.logger.info("CoW order dialogue already in progress, skipping order submission")
+            return
+
         order = self.active_operation["order"]
 
         safe_address = self._get_safe_address()
@@ -1361,6 +1354,11 @@ class ExecutionRound(BaseState):
 
         # Clear operation
         self.active_operation = None
+
+        # Clear positions_to_exit for exit orders to prevent re-creation
+        if self.execution_type == "exit" and hasattr(self.context, "positions_to_exit"):
+            self.context.positions_to_exit = []
+            self.context.logger.info("Cleared positions_to_exit after successful exit")
 
         # Check if more orders to process
         if not self.pending_orders and not self.submitted_orders:
