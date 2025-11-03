@@ -531,7 +531,7 @@ class ExecutionRound(BaseState):
         """Request ERC20 approve call data."""
 
         if any(dialogue_type == "approve" for dialogue_type in self.pending_dialogues.values()):
-            self.context.logger.info("Approval dialogue already in progress, skipping approval request")
+            self.context.logger.debug("Approval dialogue already in progress, skipping approval request")
             return
 
         order = self.active_operation["order"]
@@ -653,7 +653,7 @@ class ExecutionRound(BaseState):
     def _request_cow_approval_transaction(self) -> None:
         """Request ERC20 approval transaction for CoWSwap (direct, no multisend)."""
         if any(dialogue_type == "approve" for dialogue_type in self.pending_dialogues.values()):
-            self.context.logger.info("CoW approval dialogue already in progress, skipping approval request")
+            self.context.logger.debug("CoW approval dialogue already in progress, skipping approval request")
             return
 
         order = self.active_operation["order"]
@@ -709,7 +709,7 @@ class ExecutionRound(BaseState):
         """Submit order to CoW Protocol via API after approval confirmed."""
         # Check for duplicate submission
         if any(dialogue_type == "cow_order" for dialogue_type in self.pending_dialogues.values()):
-            self.context.logger.info("CoW order dialogue already in progress, skipping order submission")
+            self.context.logger.debug("CoW order dialogue already in progress, skipping order submission")
             return
 
         order = self.active_operation["order"]
@@ -881,9 +881,17 @@ class ExecutionRound(BaseState):
         dialogue.validation_func = self._validate_cow_monitoring_response
         self.active_operation["monitoring_dialogue"] = dialogue
 
-    def _validate_cow_monitoring_response(self, message: OrdersMessage, _dialogue: BaseDialogue) -> bool:
+    def _validate_cow_monitoring_response(self, message: OrdersMessage, _dialogue: BaseDialogue) -> bool:  # noqa: PLR0912
         """Validate CoW order monitoring response and finalize if needed."""
         try:
+            # Guard against stale callbacks after operation completion
+            if not self.active_operation:
+                self.context.logger.info(
+                    "Received monitoring response but no active operation - "
+                    "order likely already filled, ignoring stale callback"
+                )
+                return True
+
             if message.performative == OrdersMessage.Performative.ORDERS:
                 orders = message.orders.orders
                 target_order_id = self.active_operation["order"].id
@@ -1019,7 +1027,7 @@ class ExecutionRound(BaseState):
         """Request Safe transaction hash."""
         # Check for duplicate request
         if any(dialogue_type == "safe_hash" for dialogue_type in self.pending_dialogues.values()):
-            self.context.logger.info("Safe hash dialogue already in progress, skipping request")
+            self.context.logger.debug("Safe hash dialogue already in progress, skipping request")
             return
 
         safe_address = self._get_safe_address()
@@ -1140,7 +1148,7 @@ class ExecutionRound(BaseState):
         """Execute Safe transaction with pre-approved signature."""
         # Check for duplicate request
         if any(dialogue_type == "execution" for dialogue_type in self.pending_dialogues.values()):
-            self.context.logger.info("Execution dialogue already in progress, skipping request")
+            self.context.logger.debug("Execution dialogue already in progress, skipping request")
             return
 
         safe_address = self._get_safe_address()
@@ -1271,7 +1279,7 @@ class ExecutionRound(BaseState):
         """Broadcast the signed transaction."""
         # Guard: Check if broadcast dialogue already in progress
         if any(dialogue_type == "broadcast" for dialogue_type in self.pending_dialogues.values()):
-            self.context.logger.info("Broadcast dialogue already in progress, skipping broadcast request")
+            self.context.logger.debug("Broadcast dialogue already in progress, skipping broadcast request")
             return
 
         signed_tx = self.active_operation["signed_tx"]
@@ -1355,7 +1363,7 @@ class ExecutionRound(BaseState):
         """Request transaction receipt."""
         # Guard: Check if receipt dialogue already in progress
         if any(dialogue_type == "receipt" for dialogue_type in self.pending_dialogues.values()):
-            self.context.logger.info("Receipt dialogue already in progress, skipping receipt request")
+            self.context.logger.debug("Receipt dialogue already in progress, skipping receipt request")
             return
 
         dialogue = self.submit_msg(
