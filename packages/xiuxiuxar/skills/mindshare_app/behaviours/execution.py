@@ -275,11 +275,11 @@ class ExecutionRound(BaseState):
             self.context.logger.warning(f"No stored quantity for {symbol} ({contract_address})")
             return None
 
-        # Use stored quantity and truncate to 4 decimals for precision
-        # Note: Actual on-chain balance will be verified during order execution
-        quantity = truncate_to_decimals(stored_quantity, 4)
+        # Use stored quantity as-is
+        # Note: Actual on-chain balance will be verified and used during order execution
+        quantity = stored_quantity
 
-        self.context.logger.info(f"Creating exit order for {symbol}: {quantity:.4f} tokens")
+        self.context.logger.info(f"Creating exit order for {symbol}: {quantity:.6f} tokens")
 
         # Select best exchange for this exit trade
         exchange_id = self._select_exchange_for_trade("exit", symbol, quantity)
@@ -404,7 +404,8 @@ class ExecutionRound(BaseState):
                         f"Adjusting exit order {order.id}: stored={stored_amount:.6f}, "
                         f"actual={actual_balance:.6f}, diff={balance_diff_pct:.2f}%"
                     )
-                    order.amount = truncate_to_decimals(actual_balance, 4)
+                    # Use full actual balance to avoid leaving dust
+                    order.amount = actual_balance
 
         self.submitted_orders.append(order)
         self.context.logger.info(f"Processing order: {order.id} - {order.side} {order.amount} {order.symbol}")
