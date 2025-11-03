@@ -1269,6 +1269,11 @@ class ExecutionRound(BaseState):
 
     def _broadcast_transaction(self) -> None:
         """Broadcast the signed transaction."""
+        # Guard: Check if broadcast dialogue already in progress
+        if any(dialogue_type == "broadcast" for dialogue_type in self.pending_dialogues.values()):
+            self.context.logger.info("Broadcast dialogue already in progress, skipping broadcast request")
+            return
+
         signed_tx = self.active_operation["signed_tx"]
 
         dialogue = self.submit_msg(
@@ -1348,6 +1353,11 @@ class ExecutionRound(BaseState):
 
     def _request_receipt(self, tx_digest: TransactionDigest) -> None:
         """Request transaction receipt."""
+        # Guard: Check if receipt dialogue already in progress
+        if any(dialogue_type == "receipt" for dialogue_type in self.pending_dialogues.values()):
+            self.context.logger.info("Receipt dialogue already in progress, skipping receipt request")
+            return
+
         dialogue = self.submit_msg(
             performative=LedgerApiMessage.Performative.GET_TRANSACTION_RECEIPT,
             connection_id=LEDGER_API_ADDRESS,
