@@ -731,7 +731,7 @@ class ExecutionRound(BaseState):
 
         self.context.logger.info(f"Submitted CoW order: {order.id}")
 
-    def _validate_cow_order_response(self, message: OrdersMessage, dialogue: BaseDialogue) -> bool:
+    def _validate_cow_order_response(self, message: OrdersMessage, dialogue: BaseDialogue) -> bool:  # noqa: PLR0911
         """Process CoW order submission response."""
         try:
             if message.performative in {OrdersMessage.Performative.ORDER, OrdersMessage.Performative.ORDER_CREATED}:
@@ -763,6 +763,23 @@ class ExecutionRound(BaseState):
             # Check for ERROR performative (order creation failed)
             if message.performative == OrdersMessage.Performative.ERROR:
                 error_msg = getattr(message, "error_msg", str(message))
+
+                # Check for dust amount error (amount too small for fees)
+                if "SellAmountDoesNotCoverFee" in error_msg:
+                    order = self.active_operation["order"]
+                    self.context.logger.warning(
+                        f"CoW order {order.id} amount too small to cover fees (dust amount). "
+                        f"Marking as non-retryable. Amount: {order.amount}"
+                    )
+                    # Set error context for HandleErrorRound
+                    self.context.error_context = {
+                        "error_type": "sell_amount_does_not_cover_fee",
+                        "error_message": error_msg,
+                        "originating_round": str(self._state),
+                        "error_details": f"Order amount {order.amount} too small to cover CoW fees",
+                    }
+                    self.cow_order_failed = True
+                    return True
 
                 # Check if this is a retryable liquidity error
                 if "NoLiquidity" in error_msg or "no route found" in error_msg:

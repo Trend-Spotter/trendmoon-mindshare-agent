@@ -40,6 +40,7 @@ class HandleErrorRound(BaseState):
         "configuration_error": False,
         "invalid_price_error": False,
         "cowswap_fee_error": False,  # Position size too small for fees
+        "sell_amount_does_not_cover_fee": False,  # Amount too small to cover CoW fees
         "ticker_timeout_error": False,  # Exceeded max ticker retry attempts
         "price_sanity_check_failed": False,  # Price validation failed
         "trade_construction_error": False,  # General construction errors
