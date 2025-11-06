@@ -387,6 +387,26 @@ class CheckStakingKPIRound(BaseState):
 
             # Load persistent KPI state data
             kpi_state = self._load_kpi_state()
+
+            # Check if this is first run or state needs reset (migration from v1 to v2)
+            state_version = kpi_state.get("state_version", 1)
+            if state_version < 2:
+                self.context.logger.warning(
+                    "Detected old KPI state format (v1). Migrating to v2 with fixed logic. "
+                    "Resetting checkpoint to clean state."
+                )
+                # Reset to clean slate with new logic
+                kpi_state = {
+                    "state_version": 2,
+                    "period_count": 0,
+                    "period_number_at_last_cp": 0,
+                    "last_checkpoint_nonce": current_nonce,  # Start from current nonce
+                }
+                self._save_kpi_state(kpi_state)
+                self.context.logger.info(
+                    f"KPI state migrated to v2. Starting fresh with checkpoint nonce: {current_nonce}"
+                )
+
             period_count = kpi_state.get("period_count", 0)
             period_number_at_last_cp = kpi_state.get("period_number_at_last_cp", 0)
             last_checkpoint_nonce = kpi_state.get("last_checkpoint_nonce", 0)
@@ -415,32 +435,32 @@ class CheckStakingKPIRound(BaseState):
             is_period_threshold_exceeded = period_count - period_number_at_last_cp >= staking_threshold_period
 
             if not is_period_threshold_exceeded:
-                self.context.logger.info("Period threshold not exceeded yet")
-                self.is_staking_kpi_met = True  # KPI is considered met if not in evaluation period
+                self.context.logger.info(
+                    f"Grace period active (period {period_count}/{staking_threshold_period}). "
+                    "KPI check skipped - not yet evaluated."
+                )
+                self.is_staking_kpi_met = None  # Not evaluated yet - grace period
             else:
-                # We're in evaluation period - reset checkpoint to start counting from now
-                # This ensures we only need min_num_of_safe_tx_required NEW transactions from this point
-                if period_number_at_last_cp < period_count - staking_threshold_period:
-                    self.context.logger.info(
-                        f"Entering evaluation period. Resetting checkpoint from period {period_number_at_last_cp} "
-                        f"to {period_count}, nonce from {last_checkpoint_nonce} to {current_nonce}"
-                    )
-                    period_number_at_last_cp = period_count
-                    last_checkpoint_nonce = current_nonce
+                # We're in evaluation period - check transactions since deployment/last checkpoint
+                # DO NOT reset checkpoint here - only update when vanity tx successfully broadcasts
 
                 # Calculate transactions since last checkpoint
                 multisig_nonces_since_last_cp = current_nonce - last_checkpoint_nonce
 
                 self.context.logger.info(
-                    f"Multisig transactions since last checkpoint: {multisig_nonces_since_last_cp}"
+                    f"Evaluation period active. Checking transactions since checkpoint "
+                    f"at period {period_number_at_last_cp}. Current period: {period_count}, "
+                    f"transactions since checkpoint: {multisig_nonces_since_last_cp}, "
+                    f"required: {min_num_of_safe_tx_required}"
                 )
 
                 if multisig_nonces_since_last_cp >= min_num_of_safe_tx_required:
-                    self.context.logger.info("Staking KPI already met!")
+                    self.context.logger.info(
+                        f"Staking KPI met! Found {multisig_nonces_since_last_cp} transactions "
+                        f"(required: {min_num_of_safe_tx_required}) since last checkpoint."
+                    )
                     self.is_staking_kpi_met = True
-                    # Update checkpoint data when KPI is met
-                    period_number_at_last_cp = period_count
-                    last_checkpoint_nonce = current_nonce
+                    # DO NOT update checkpoint here - only update when vanity tx successfully broadcasts
                 else:
                     num_tx_left = min_num_of_safe_tx_required - multisig_nonces_since_last_cp
                     self.context.logger.info(f"Staking KPI not met. Need {num_tx_left} more transactions")
@@ -448,6 +468,7 @@ class CheckStakingKPIRound(BaseState):
 
             # Save updated KPI state
             updated_kpi_state = {
+                "state_version": 2,  # Always save as version 2
                 "period_count": period_count,
                 "period_number_at_last_cp": period_number_at_last_cp,
                 "last_checkpoint_nonce": last_checkpoint_nonce,
@@ -513,6 +534,7 @@ class CheckStakingKPIRound(BaseState):
             # If has_required_funds is explicitly provided in kmp_data, use that value
             # Otherwise, fall back to checking the current instance variable
             kpi_state = {
+                "state_version": kmp_data.get("state_version", 2),  # Always save version 2
                 "is_staking_kpi_met": kmp_data.get("is_staking_kpi_met", False),
                 "has_required_funds": kmp_data.get("has_required_funds", self._check_agent_balance_threshold()),
                 "period_count": kmp_data.get("period_count", 0),
@@ -635,8 +657,24 @@ class CheckStakingKPIRound(BaseState):
 
     def _should_prepare_vanity_tx(self) -> bool:
         """Determine if we should prepare a vanity transaction."""
-        # Only prepare vanity tx if KPI is not met and we're in evaluation period
+        # Only prepare vanity tx if:
+        # 1. KPI is explicitly False (not met)
+        # 2. We're past the grace period threshold
+        # 3. Agent has sufficient funds
+
+        if self.is_staking_kpi_met is None:
+            # Grace period - don't prepare vanity tx
+            self.context.logger.debug("Grace period active - skipping vanity tx preparation")
+            return False
+
         if self.is_staking_kpi_met:
+            # KPI already met - no vanity tx needed
+            self.context.logger.debug("KPI already met - no vanity tx needed")
+            return False
+
+        if not self.has_required_funds:
+            # Insufficient funds - don't prepare vanity tx
+            self.context.logger.warning("Insufficient agent funds to prepare vanity transaction")
             return False
 
         # Load current KPI state to check period threshold
@@ -645,7 +683,20 @@ class CheckStakingKPIRound(BaseState):
         period_count = kpi_state.get("period_count", 0)
         period_number_at_last_cp = kpi_state.get("period_number_at_last_cp", 0)
 
-        return period_count - period_number_at_last_cp >= staking_threshold_period
+        is_past_grace_period = period_count - period_number_at_last_cp >= staking_threshold_period
+
+        if not is_past_grace_period:
+            self.context.logger.debug(
+                f"Still within grace period ({period_count - period_number_at_last_cp}/{staking_threshold_period}) "
+                "- skipping vanity tx preparation"
+            )
+            return False
+
+        self.context.logger.info(
+            f"Should prepare vanity tx: KPI not met, past grace period, sufficient funds "
+            f"(period {period_count}, checkpoint at {period_number_at_last_cp})"
+        )
+        return True
 
     def _prepare_vanity_tx_async(self) -> None:
         """Prepare vanity transaction asynchronously."""
@@ -1036,6 +1087,18 @@ class CheckStakingKPIRound(BaseState):
                 kpi_state["vanity_tx_broadcast"] = True
                 kpi_state["vanity_tx_final_hash"] = tx_hash
                 kpi_state["vanity_tx_broadcast_timestamp"] = datetime.now(UTC).isoformat()
+
+                # Update checkpoint when vanity tx successfully broadcasts
+                # This resets the counting window for the next KPI evaluation period
+                current_period = kpi_state.get("period_count", 0)
+                current_nonce = kpi_state.get("current_nonce", 0)
+                kpi_state["period_number_at_last_cp"] = current_period
+                kpi_state["last_checkpoint_nonce"] = current_nonce
+                self.context.logger.info(
+                    f"✅ Checkpoint updated after successful vanity tx broadcast: "
+                    f"period_number_at_last_cp={current_period}, last_checkpoint_nonce={current_nonce}"
+                )
+
                 self._save_kpi_state(kpi_state)
 
                 # Mark as executed so we can proceed to finalization
@@ -1104,8 +1167,8 @@ class CheckStakingKPIRound(BaseState):
         self.context.logger.info("Finalizing staking KPI check...")
 
         if self.is_staking_kpi_met is None:
-            self.context.logger.error("Staking KPI status unknown")
-            self._event = MindshareabciappEvents.ERROR
+            self.context.logger.info("Grace period active - no KPI evaluation required")
+            self._event = MindshareabciappEvents.DONE
         elif self.is_staking_kpi_met:
             self.context.logger.info("Staking KPI is met")
             self._event = MindshareabciappEvents.DONE
