@@ -346,6 +346,39 @@ class TradeConstructionRound(BaseState):
                 return token
         return None
 
+    def _get_coingecko_price_estimate(self, symbol: str) -> float | None:
+        """Get rough price estimate from CoinGecko data collected in previous round.
+
+        This is used for calculating appropriate ticker amounts, not for trade execution.
+        Returns price in USD, or None if unavailable.
+        """
+        try:
+            # Check prerequisites
+            if not self.context.store_path:
+                return None
+
+            data_file = self.context.store_path / "collected_data.json"
+            if not data_file.exists():
+                return None
+
+            # Load and parse price data
+            with open(data_file, encoding=DEFAULT_ENCODING) as f:
+                collected_data = json.load(f)
+
+            current_prices = collected_data.get("current_prices", {})
+            price_data = current_prices.get(symbol, {})
+            usd_price = price_data.get("usd")
+
+            # Return valid price or None
+            return float(usd_price) if usd_price and usd_price > 0 else None
+
+        except (OSError, json.JSONDecodeError) as e:
+            self.context.logger.warning(f"Failed to read CoinGecko price data for {symbol}: {e}")
+        except (KeyError, ValueError, TypeError) as e:
+            self.context.logger.warning(f"Invalid CoinGecko price data format for {symbol}: {e}")
+
+        return None
+
     def _submit_ticker_request(self, token_info: dict[str, str]) -> PriceRequest | None:
         """Submit a price request to the DCXT connection."""
         try:
@@ -356,8 +389,25 @@ class TradeConstructionRound(BaseState):
             min_position = self.context.params.min_position_size_usdc
             max_position = self.context.params.max_position_size_usdc
             estimated_position_size = (min_position + max_position) / 2
-            # Use a placeholder amount for ticker requests since we need price to calculate position size
-            ticker_amount = max(estimated_position_size, 100.0)  # Use 1 USDC as standard amount for price discovery
+
+            # Get rough price estimate from CoinGecko to calculate appropriate ticker amount
+            coingecko_price = self._get_coingecko_price_estimate(symbol)
+
+            if coingecko_price and coingecko_price > 0:
+                # Calculate ticker amount in token units based on price
+                # This ensures CowSwap receives enough tokens to cover fees
+                ticker_amount = estimated_position_size / coingecko_price
+                self.context.logger.info(
+                    f"Calculated ticker amount for {symbol}: {ticker_amount:,.2f} tokens "
+                    f"(~${estimated_position_size} at ${coingecko_price:.8f}/token)"
+                )
+            else:
+                # Fallback: use USDC amount if price not available
+                # This preserves existing behavior for edge cases
+                ticker_amount = max(estimated_position_size, 100.0)
+                self.context.logger.warning(
+                    f"No CoinGecko price for {symbol}, using fallback ticker amount: {ticker_amount}"
+                )
 
             ticker_dialogue = self.submit_msg(
                 TickersMessage.Performative.GET_TICKER,
