@@ -32,7 +32,7 @@ protocols:
 - valory/ledger_api:1.0.0:bafybeic5qfhodpwqjdkwxs4gzummpc3dxbpn4egg7s7f2gibfopa4nxz4i
 skills:
 - eightballer/prometheus:0.1.0:bafybeibfuwvdxxnxnm2gghg4t2c7ucdxhmu2xlrpdkk46t5rx7qskbx7ui
-- xiuxiuxar/mindshare_app:0.1.0:bafybeigxafqyfbetnardwq6lhv7vwmnvnvqgh7pabigxq4r6zgsjn3nada
+- xiuxiuxar/mindshare_app:0.1.0:bafybeig2oifw5mte7z6yckf3l7k3t62obj3x7hjueh4n65syyyldo622w4
 customs: []
 default_ledger: ethereum
 required_ledgers:

@@ -1607,17 +1607,36 @@ class ExecutionRound(BaseState):
             symbol = order.symbol.split("/")[0] if "/" in order.symbol else order.symbol
 
             # Calculate execution details
-            executed_price = order.price or order.average_price or 0
-            executed_usdc_amount = order.filled or order.amount
+            # CoW Protocol treats "buy token with USDC" as SELL orders (selling USDC)
+            # When filled, the Order object has actual execution values
+            if order.side == OrderSide.SELL:
+                # CoW SELL order: selling USDC to buy token
+                # order.amount = actual USDC spent
+                # order.price = actual USDC per token price
+                position_size_usdc = order.amount
+                executed_price = order.price
+                token_quantity = position_size_usdc / executed_price if executed_price > 0 else 0
 
-            # For buy orders, calculate token quantity from USDC amount and price
-            if order.side == OrderSide.BUY:
+                self.context.logger.info(
+                    f"CoW SELL order (buy token): USDC spent={position_size_usdc:.6f}, "
+                    f"price={executed_price:.6f}, tokens={token_quantity:.6f}"
+                )
+            elif order.side == OrderSide.BUY:
+                # Standard BUY order or exit orders
+                executed_price = order.average or order.price or 0
+                executed_usdc_amount = order.filled or order.amount
                 token_quantity = executed_usdc_amount / executed_price if executed_price > 0 else 0
                 position_size_usdc = executed_usdc_amount
+
+                self.context.logger.info(
+                    f"BUY order: USDC amount={position_size_usdc:.6f}, "
+                    f"price={executed_price:.6f}, tokens={token_quantity:.6f}"
+                )
             else:
-                # For sell orders (shouldn't happen in entry, but handle anyway)
-                token_quantity = executed_usdc_amount
-                position_size_usdc = executed_usdc_amount * executed_price
+                # Fallback
+                executed_price = order.price or 0
+                token_quantity = order.amount or 0
+                position_size_usdc = token_quantity * executed_price
 
             # Create new position record
             position_id = f"pos_{symbol}_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}"
