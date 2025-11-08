@@ -1446,6 +1446,9 @@ class ExecutionRound(BaseState):
                 self._auto_continue()
                 return
             if current_state == "monitoring":
+                # Clear monitoring dialogue before finalizing
+                if "monitoring_dialogue" in self.active_operation:
+                    self._clear_dialogue(self.active_operation["monitoring_dialogue"])
                 # This is the final completion of the CoW order
                 self._finalize_cow_order()
                 return
@@ -1497,6 +1500,10 @@ class ExecutionRound(BaseState):
             self._create_position(order)
 
         self.context.logger.info(f"CoW order {order.id} completed successfully")
+
+        # Clear monitoring dialogue to stop callbacks
+        if self.active_operation and "monitoring_dialogue" in self.active_operation:
+            self._clear_dialogue(self.active_operation["monitoring_dialogue"])
 
         # Clear operation
         self.active_operation = None
