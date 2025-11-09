@@ -19,7 +19,7 @@ fingerprint:
   behaviours/execution.py: bafybeihmtosqbz3zz3mweaijwukz35roeeerrv3qu7dmxacdilvbm33kmu
   behaviours/pause.py: bafybeifzn3vqxbjj6lqiwmcclejoukr3oyhdevdkalqymtwfkdni3aoke4
   behaviours/portfolio_validation.py: bafybeia6grckfqwyzpzv6pqzo6ijwvxcfqllxm6vvislxtmxkakbvs5bwm
-  behaviours/position_monitor.py: bafybeienvt63lpzmlpt6qzaxh6yeyxo4bmeledibdh7ynahooups7clj4u
+  behaviours/position_monitor.py: bafybeieqydqqqnhxgwogai3q3467urwyip5nqzklld46nqptd6htxr6phy
   behaviours/risk_evaluation.py: bafybeicccodelbjh6uhrf2e56rfahtgmxymjo3hgpqjobthbr7h32ne53y
   behaviours/round_behaviour.py: bafybeia5v7snxhsnztps7tsmvjtauqbvek6khvjlihi334mo2i7ann3wna
   behaviours/setup.py: bafybeichxzcf7mw6l25p6mct2k23yjoucljfanno76plm3kwaaxsqb7rqe
