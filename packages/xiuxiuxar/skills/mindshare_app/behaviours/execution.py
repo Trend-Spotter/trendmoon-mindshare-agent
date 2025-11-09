@@ -19,6 +19,7 @@
 """This module contains the implementation of the behaviours of Mindshare App skill."""
 
 import json
+import time
 from typing import Any
 from datetime import UTC, datetime
 
@@ -48,6 +49,7 @@ from packages.xiuxiuxar.skills.mindshare_app.behaviours.base import (
 )
 
 
+MONITORING_COOLDOWN = 5.0  # 5 second cooldown between checks
 ORDER_PLACEMENT_TIMEOUT_SECONDS = 30
 LEDGER_API_ADDRESS = str(LEDGER_CONNECTION_PUBLIC_ID)
 SAFE_TX_GAS = 300_000  # Non-zero value to prevent Safe revert during gas estimation
@@ -96,6 +98,8 @@ class ExecutionRound(BaseState):
 
         # Operation tracking
         self.active_operation: dict[str, Any] | None = None
+        self.monitoring_request_pending: bool = False  # Track if monitoring request in flight
+        self.last_monitoring_check: float = 0.0  # Timestamp of last monitoring request
 
         # Dialogue tracking
         self.pending_dialogues: dict[str, str] = {}
@@ -714,6 +718,10 @@ class ExecutionRound(BaseState):
 
         order = self.active_operation["order"]
 
+        # Reset monitoring state for new order
+        self.monitoring_request_pending = False
+        self.last_monitoring_check = 0.0
+
         safe_address = self._get_safe_address()
         if safe_address:
             order.info = json.dumps({"safe_contract_address": safe_address})
@@ -882,6 +890,17 @@ class ExecutionRound(BaseState):
 
     def _monitor_cow_execution(self) -> None:
         """Monitor CoW order execution status."""
+        # Prevent duplicate monitoring requests with non-blocking cooldown
+        current_time = time.time()
+
+        if self.monitoring_request_pending:
+            self.context.logger.debug("Monitoring request already in flight, skipping")
+            return
+
+        if (current_time - self.last_monitoring_check) < MONITORING_COOLDOWN:
+            self.context.logger.debug("Monitoring cooldown active, skipping")
+            return
+
         order = self.active_operation["order"]
         self.context.logger.info(f"Monitoring CoW order execution: {order.id}")
 
@@ -898,9 +917,16 @@ class ExecutionRound(BaseState):
         dialogue.validation_func = self._validate_cow_monitoring_response
         self.active_operation["monitoring_dialogue"] = dialogue
 
+        # Mark monitoring request as pending
+        self.monitoring_request_pending = True
+        self.last_monitoring_check = current_time
+
     def _validate_cow_monitoring_response(self, message: OrdersMessage, _dialogue: BaseDialogue) -> bool:  # noqa: PLR0912
         """Validate CoW order monitoring response and finalize if needed."""
         try:
+            # Clear monitoring request pending flag
+            self.monitoring_request_pending = False
+
             # Guard against stale callbacks after operation completion
             if not self.active_operation:
                 self.context.logger.info(
@@ -963,6 +989,8 @@ class ExecutionRound(BaseState):
                     self.context.logger.info(
                         f"CoW order {target_order_id} still open with status: {target_order.status}"
                     )
+                    # Clear active_operation before transitioning to prevent infinite loop
+                    self.active_operation = None
                     self._complete(MindshareabciappEvents.ORDER_PLACED)
                 return True
 
