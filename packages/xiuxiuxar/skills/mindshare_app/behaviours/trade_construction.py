@@ -885,9 +885,7 @@ class TradeConstructionRound(BaseState):
 
             stop_distance = estimated_atr * atr_multiplier
 
-            stop_loss = current_price - stop_distance if direction == "buy" else current_price + stop_distance
-
-            return max(stop_loss, 0.000001)  # Ensure positive price
+            return current_price - stop_distance if direction == "buy" else current_price + stop_distance
 
         except Exception as e:
             self.context.logger.exception(f"Failed to calculate stop loss price: {e}")
@@ -906,7 +904,7 @@ class TradeConstructionRound(BaseState):
                 reward = risk * self.risk_parameters["take_profit_ratio"]
                 take_profit = current_price - reward
 
-            return max(take_profit, 0.000001)  # Ensure positive price
+            return take_profit  # Remove hardcoded minimum that breaks low-priced tokens
 
         except Exception as e:
             self.context.logger.exception(f"Failed to calculate take profit price: {e}")
