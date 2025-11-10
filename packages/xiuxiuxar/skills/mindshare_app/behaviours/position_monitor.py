@@ -511,8 +511,10 @@ class PositionMonitoringRound(BaseState):
                     order = update_info["order"]
 
                     if status == "filled":
-                        self.context.logger.info(f"Order {cowswap_order_id} filled - updating existing position")
-                        self._update_existing_position_from_fill(cowswap_order_id, order)
+                        self.context.logger.info(
+                            f"Order {cowswap_order_id} filled - creating position from pending trade"
+                        )
+                        self._create_position_from_filled_order(cowswap_order_id, order, trade)
                     elif status in {"cancelled", "expired"}:
                         self.context.logger.warning(f"Order {cowswap_order_id} {status} - removing from pending")
                         # Don't add to updated_trades (effectively removes it)
@@ -534,136 +536,185 @@ class PositionMonitoringRound(BaseState):
             self.context.logger.exception(f"Failed to process order updates: {e}")
             self.pending_orders_checked = True
 
-    def _update_existing_position_from_fill(self, cowswap_order_id: str, order: Any) -> None:
-        """Update existing position with actual fill details from CoWSwap order.
+    def _create_position_from_filled_order(self, cowswap_order_id: str, order: Any, trade: dict[str, Any]) -> None:
+        """Create a new position from filled CoWSwap order and pending trade data.
 
         Args:
         ----
-            cowswap_order_id: The CoWSwap order ID to match
-            order: The filled Order object with actual execution details
+            cowswap_order_id: The CoWSwap order ID
+            order: The filled Order object with actual execution details from CoW API
+            trade: The pending trade dict with metadata from pending_trades.json
 
         """
         if not self.context.store_path:
-            self.context.logger.warning("No store path available to update position")
+            self.context.logger.warning("No store path available to create position")
             return
 
         positions_file = self.context.store_path / "positions.json"
-        if not positions_file.exists():
-            self.context.logger.error(f"Positions file not found - cannot update position for order {cowswap_order_id}")
-            return
 
         try:
-            # Load existing positions
-            with open(positions_file, encoding=DEFAULT_ENCODING) as f:
-                data = json.load(f)
+            # Load existing positions (or create new structure)
+            existing_data = {"positions": [], "last_updated": None}
+            if positions_file.exists():
+                with open(positions_file, encoding=DEFAULT_ENCODING) as f:
+                    existing_data = json.load(f)
 
-            positions = data.get("positions", [])
-            position_found = self._update_position_with_fill_details(positions, cowswap_order_id, order)
+            positions = existing_data.get("positions", [])
 
-            if not position_found:
-                self.context.logger.error(
-                    f"Position not found for order {cowswap_order_id} - ExecutionRound should have created it"
-                )
+            # Create new position from trade + order data
+            position = self._create_new_position(trade, order, cowswap_order_id)
+
+            if not position:
+                self.context.logger.error(f"Failed to create position from order {cowswap_order_id}")
                 return
 
-            # Save updated positions back to file
-            data["positions"] = positions
-            data["last_updated"] = datetime.now(UTC).isoformat()
+            # Add new position to list
+            positions.append(position)
+
+            # Calculate summary statistics
+            open_positions = [pos for pos in positions if pos.get("status") == "open"]
+            total_unrealized_pnl = sum(pos.get("unrealized_pnl", 0) for pos in open_positions)
+            total_portfolio_value = sum(pos.get("position_size_usdc", 0) for pos in open_positions)
+
+            # Save updated positions
+            updated_data = {
+                "positions": positions,
+                "last_updated": datetime.now(UTC).isoformat(),
+                "total_positions": len(positions),
+                "open_positions": len(open_positions),
+                "total_unrealized_pnl": round(total_unrealized_pnl, 2),
+                "total_portfolio_value": round(total_portfolio_value, 2),
+            }
 
             with open(positions_file, "w", encoding=DEFAULT_ENCODING) as f:
-                json.dump(data, f, indent=2)
+                json.dump(updated_data, f, indent=2)
+
+            self.context.logger.info(
+                f"Created position {position['position_id']} for {position['symbol']} "
+                f"(entry: ${position['entry_price']:.6f}, quantity: {position['token_quantity']:.6f})"
+            )
 
         except (FileNotFoundError, PermissionError, OSError) as e:
             self.context.logger.exception(f"Failed to access positions file: {e}")
         except (json.JSONDecodeError, KeyError, ValueError) as e:
             self.context.logger.exception(f"Failed to parse positions data: {e}")
         except Exception as e:
-            self.context.logger.exception(f"Unexpected error updating position from fill: {e}")
+            self.context.logger.exception(f"Unexpected error creating position from fill: {e}")
 
-    def _update_position_with_fill_details(
-        self, positions: list[dict[str, Any]], cowswap_order_id: str, order: Any
-    ) -> bool:
-        """Update position in list with fill details from order.
+    def _create_new_position(self, trade: dict[str, Any], order: Any, cowswap_order_id: str) -> dict[str, Any] | None:
+        """Create a new position from pending trade data and filled order details.
 
-        This method uses the same calculation logic as ExecutionRound._create_position()
-        to ensure consistency between position creation and position updates.
+        This uses the same calculation logic as ExecutionRound to ensure consistency.
 
         Args:
         ----
-            positions: List of positions to search and update
-            cowswap_order_id: The CoWSwap order ID to match
-            order: The filled Order object with execution details
+            trade: The pending trade dict from pending_trades.json with metadata
+            order: The filled Order object from CoW API with execution details
+            cowswap_order_id: The CoWSwap order ID
 
         Returns:
         -------
-            bool: True if position was found and updated, False otherwise
+            dict: The new position dict, or None if creation failed
 
         """
-        for position in positions:
-            if position.get("order_id") == cowswap_order_id:
-                position_id = position.get("position_id")
+        try:
+            # Safety checks for required order fields
+            if not hasattr(order, "side") or not hasattr(order, "price") or not hasattr(order, "amount"):
+                self.context.logger.error(f"Order {cowswap_order_id} missing required fields (side, price, or amount)")
+                return None
 
-                # Safety checks for required fields
-                if not hasattr(order, "side") or not hasattr(order, "price") or not hasattr(order, "amount"):
-                    self.context.logger.error(
-                        f"Order {cowswap_order_id} missing required fields (side, price, or amount)"
-                    )
-                    return False
+            # Get order values with safe defaults
+            order_price = getattr(order, "price", 0) or 0
+            order_amount = getattr(order, "amount", 0) or 0
+            order_side = getattr(order, "side", None)
 
-                # Get order values with safe defaults
-                order_price = getattr(order, "price", 0) or 0
-                order_amount = getattr(order, "amount", 0) or 0
-                order_side = getattr(order, "side", None)
+            if order_price <= 0:
+                self.context.logger.error(f"Order {cowswap_order_id} has invalid price: {order_price}")
+                return None
 
-                if order_price <= 0:
-                    self.context.logger.error(f"Order {cowswap_order_id} has invalid price: {order_price}")
-                    return False
+            # Calculate execution details using same logic as ExecutionRound
+            # CoW Protocol treats "buy token with USDC" as SELL orders (selling USDC)
+            if order_side == OrderSide.SELL:
+                # CoW SELL order: selling USDC to buy token
+                # order.amount = actual USDC spent
+                # order.price = actual USDC per token price
+                position_size_usdc = order_amount
+                executed_price = order_price
+                token_quantity = position_size_usdc / executed_price
 
-                # Calculate execution details using same logic as ExecutionRound
-                # CoW Protocol treats "buy token with USDC" as SELL orders (selling USDC)
-                if order_side == OrderSide.SELL:
-                    # CoW SELL order: selling USDC to buy token
-                    # order.amount = actual USDC spent
-                    # order.price = actual USDC per token price
-                    position_size_usdc = order_amount
-                    executed_price = order_price
-                    token_quantity = position_size_usdc / executed_price
-
-                    self.context.logger.info(
-                        f"CoW SELL order (buy token): order_id={cowswap_order_id}, "
-                        f"side={order_side.name}, USDC spent={position_size_usdc:.6f}, "
-                        f"price={executed_price:.6f}, tokens={token_quantity:.6f}"
-                    )
-                elif order_side == OrderSide.BUY:
-                    # Standard BUY order or exit orders
-                    # For BUY orders, order.amount is the token quantity
-                    executed_price = order_price
-                    token_quantity = order_amount
-                    position_size_usdc = token_quantity * executed_price
-
-                    self.context.logger.info(
-                        f"BUY order: order_id={cowswap_order_id}, "
-                        f"side={order_side.name}, tokens={token_quantity:.6f}, "
-                        f"price={executed_price:.6f}, USDC amount={position_size_usdc:.6f}"
-                    )
-                else:
-                    self.context.logger.error(f"Unknown order side for order {cowswap_order_id}: {order_side}")
-                    return False
-
-                # Update position with calculated values
-                position["entry_price"] = executed_price
-                position["current_price"] = executed_price
-                position["token_quantity"] = token_quantity
-                position["position_size_usdc"] = position_size_usdc
-                position["status"] = "open"
-                position["last_updated"] = datetime.now(UTC).isoformat()
-
-                # Log successful update with all calculated values
                 self.context.logger.info(
-                    f"Updated position {position_id} with fill details: "
-                    f"entry_price={executed_price:.6f}, token_quantity={token_quantity:.6f}, "
-                    f"position_size_usdc={position_size_usdc:.6f}"
+                    f"CoW SELL order (buy token): order_id={cowswap_order_id}, "
+                    f"side={order_side.name}, USDC spent={position_size_usdc:.6f}, "
+                    f"price={executed_price:.6f}, tokens={token_quantity:.6f}"
                 )
-                return True
+            elif order_side == OrderSide.BUY:
+                # Standard BUY order or exit orders
+                # For BUY orders, order.amount is the token quantity
+                executed_price = order_price
+                token_quantity = order_amount
+                position_size_usdc = token_quantity * executed_price
 
-        return False
+                self.context.logger.info(
+                    f"BUY order: order_id={cowswap_order_id}, "
+                    f"side={order_side.name}, tokens={token_quantity:.6f}, "
+                    f"price={executed_price:.6f}, USDC amount={position_size_usdc:.6f}"
+                )
+            else:
+                self.context.logger.error(f"Unknown order side for order {cowswap_order_id}: {order_side}")
+                return None
+
+            # Extract metadata from trade
+            symbol = trade.get("symbol")
+            contract_address = trade.get("contract_address") or trade.get("buy_token")
+            coingecko_id = trade.get("coingecko_id")
+            stop_loss_price = trade.get("stop_loss_price")
+            take_profit_price = trade.get("take_profit_price")
+            trade_id = trade.get("trade_id")
+
+            # Validate required fields
+            if not symbol or not contract_address:
+                self.context.logger.error(f"Trade {trade_id} missing required fields (symbol or contract_address)")
+                return None
+
+            # Create position ID
+            position_id = f"pos_{symbol}_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}"
+
+            # Build new position dict
+            position = {
+                "position_id": position_id,
+                "order_id": cowswap_order_id,
+                "trade_id": trade_id,
+                "symbol": symbol,
+                "contract_address": contract_address,
+                "coingecko_id": coingecko_id,
+                "trading_pair": f"{symbol}/USDC",
+                "direction": "long",  # All entry trades are long positions
+                "entry_price": executed_price,
+                "current_price": executed_price,
+                "token_quantity": token_quantity,
+                "position_size_usdc": position_size_usdc,
+                "stop_loss_price": stop_loss_price,
+                "take_profit_price": take_profit_price,
+                "status": "open",
+                "unrealized_pnl": 0.0,
+                "pnl_percentage": 0.0,
+                "current_value_usdc": position_size_usdc,
+                "entry_time": datetime.now(UTC).isoformat(),
+                "last_updated": datetime.now(UTC).isoformat(),
+                "exit_price": None,
+                "exit_time": None,
+                "exit_reason": None,
+                "trailing_stop_enabled": False,
+            }
+
+            self.context.logger.info(
+                f"Created new position: {position_id} for {symbol}, "
+                f"entry_price={executed_price:.6f}, token_quantity={token_quantity:.6f}, "
+                f"position_size_usdc={position_size_usdc:.6f}"
+            )
+
+            return position
+
+        except Exception as e:
+            self.context.logger.exception(f"Error creating position from trade {trade.get('trade_id')}: {e}")
+            return None
