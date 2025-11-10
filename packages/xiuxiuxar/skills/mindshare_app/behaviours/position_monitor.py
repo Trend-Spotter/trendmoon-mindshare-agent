@@ -601,7 +601,7 @@ class PositionMonitoringRound(BaseState):
         except Exception as e:
             self.context.logger.exception(f"Unexpected error creating position from fill: {e}")
 
-    def _create_new_position(self, trade: dict[str, Any], order: Any, cowswap_order_id: str) -> dict[str, Any] | None:
+    def _create_new_position(self, trade: dict[str, Any], order: Any, cowswap_order_id: str) -> dict[str, Any] | None:  # noqa: PLR0911, PLR0914
         """Create a new position from pending trade data and filled order details.
 
         This uses the same calculation logic as ExecutionRound to ensure consistency.
@@ -618,15 +618,38 @@ class PositionMonitoringRound(BaseState):
 
         """
         try:
-            # Safety checks for required order fields
-            if not hasattr(order, "side") or not hasattr(order, "price") or not hasattr(order, "amount"):
-                self.context.logger.error(f"Order {cowswap_order_id} missing required fields (side, price, or amount)")
-                return None
+            # Get order details from order object or fall back to stored trade data
+            has_order_fields = order and hasattr(order, "side") and hasattr(order, "price") and hasattr(order, "amount")
 
-            # Get order values with safe defaults
-            order_price = getattr(order, "price", 0) or 0
-            order_amount = getattr(order, "amount", 0) or 0
-            order_side = getattr(order, "side", None)
+            if not has_order_fields:
+                # Order object not available or incomplete, use stored order details from pending_trades.json
+                order_price = trade.get("order_price")
+                order_amount = trade.get("order_amount")
+                side_name = trade.get("order_side")
+
+                if not all([side_name, order_price, order_amount]):
+                    self.context.logger.error(
+                        f"Order {cowswap_order_id} not available from API and trade data missing required fields "
+                        f"(order_side, order_price, or order_amount)"
+                    )
+                    return None
+
+                # Convert order_side string back to OrderSide enum
+                try:
+                    order_side = OrderSide[side_name]
+                except (KeyError, TypeError):
+                    self.context.logger.exception(f"Invalid order_side value in trade data: {side_name}")
+                    return None
+
+                self.context.logger.info(
+                    f"Using stored order details for {cowswap_order_id}: "
+                    f"side={side_name}, price={order_price}, amount={order_amount}"
+                )
+            else:
+                # Get order values from order object
+                order_price = getattr(order, "price", 0) or 0
+                order_amount = getattr(order, "amount", 0) or 0
+                order_side = getattr(order, "side", None)
 
             if order_price <= 0:
                 self.context.logger.error(f"Order {cowswap_order_id} has invalid price: {order_price}")

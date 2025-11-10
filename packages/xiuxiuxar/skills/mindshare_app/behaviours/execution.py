@@ -870,6 +870,17 @@ class ExecutionRound(BaseState):
                 if trade.get("trade_id") == original_order_id:
                     trade["cowswap_order_id"] = cowswap_order_id
                     trade["order_submitted_at"] = datetime.now(UTC).isoformat()
+
+                    # Store order execution details for position creation when order is filled
+                    if self.active_operation and "order" in self.active_operation:
+                        order = self.active_operation["order"]
+                        trade["order_side"] = order.side.name  # "BUY" or "SELL"
+                        trade["order_price"] = order.price
+                        trade["order_amount"] = order.amount
+                        self.context.logger.debug(
+                            f"Stored order details: side={order.side.name}, price={order.price}, amount={order.amount}"
+                        )
+
                     trades_updated = True
                     self.context.logger.info(f"Added CoWSwap order ID {cowswap_order_id} to trade {original_order_id}")
                     break
