@@ -45,6 +45,32 @@ WARNING_DEVIATION = 0.20  # 20% deviation for warnings
 PRICE_COLLECTION_TIMEOUT_SECONDS = 180
 
 
+def get_price_precision(price: float) -> int:
+    """Calculate appropriate decimal precision based on price magnitude.
+
+    Args:
+    ----
+        price: The price value to determine precision for
+
+    Returns:
+    -------
+        Number of decimal places to use for formatting/display
+
+    """
+    if price == 0:
+        return 18
+    if price >= 1000:
+        return 2
+    if price >= 1:
+        return 6
+    if price >= 0.01:
+        return 8
+    if price >= 0.0001:
+        return 10
+    # For ultra-low prices (< 0.0001), use high precision
+    return 18
+
+
 @dataclass
 class PriceRequest:
     """Price request."""
@@ -597,9 +623,12 @@ class TradeConstructionRound(BaseState):
                 "low_24h": getattr(ticker, "low", current_price),
             }
 
+            # Use dynamic precision for ultra-low value tokens
+            price_precision = get_price_precision(current_price)
             self.context.logger.info(
                 f"Processed DCXT pricing for {ticker.symbol}: "
-                f"${current_price:.6f} (bid: ${bid_price:.6f}, ask: ${ask_price:.6f})"
+                f"${current_price:.{price_precision}f} "
+                f"(bid: ${bid_price:.{price_precision}f}, ask: ${ask_price:.{price_precision}f})"
             )
             return True
 
@@ -621,11 +650,12 @@ class TradeConstructionRound(BaseState):
             # Calculate price deviation percentage
             price_deviation = abs(ticker_price_usd - coingecko_usd_price) / coingecko_usd_price
 
-            # Log price comparison for debugging
+            # Log price comparison for debugging with dynamic precision
+            price_precision = get_price_precision(ticker_price)
             self.context.logger.info(
                 f"Price validation for {symbol}: "
-                f"Ticker (USDC): ${ticker_price:.6f}, "
-                f"CoinGecko (USD): ${coingecko_usd_price:.6f}, "
+                f"Ticker (USDC): ${ticker_price:.{price_precision}f}, "
+                f"CoinGecko (USD): ${coingecko_usd_price:.{price_precision}f}, "
                 f"Deviation: {price_deviation:.2%}"
             )
 
@@ -681,10 +711,11 @@ class TradeConstructionRound(BaseState):
         self, symbol: str, ticker_price: float, coingecko_usd_price: float, price_deviation: float
     ) -> None:
         """Handle price validation failure by logging error and setting context."""
+        price_precision = get_price_precision(ticker_price)
         error_msg = (
             f"Price sanity check failed for {symbol}: "
-            f"Ticker price ${ticker_price:.6f} deviates {price_deviation:.2%} "
-            f"from CoinGecko reference ${coingecko_usd_price:.6f}"
+            f"Ticker price ${ticker_price:.{price_precision}f} deviates {price_deviation:.2%} "
+            f"from CoinGecko reference ${coingecko_usd_price:.{price_precision}f}"
         )
 
         self.context.logger.error(error_msg)
@@ -764,8 +795,8 @@ class TradeConstructionRound(BaseState):
                 "ask_price": self.market_data.get("ask_price", current_price),
                 "dcxt_spread": self.market_data.get("spread", 0),
                 # Risk management
-                "stop_loss_price": round(stop_loss_price, 6),
-                "take_profit_price": round(take_profit_price, 6),
+                "stop_loss_price": stop_loss_price,
+                "take_profit_price": take_profit_price,
                 "slippage_tolerance": slippage_tolerance,
                 # DCXT execution parameters
                 "execution_strategy": "dcxt",
@@ -1046,16 +1077,19 @@ class TradeConstructionRound(BaseState):
             take_profit = trade["take_profit_price"]
             slippage = trade["slippage_tolerance"]
 
+            # Use dynamic precision for logging prices
+            price_precision = get_price_precision(entry_price)
+
             self.context.logger.info("=== DCXT Trade Construction Summary ===")
             self.context.logger.info(f"Trade ID: {trade['trade_id']}")
             self.context.logger.info(f"Asset: {symbol} ({trade['contract_address'][:10]}...)")
             self.context.logger.info(f"Direction: {direction.upper()}")
             self.context.logger.info(f"Position Size: ${position_size:.2f}")
             self.context.logger.info(f"Token Quantity: {trade['token_quantity']:.6f}")
-            self.context.logger.info(f"Entry Price: ${entry_price:.6f}")
+            self.context.logger.info(f"Entry Price: ${entry_price:.{price_precision}f}")
             self.context.logger.info(f"DCXT Spread: {trade['dcxt_spread']:.4f}%")
-            self.context.logger.info(f"Stop Loss: ${stop_loss:.6f}")
-            self.context.logger.info(f"Take Profit: ${take_profit:.6f}")
+            self.context.logger.info(f"Stop Loss: ${stop_loss:.{price_precision}f}")
+            self.context.logger.info(f"Take Profit: ${take_profit:.{price_precision}f}")
             self.context.logger.info(f"Slippage Tolerance: {slippage * 100:.2f}%")
             self.context.logger.info(f"Exchange: {trade['exchange_id']} on {trade['ledger_id']}")
 
