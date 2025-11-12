@@ -387,7 +387,7 @@ class ExecutionRound(BaseState):
                     self.pending_orders.insert(0, order)
                     return
 
-            # We have the balance, verify and adjust order amount if needed
+            # We have the balance, verify and use exact on-chain balance
             if contract_address:
                 actual_balance = self.token_balances.get(contract_address, 0)
                 stored_amount = order.amount
@@ -399,17 +399,18 @@ class ExecutionRound(BaseState):
                     self.failed_orders.append(order)
                     return
 
-                # Adjust order amount to actual balance if different
-                if abs(actual_balance - stored_amount) > 0.0001:  # Allow small rounding differences
+                # Log balance difference if any (for transparency)
+                if actual_balance != stored_amount:
                     balance_diff_pct = (
                         ((stored_amount - actual_balance) / stored_amount * 100) if stored_amount > 0 else 0
                     )
                     self.context.logger.info(
-                        f"Adjusting exit order {order.id}: stored={stored_amount:.6f}, "
+                        f"Using exact on-chain balance for exit order {order.id}: stored={stored_amount:.6f}, "
                         f"actual={actual_balance:.6f}, diff={balance_diff_pct:.2f}%"
                     )
-                    # Use full actual balance to avoid leaving dust
-                    order.amount = actual_balance
+
+                # ALWAYS use exact on-chain balance to avoid leaving any dust
+                order.amount = actual_balance
 
         self.submitted_orders.append(order)
         self.context.logger.info(f"Processing order: {order.id} - {order.side} {order.amount} {order.symbol}")
