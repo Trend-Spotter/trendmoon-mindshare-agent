@@ -13,7 +13,7 @@ connections:
 - eightballer/http_server:0.1.0:bafybeifilny6luzcs4dtv5d2ta4fqqgi7aixch7f75sqnwcqh73oxcgtdu
 - eightballer/prometheus:0.1.1:bafybeig7p3tzs7x4awcxjr7ctxljr6h7mrc2c36thnab6zoteualgivj6e
 - valory/ledger:0.19.0:bafybeierez3cyecdieur34h2wc7wgaqnzfxm6nv5uhxkujlyqdap4wkjvi
-- eightballer/dcxt:0.1.0:bafybeidwmmudnrbfdls5bfp33vfkipie74pi7dhxgyhpfa3xqadgsqykny
+- eightballer/dcxt:0.1.0:bafybeibbwsowcwfuzfxhodba2u4rsb4bgpufqpcsadbo5xxviw5q2wlhqy
 contracts:
 - eightballer/erc_20:0.1.0:bafybeiewlvc62xn6flmzn2dodqw3w6p3w5jqwkx36w5caznf6zjph7t2se
 - valory/erc20:0.1.0:bafybeihzzfy7hhegokwbzuwfqdzx2ck3jvg4ccb53fpy4btq7so3f4nezq
@@ -23,16 +23,16 @@ contracts:
 - valory/staking_token:0.1.0:bafybeif3d753nt6um3qrdtrytmlyqd7ao7spio6yits3qymuj62y3h2jri
 protocols:
 - valory/contract_api:1.0.0:bafybeidpch6cvuweq5x4h6ummnnw5xynmfsbj3sxm2m63seuqizrmvpd3e
-- eightballer/default:0.1.0:bafybeihx7izpxqpj42jxbi7s2q6bijtv2vcb7kz2r5bwtfxt7ixlh77s7u
+- eightballer/default:0.1.0:bafybeibu3dme3plwprq5j6xl6vfx2e5ebwbudtj5yndkxcsoiwxljst22a
 - eightballer/http:0.1.0:bafybeicpvdcuz5wqgnzqzqyyh3ifo63pqjhze6escra4dxqpxbaz5qs2jy
 - eightballer/prometheus:1.0.0:bafybeiedkmjjqbxyid67hwhpkvyknst5rdtn5pazs6rtaa3mj6r2buwl7q
 - open_aea/signing:1.0.0:bafybeign4u6o3jtz2kuelpuhrmzosbyix2iwf7ifxythigrcuef4ybmuna
-- eightballer/tickers:0.1.0:bafybeicpoaxh4mbzk3rn7rjzvlhrfkzo4st3otzpcs35cixeg3fdvn5dsq
-- eightballer/orders:0.1.0:bafybeicwsxnxvy5cclbwzp6kj6hm2g655j47wdvhe6co3oge7lorwlt364
+- eightballer/tickers:0.1.0:bafybeifiytrsffwnhhilbavse623qsil3tulizbazf7cd7ghfepriejgkq
+- eightballer/orders:0.1.0:bafybeid24shv2uqltnnxn72p6upjb7qzq3lew7fgre2dno72ui5oolvbee
 - valory/ledger_api:1.0.0:bafybeic5qfhodpwqjdkwxs4gzummpc3dxbpn4egg7s7f2gibfopa4nxz4i
 skills:
 - eightballer/prometheus:0.1.0:bafybeibfuwvdxxnxnm2gghg4t2c7ucdxhmu2xlrpdkk46t5rx7qskbx7ui
-- xiuxiuxar/mindshare_app:0.1.0:bafybeido7qfeujjxbhfhrdny2luuyhngz74glnur5bvearr6gbnraexxsm
+- xiuxiuxar/mindshare_app:0.1.0:bafybeifil4hbfemeqizxomwlqu5kebq2wog4obgcngg3dbxbcdfjshes3q
 customs: []
 default_ledger: ethereum
 required_ledgers:
