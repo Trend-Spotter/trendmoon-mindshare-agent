@@ -411,8 +411,8 @@ class CheckStakingKPIRound(BaseState):
             period_number_at_last_cp = kpi_state.get("period_number_at_last_cp", 0)
             last_checkpoint_nonce = kpi_state.get("last_checkpoint_nonce", 0)
 
-            # Increment period count for this round
-            period_count += 1
+            # Note: period_count is incremented by CallCheckpointRound._increment_period_count()
+            # We just read it here for KPI evaluation
 
             # Handle edge case: checkpoint nonce is higher than current nonce (stale/corrupt state)
             # This can happen if state was manually edited or checkpoint was set incorrectly
@@ -435,8 +435,9 @@ class CheckStakingKPIRound(BaseState):
             is_period_threshold_exceeded = period_count - period_number_at_last_cp >= staking_threshold_period
 
             if not is_period_threshold_exceeded:
+                periods_elapsed = period_count - period_number_at_last_cp
                 self.context.logger.info(
-                    f"Grace period active (period {period_count}/{staking_threshold_period}). "
+                    f"Grace period active (period {periods_elapsed}/{staking_threshold_period}). "
                     "KPI check skipped - not yet evaluated."
                 )
                 self.is_staking_kpi_met = None  # Not evaluated yet - grace period
