@@ -1446,9 +1446,7 @@ class CallCheckpointRound(BaseState):
             with open(state_file, "w", encoding=DEFAULT_ENCODING) as f:
                 json.dump(state_data, f, indent=2)
 
-            self.context.logger.info(
-                f"Period count incremented: {current_period_count} -> {new_period_count}"
-            )
+            self.context.logger.info(f"Period count incremented: {current_period_count} -> {new_period_count}")
 
         except (PermissionError, OSError, json.JSONDecodeError) as e:
             self.context.logger.warning(f"Failed to increment period count: {e}")
