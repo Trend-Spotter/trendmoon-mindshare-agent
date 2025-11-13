@@ -106,7 +106,7 @@ class ExecutionRound(BaseState):
 
         # Balance tracking for exit orders
         self.pending_balance_queries: dict[str, str] = {}  # token_address -> dialogue_ref
-        self.token_balances: dict[str, float] = {}  # token_address -> balance (human-readable)
+        self.token_balances: dict[str, dict] = {}  # token_address -> {'wei': int, 'human': float, 'decimals': int}
         self.balance_queries_complete: bool = False
 
         # Failure tracking flags
@@ -389,10 +389,12 @@ class ExecutionRound(BaseState):
 
             # We have the balance, verify and use exact on-chain balance
             if contract_address:
-                actual_balance = self.token_balances.get(contract_address, 0)
+                balance_dict = self.token_balances.get(contract_address, {"wei": 0, "human": 0, "decimals": 18})
+                actual_balance_wei = balance_dict["wei"]
+                actual_balance_human = balance_dict["human"]
                 stored_amount = order.amount
 
-                if actual_balance <= 0:
+                if actual_balance_wei <= 0:
                     self.context.logger.error(f"Cannot execute exit order {order.id}: zero balance for {order.symbol}")
                     order.status = OrderStatus.FAILED
                     order.info = "Zero on-chain balance"
@@ -400,17 +402,19 @@ class ExecutionRound(BaseState):
                     return
 
                 # Log balance difference if any (for transparency)
-                if actual_balance != stored_amount:
+                if actual_balance_human != stored_amount:
                     balance_diff_pct = (
-                        ((stored_amount - actual_balance) / stored_amount * 100) if stored_amount > 0 else 0
+                        ((stored_amount - actual_balance_human) / stored_amount * 100) if stored_amount > 0 else 0
                     )
                     self.context.logger.info(
                         f"Using exact on-chain balance for exit order {order.id}: stored={stored_amount:.6f}, "
-                        f"actual={actual_balance:.6f}, diff={balance_diff_pct:.2f}%"
+                        f"actual={actual_balance_human:.6f}, diff={balance_diff_pct:.2f}%"
                     )
 
                 # ALWAYS use exact on-chain balance to avoid leaving any dust
-                order.amount = actual_balance
+                # Store both human-readable (for display) and exact wei amount (for precision)
+                order.amount = actual_balance_human
+                order.amount_wei = str(actual_balance_wei)  # Store as string to preserve full precision
 
         self.submitted_orders.append(order)
         self.context.logger.info(f"Processing order: {order.id} - {order.side} {order.amount} {order.symbol}")
@@ -2075,7 +2079,8 @@ class ExecutionRound(BaseState):
                 # Convert from wei to human-readable
                 balance_human = balance_wei / (10**decimals)
 
-                self.token_balances[token_address] = balance_human
+                # Store both wei and human-readable to avoid precision loss
+                self.token_balances[token_address] = {"wei": balance_wei, "human": balance_human, "decimals": decimals}
                 self.context.logger.info(
                     f"Retrieved balance for {token_address}: {balance_human} "
                     f"(wei: {balance_wei}, decimals: {decimals})"
@@ -2095,7 +2100,8 @@ class ExecutionRound(BaseState):
 
             # Invalid response - store 0 balance and remove from pending
             self.context.logger.error(f"Invalid balance response for {token_address}: {message.performative}")
-            self.token_balances[token_address] = 0
+            decimals = self._get_token_decimals(token_address)
+            self.token_balances[token_address] = {"wei": 0, "human": 0, "decimals": decimals}
             if token_address in self.pending_balance_queries:
                 del self.pending_balance_queries[token_address]
 
@@ -2111,7 +2117,8 @@ class ExecutionRound(BaseState):
             # Store 0 balance for failed query and remove from pending
             token_address = getattr(dialogue, "token_address", None)
             if token_address:
-                self.token_balances[token_address] = 0
+                decimals = self._get_token_decimals(token_address)
+                self.token_balances[token_address] = {"wei": 0, "human": 0, "decimals": decimals}
                 if token_address in self.pending_balance_queries:
                     del self.pending_balance_queries[token_address]
 
