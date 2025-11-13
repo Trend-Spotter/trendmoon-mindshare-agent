@@ -9,7 +9,7 @@ fingerprint:
   tests/__init__.py: bafybeiausykbndof27hjfgwqg6nnmk7zw7lyytwzekih3gszwdypbtxjka
   tests/test_service.py: bafybeicplirjoql5q3l5zjl5xrgamnoxuj3year7u2vrtfnzzllzeyutuy
 fingerprint_ignore_patterns: []
-agent: xiuxiuxar/mindshare_agent:0.1.0:bafybeid7csrswci6dmvto4woz4rsqgzowxxkr6almrimlggudohvdzmnxi
+agent: xiuxiuxar/mindshare_agent:0.1.0:bafybeidigyc3w5z26yossp72qgmxkjoadynhrzmwon4a44rwesck6eg2ay
 number_of_agents: 1
 deployment:
   agent:
@@ -26,7 +26,7 @@ config:
   port: 8716
   target_skill_id: xiuxiuxar/mindshare_app:0.1.0
 ---
-public_id: eightballer/dcxt:0.1.0:bafybeihj2ko7bwqmxiudoixrlzwml5snurdxaiomfl4lrbbcat3k5sxnxy
+public_id: eightballer/dcxt:0.1.0:bafybeidwmmudnrbfdls5bfp33vfkipie74pi7dhxgyhpfa3xqadgsqykny
 type: connection
 config:
   exchanges:

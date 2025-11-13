@@ -412,9 +412,12 @@ class ExecutionRound(BaseState):
                     )
 
                 # ALWAYS use exact on-chain balance to avoid leaving any dust
-                # Store both human-readable (for display) and exact wei amount (for precision)
                 order.amount = actual_balance_human
-                order.amount_wei = str(actual_balance_wei)  # Store as string to preserve full precision
+
+                # Store exact wei amount in order.info for precision
+                info_dict = json.loads(order.info) if order.info else {}
+                info_dict["amount_wei"] = str(actual_balance_wei)
+                order.info = json.dumps(info_dict)
 
         self.submitted_orders.append(order)
         self.context.logger.info(f"Processing order: {order.id} - {order.side} {order.amount} {order.symbol}")
@@ -603,7 +606,9 @@ class ExecutionRound(BaseState):
 
         safe_address = self._get_safe_address()
         if safe_address:
-            order.info = json.dumps({"safe_contract_address": safe_address})
+            info_dict = json.loads(order.info) if order.info else {}
+            info_dict["safe_contract_address"] = safe_address
+            order.info = json.dumps(info_dict)
 
         dialogue = self.submit_msg(
             performative=OrdersMessage.Performative.CREATE_ORDER,
@@ -729,7 +734,9 @@ class ExecutionRound(BaseState):
 
         safe_address = self._get_safe_address()
         if safe_address:
-            order.info = json.dumps({"safe_contract_address": safe_address})
+            info_dict = json.loads(order.info) if order.info else {}
+            info_dict["safe_contract_address"] = safe_address
+            order.info = json.dumps(info_dict)
 
         dialogue = self.submit_msg(
             performative=OrdersMessage.Performative.CREATE_ORDER,
