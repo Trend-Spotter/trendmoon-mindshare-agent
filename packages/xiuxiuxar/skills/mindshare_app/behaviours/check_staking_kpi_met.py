@@ -391,20 +391,34 @@ class CheckStakingKPIRound(BaseState):
             # Check if this is first run or state needs reset (migration from v1 to v2)
             state_version = kpi_state.get("state_version", 1)
             if state_version < 2:
-                self.context.logger.warning(
-                    "Detected old KPI state format (v1). Migrating to v2 with fixed logic. "
-                    "Resetting checkpoint to clean state."
-                )
-                # Reset to clean slate with new logic
+                self.context.logger.warning("Detected old KPI state format (v1). Migrating to v2 with fixed logic.")
+
+                # Preserve period_count if it exists (managed by CallCheckpointRound)
+                current_period_count = kpi_state.get("period_count", 0)
+                current_period_number_at_last_cp = kpi_state.get("period_number_at_last_cp", 0)
+
+                # Only reset checkpoint nonce if this is truly the first run (no existing checkpoint)
+                # Otherwise preserve it to avoid losing progress
+                checkpoint_nonce = kpi_state.get("last_checkpoint_nonce")
+                if checkpoint_nonce is None or checkpoint_nonce == 0:
+                    # First migration - set to current nonce
+                    checkpoint_nonce = current_nonce
+                    self.context.logger.info(f"First migration - setting checkpoint nonce to current: {current_nonce}")
+                else:
+                    # Already had a checkpoint - preserve it
+                    self.context.logger.info(f"Migration preserving existing checkpoint nonce: {checkpoint_nonce}")
+
+                # Migrate to v2 while preserving existing state
                 kpi_state = {
                     "state_version": 2,
-                    "period_count": 0,
-                    "period_number_at_last_cp": 0,
-                    "last_checkpoint_nonce": current_nonce,  # Start from current nonce
+                    "period_count": current_period_count,
+                    "period_number_at_last_cp": current_period_number_at_last_cp,
+                    "last_checkpoint_nonce": checkpoint_nonce,
                 }
                 self._save_kpi_state(kpi_state)
                 self.context.logger.info(
-                    f"KPI state migrated to v2. Starting fresh with checkpoint nonce: {current_nonce}"
+                    f"KPI state migrated to v2. period_count: {current_period_count}, "
+                    f"checkpoint_nonce: {checkpoint_nonce}"
                 )
 
             period_count = kpi_state.get("period_count", 0)
@@ -500,6 +514,7 @@ class CheckStakingKPIRound(BaseState):
                 state_data = json.load(f)
                 # Extract relevant KPI fields
                 return {
+                    "state_version": state_data.get("state_version", 1),
                     "period_count": state_data.get("period_count", 0),
                     "period_number_at_last_cp": state_data.get("period_number_at_last_cp", 0),
                     "last_checkpoint_nonce": state_data.get("last_checkpoint_nonce", 0),
