@@ -42,7 +42,7 @@ fingerprint:
   tests/test_technical_indicators_integration.py: bafybeihqg4gkrope5zhfldvvulgn5ki7eresheh2ewn4ybqiosipddppxi
 fingerprint_ignore_patterns: []
 connections:
-- eightballer/dcxt:0.1.0:bafybeiaz5ixtkzmpgp7bovx6zamdg3kip65oewwvye5pjxndqny2dfsq2m
+- eightballer/dcxt:0.1.0:bafybeig3ls4woqjuogzl42o6dmdzbybzcylvqhtbyx57wwwdnl2qomj3ti
 - valory/ledger:0.19.0:bafybeierez3cyecdieur34h2wc7wgaqnzfxm6nv5uhxkujlyqdap4wkjvi
 - eightballer/http_client:0.1.0:bafybeiatbbjb36uvzzc2pnnrqpdk2xlaic5zwsxj6frswqhw6illauqg6e
 contracts:

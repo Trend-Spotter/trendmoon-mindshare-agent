@@ -13,7 +13,7 @@ connections:
 - eightballer/http_server:0.1.0:bafybeifilny6luzcs4dtv5d2ta4fqqgi7aixch7f75sqnwcqh73oxcgtdu
 - eightballer/prometheus:0.1.1:bafybeig7p3tzs7x4awcxjr7ctxljr6h7mrc2c36thnab6zoteualgivj6e
 - valory/ledger:0.19.0:bafybeierez3cyecdieur34h2wc7wgaqnzfxm6nv5uhxkujlyqdap4wkjvi
-- eightballer/dcxt:0.1.0:bafybeiaz5ixtkzmpgp7bovx6zamdg3kip65oewwvye5pjxndqny2dfsq2m
+- eightballer/dcxt:0.1.0:bafybeig3ls4woqjuogzl42o6dmdzbybzcylvqhtbyx57wwwdnl2qomj3ti
 contracts:
 - eightballer/erc_20:0.1.0:bafybeiewlvc62xn6flmzn2dodqw3w6p3w5jqwkx36w5caznf6zjph7t2se
 - valory/erc20:0.1.0:bafybeihzzfy7hhegokwbzuwfqdzx2ck3jvg4ccb53fpy4btq7so3f4nezq
@@ -32,7 +32,7 @@ protocols:
 - valory/ledger_api:1.0.0:bafybeic5qfhodpwqjdkwxs4gzummpc3dxbpn4egg7s7f2gibfopa4nxz4i
 skills:
 - eightballer/prometheus:0.1.0:bafybeibfuwvdxxnxnm2gghg4t2c7ucdxhmu2xlrpdkk46t5rx7qskbx7ui
-- xiuxiuxar/mindshare_app:0.1.0:bafybeihgumspkvmz2esrv3avzudetbxe6qktqaks5ts4vir7mklnpvt6qi
+- xiuxiuxar/mindshare_app:0.1.0:bafybeibw2gxg7wzejfe2eatxy4muypgzknro3k66qud7a4633yjshevq4u
 customs: []
 default_ledger: ethereum
 required_ledgers:
