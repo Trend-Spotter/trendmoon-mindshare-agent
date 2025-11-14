@@ -46,6 +46,7 @@ class PositionMonitoringRound(BaseState):
 
         # Pending orders tracking
         self.pending_trades: list[dict[str, Any]] = []
+        self.pending_exit_positions: list[dict[str, Any]] = []
         self.pending_orders_checked: bool = False
         self.pending_orders_request_submitted: bool = False
 
@@ -58,6 +59,7 @@ class PositionMonitoringRound(BaseState):
         self.completed_positions = []
         self.monitoring_initialized = False
         self.pending_trades = []
+        self.pending_exit_positions = []
         self.pending_orders_checked = False
         self.pending_orders_request_submitted = False
         super().setup()
@@ -200,6 +202,34 @@ class PositionMonitoringRound(BaseState):
             return []
         except Exception as e:
             self.context.logger.exception(f"Unexpected error loading positions: {e}")
+            return []
+
+    def _load_positions_with_pending_exits(self) -> list[dict[str, Any]]:
+        """Load open positions that have pending exit orders (CoWSwap order_id set)."""
+        if not self.context.store_path:
+            return []
+
+        positions_file = self.context.store_path / "positions.json"
+        if not positions_file.exists():
+            return []
+
+        try:
+            with open(positions_file, encoding=DEFAULT_ENCODING) as f:
+                data = json.load(f)
+                # Filter for open positions with a CoWSwap order ID (starts with 0x)
+                return [
+                    pos
+                    for pos in data.get("positions", [])
+                    if pos.get("status") == "open" and pos.get("order_id", "").startswith("0x")
+                ]
+        except (FileNotFoundError, PermissionError, OSError) as e:
+            self.context.logger.warning(f"Failed to load positions file: {e}")
+            return []
+        except (json.JSONDecodeError, KeyError, ValueError) as e:
+            self.context.logger.warning(f"Failed to parse positions data: {e}")
+            return []
+        except Exception as e:
+            self.context.logger.exception(f"Unexpected error loading positions with pending exits: {e}")
             return []
 
     def _monitor_position(self, position: dict[str, Any]) -> dict[str, Any]:
@@ -464,29 +494,46 @@ class PositionMonitoringRound(BaseState):
             self.context.logger.exception(f"Failed to update positions storage: {e}")
 
     def _check_pending_orders(self) -> None:
-        """Check status of pending orders using async pattern."""
+        """Check status of pending orders (both entry and exit) using async pattern."""
         # Step 1: Submit request if not already submitted
         if not self.pending_orders_request_submitted:
+            # Load pending entry trades
             self.pending_trades = self._load_pending_trades()
 
-            if not self.pending_trades:
-                self.context.logger.info("No pending orders to check")
-                self.pending_orders_checked = True
-                return
+            # Load positions with pending exit orders
+            self.pending_exit_positions = self._load_positions_with_pending_exits()
 
-            # Extract CoWSwap order IDs to monitor
+            # Extract CoWSwap order IDs to monitor from both sources
             cowswap_order_ids = []
+
+            # From entry trades
             for trade in self.pending_trades:
                 cowswap_order_id = trade.get("cowswap_order_id")
                 if cowswap_order_id:
                     cowswap_order_ids.append(cowswap_order_id)
 
+            # From exit orders
+            for position in self.pending_exit_positions:
+                cowswap_order_id = position.get("order_id")
+                # Check if order_id looks like a CoWSwap order ID (starts with 0x)
+                if cowswap_order_id and cowswap_order_id.startswith("0x"):
+                    cowswap_order_ids.append(cowswap_order_id)
+
+            if not self.pending_trades and not self.pending_exit_positions:
+                self.context.logger.info("No pending orders to check")
+                self.pending_orders_checked = True
+                return
+
             if cowswap_order_ids:
-                self.context.logger.info(f"Checking status of {len(cowswap_order_ids)} pending CoWSwap orders")
+                self.context.logger.info(
+                    f"Checking status of {len(cowswap_order_ids)} pending CoWSwap orders "
+                    f"({len(self.pending_trades)} entry, {len(self.pending_exit_positions)} exit)"
+                )
                 self.monitor_cowswap_orders(cowswap_order_ids)
                 self.pending_orders_request_submitted = True
                 return  # Exit early, wait for response
-            self.context.logger.info("No CoWSwap order IDs found in pending trades")
+
+            self.context.logger.info("No CoWSwap order IDs found in pending trades or positions")
             self.pending_orders_checked = True
             return
 
@@ -499,10 +546,10 @@ class PositionMonitoringRound(BaseState):
         self.context.logger.debug("Waiting for pending orders response...")
 
     def _process_order_updates(self, order_updates: dict[str, dict[str, Any]]) -> None:
-        """Process order updates from CoWSwap monitoring."""
+        """Process order updates from CoWSwap monitoring (both entry and exit orders)."""
         try:
+            # Process entry orders
             updated_trades = []
-
             for trade in self.pending_trades:
                 cowswap_order_id = trade.get("cowswap_order_id")
                 if cowswap_order_id in order_updates:
@@ -512,25 +559,53 @@ class PositionMonitoringRound(BaseState):
 
                     if status == "filled":
                         self.context.logger.info(
-                            f"Order {cowswap_order_id} filled - creating position from pending trade"
+                            f"Entry order {cowswap_order_id} filled - creating position from pending trade"
                         )
                         self._create_position_from_filled_order(cowswap_order_id, order, trade)
                     elif status in {"cancelled", "expired"}:
-                        self.context.logger.warning(f"Order {cowswap_order_id} {status} - removing from pending")
+                        self.context.logger.warning(f"Entry order {cowswap_order_id} {status} - removing from pending")
                         # Don't add to updated_trades (effectively removes it)
                     else:
                         # Order still open, keep in pending
                         updated_trades.append(trade)
-                        self.context.logger.info(f"Order {cowswap_order_id} still open")
+                        self.context.logger.info(f"Entry order {cowswap_order_id} still open")
                 else:
                     # No update for this trade, keep it
                     updated_trades.append(trade)
+
+            # Process exit orders
+            for position in self.pending_exit_positions:
+                cowswap_order_id = position.get("order_id")
+                if cowswap_order_id in order_updates:
+                    update_info = order_updates[cowswap_order_id]
+                    status = update_info["status"]
+                    order = update_info["order"]
+
+                    if status == "filled":
+                        self.context.logger.info(
+                            f"Exit order {cowswap_order_id} filled - closing position {position.get('position_id')}"
+                        )
+                        self._close_position_from_filled_exit(cowswap_order_id, order, position)
+                    elif status in {"cancelled", "expired"}:
+                        self.context.logger.warning(
+                            f"Exit order {cowswap_order_id} {status} - clearing order_id from position"
+                        )
+                        # Clear the order_id from position so it can be retried
+                        self._clear_exit_order_from_position(position)
+                    else:
+                        # Order still open, keep monitoring
+                        self.context.logger.info(f"Exit order {cowswap_order_id} still open")
 
             # Update pending trades storage
             self._update_pending_trades(updated_trades)
 
             self.pending_orders_checked = True
-            self.context.logger.info(f"Completed pending order check. {len(updated_trades)} orders still pending")
+            # Count pending exit orders
+            pending_exits = len([p for p in self.pending_exit_positions if p.get("order_id", "").startswith("0x")])
+            self.context.logger.info(
+                f"Completed pending order check. {len(updated_trades)} entry orders still pending, "
+                f"{pending_exits} exit orders still pending"
+            )
 
         except Exception as e:
             self.context.logger.exception(f"Failed to process order updates: {e}")
@@ -741,3 +816,148 @@ class PositionMonitoringRound(BaseState):
         except Exception as e:
             self.context.logger.exception(f"Error creating position from trade {trade.get('trade_id')}: {e}")
             return None
+
+    def _close_position_from_filled_exit(self, _cowswap_order_id: str, order: Any, position: dict[str, Any]) -> None:
+        """Close a position when its exit order is filled.
+
+        Args:
+        ----
+            _cowswap_order_id: The CoWSwap order ID (unused but kept for API consistency)
+            order: The filled Order object from CoW API (may be None if not available)
+            position: The position dict from positions.json
+
+        """
+        try:
+            if not self.context.store_path:
+                self.context.logger.warning("No store path available to close position")
+                return
+
+            positions_file = self.context.store_path / "positions.json"
+            if not positions_file.exists():
+                self.context.logger.warning(f"positions.json not found at {positions_file}")
+                return
+
+            # Load existing positions
+            with open(positions_file, encoding=DEFAULT_ENCODING) as f:
+                positions_data = json.load(f)
+
+            # Get execution details from order object or use position's stored data
+            has_order_fields = order and hasattr(order, "price") and hasattr(order, "amount")
+            if has_order_fields:
+                executed_price = getattr(order, "price", 0) or getattr(order, "average_price", 0)
+                executed_quantity = getattr(order, "filled", 0) or getattr(order, "amount", 0)
+            else:
+                # Fall back to position data
+                executed_price = position.get("exit_price") or position.get("current_price", 0)
+                executed_quantity = position.get("token_quantity", 0)
+                self.context.logger.info(
+                    f"Order object not available, using position data: "
+                    f"price={executed_price}, quantity={executed_quantity}"
+                )
+
+            # Calculate P&L
+            entry_price = position.get("entry_price", 0)
+            realized_pnl = (executed_price - entry_price) * executed_quantity
+            realized_pnl_percentage = ((executed_price - entry_price) / entry_price) * 100 if entry_price > 0 else 0
+
+            # Find and update the position
+            position_updated = False
+            for pos in positions_data.get("positions", []):
+                if pos.get("position_id") == position.get("position_id"):
+                    # Update to closed status
+                    pos["status"] = "closed"
+                    pos["exit_price"] = executed_price
+                    pos["exit_time"] = datetime.now(UTC).isoformat()
+                    pos["executed_quantity"] = executed_quantity
+                    pos["realized_pnl"] = realized_pnl
+                    pos["realized_pnl_percentage"] = realized_pnl_percentage
+                    pos["closed_at"] = datetime.now(UTC).isoformat()
+                    pos["last_updated"] = datetime.now(UTC).isoformat()
+                    position_updated = True
+
+                    self.context.logger.info(
+                        f"Closed position {pos['position_id']} ({pos['symbol']}) with "
+                        f"P&L: ${realized_pnl:.2f} ({realized_pnl_percentage:.2f}%)"
+                    )
+                    break
+
+            if position_updated:
+                # Recalculate summary statistics
+                all_positions = positions_data.get("positions", [])
+                open_positions = [pos for pos in all_positions if pos.get("status") == "open"]
+                total_unrealized_pnl = sum(pos.get("unrealized_pnl", 0) for pos in open_positions)
+                total_portfolio_value = sum(pos.get("position_size_usdc", 0) for pos in open_positions)
+
+                positions_data.update(
+                    {
+                        "last_updated": datetime.now(UTC).isoformat(),
+                        "total_positions": len(all_positions),
+                        "open_positions": len(open_positions),
+                        "total_unrealized_pnl": round(total_unrealized_pnl, 2),
+                        "total_portfolio_value": round(total_portfolio_value, 2),
+                    }
+                )
+
+                # Save updated positions
+                with open(positions_file, "w", encoding=DEFAULT_ENCODING) as f:
+                    json.dump(positions_data, f, indent=2)
+
+                self.context.logger.info("Updated positions.json with closed position")
+            else:
+                self.context.logger.warning(f"Could not find position {position.get('position_id')} to close")
+
+        except Exception as e:
+            self.context.logger.exception(f"Failed to close position from filled exit order: {e}")
+
+    def _clear_exit_order_from_position(self, position: dict[str, Any]) -> None:
+        """Clear the CoWSwap order_id from a position when the order is cancelled/expired.
+
+        Args:
+        ----
+            position: The position dict with the cancelled/expired order
+
+        """
+        try:
+            if not self.context.store_path:
+                self.context.logger.warning("No store path available to clear order_id")
+                return
+
+            positions_file = self.context.store_path / "positions.json"
+            if not positions_file.exists():
+                self.context.logger.warning(f"positions.json not found at {positions_file}")
+                return
+
+            # Load existing positions
+            with open(positions_file, encoding=DEFAULT_ENCODING) as f:
+                positions_data = json.load(f)
+
+            # Find and update the position
+            position_updated = False
+            for pos in positions_data.get("positions", []):
+                if pos.get("position_id") == position.get("position_id"):
+                    # Clear the CoWSwap order_id but keep exit_signal and other exit fields
+                    # This allows the exit order to be retried in the next ExecutionRound
+                    old_order_id = pos.get("order_id")
+                    # Keep the exit signal fields but remove the CoWSwap order ID
+                    if old_order_id and old_order_id.startswith("0x"):
+                        pos["order_id"] = None
+                        pos["last_updated"] = datetime.now(UTC).isoformat()
+                        position_updated = True
+                        self.context.logger.info(
+                            f"Cleared cancelled/expired order ID {old_order_id} from position {pos['position_id']}"
+                        )
+                    break
+
+            if position_updated:
+                positions_data["last_updated"] = datetime.now(UTC).isoformat()
+
+                # Save updated positions
+                with open(positions_file, "w", encoding=DEFAULT_ENCODING) as f:
+                    json.dump(positions_data, f, indent=2)
+
+                self.context.logger.info("Updated positions.json - cleared order_id for retry")
+            else:
+                self.context.logger.warning(f"Could not find position {position.get('position_id')} to clear order_id")
+
+        except Exception as e:
+            self.context.logger.exception(f"Failed to clear order_id from position: {e}")

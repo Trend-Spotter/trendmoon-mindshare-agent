@@ -246,14 +246,33 @@ class ExecutionRound(BaseState):
         """Prepare exit orders for positions (using stored quantities, verified during execution)."""
         self.execution_type = "exit"
 
-        # Create exit orders immediately using stored quantities
-        # Actual on-chain balances will be verified during order execution
+        # Filter out positions that already have pending CoWSwap orders to prevent duplicates
+        positions_needing_exit = []
+        positions_with_pending_orders = []
+
         for position in self.context.positions_to_exit:
+            order_id = position.get("order_id")
+            # Check if position already has a CoWSwap order ID (starts with 0x)
+            if order_id and order_id.startswith("0x"):
+                positions_with_pending_orders.append(position)
+                self.context.logger.info(
+                    f"Skipping exit order for {position.get('symbol')} - "
+                    f"already has pending CoWSwap order {order_id}"
+                )
+            else:
+                positions_needing_exit.append(position)
+
+        # Create exit orders only for positions without pending orders
+        # Actual on-chain balances will be verified during order execution
+        for position in positions_needing_exit:
             order = self._create_exit_order(position)
             if order:
                 self.pending_orders.append(order)
 
-        self.context.logger.info(f"Created {len(self.pending_orders)} exit orders")
+        self.context.logger.info(
+            f"Created {len(self.pending_orders)} exit orders "
+            f"({len(positions_with_pending_orders)} positions already have pending orders)"
+        )
 
     def _setup_entry_execution(self) -> None:
         """Prepare entry orders for new position."""
@@ -766,8 +785,13 @@ class ExecutionRound(BaseState):
                     # Store the original ID in the operation metadata for reference
                     self.active_operation["original_order_id"] = original_order_id
 
-                    # Append order ID to pending_trades.json for easy reference
-                    self._append_order_id_to_pending_trades(original_order_id, response_order.id)
+                    # Store CoW order ID for tracking
+                    if self.execution_type == "entry":
+                        # For entry orders: append to pending_trades.json
+                        self._append_order_id_to_pending_trades(original_order_id, response_order.id)
+                    elif self.execution_type == "exit":
+                        # For exit orders: update position with CoWSwap order ID
+                        self._update_position_with_cowswap_order_id(original_order_id, response_order.id)
 
                     self.context.logger.info(
                         f"CoW order submitted successfully. Original ID: {original_order_id}, "
@@ -910,6 +934,56 @@ class ExecutionRound(BaseState):
 
         except Exception as e:
             self.context.logger.exception(f"Failed to append order ID to pending_trades.json: {e}")
+
+    def _update_position_with_cowswap_order_id(self, original_order_id: str, cowswap_order_id: str) -> None:
+        """Update position with CoWSwap order ID for exit order tracking."""
+        try:
+            if not self.context.store_path:
+                self.context.logger.warning("No store_path available, cannot update position")
+                return
+
+            positions_file = self.context.store_path / "positions.json"
+            if not positions_file.exists():
+                self.context.logger.warning(f"positions.json not found at {positions_file}")
+                return
+
+            # Load existing positions
+            with open(positions_file, encoding=DEFAULT_ENCODING) as f:
+                positions_data = json.load(f)
+
+            # Find position by matching order_id (which contains the original exit order ID)
+            # or by looking up the position_id from order_metadata
+            metadata = self.order_metadata.get(original_order_id, {})
+            position_id = metadata.get("position_id")
+
+            position_updated = False
+            for position in positions_data.get("positions", []):
+                # Match by position_id from metadata or by order_id field
+                if position.get("position_id") == position_id or position.get("order_id") == original_order_id:
+                    position["order_id"] = cowswap_order_id
+                    position["cowswap_order_submitted_at"] = datetime.now(UTC).isoformat()
+                    position_updated = True
+                    self.context.logger.info(
+                        f"Updated position {position.get('position_id')} with CoWSwap order ID {cowswap_order_id}"
+                    )
+                    break
+
+            if position_updated:
+                # Update timestamp and save
+                positions_data["last_updated"] = datetime.now(UTC).isoformat()
+
+                with open(positions_file, "w", encoding=DEFAULT_ENCODING) as f:
+                    json.dump(positions_data, f, indent=2)
+
+                self.context.logger.info("Updated positions.json with CoWSwap order ID")
+            else:
+                self.context.logger.warning(
+                    f"Could not find position for exit order {original_order_id} "
+                    f"(position_id: {position_id}) in positions.json"
+                )
+
+        except Exception as e:
+            self.context.logger.exception(f"Failed to update position with CoWSwap order ID: {e}")
 
     def _monitor_cow_execution(self) -> None:
         """Monitor CoW order execution status."""
