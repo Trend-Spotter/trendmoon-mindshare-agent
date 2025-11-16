@@ -1420,12 +1420,16 @@ class CallCheckpointRound(BaseState):
         except Exception as e:
             self.context.logger.exception(f"Error calculating multisig nonces since checkpoint: {e}")
 
-    def _increment_period_count(self) -> None:
-        """Increment the period count for KPI tracking."""
+    def _save_period_count_to_state(self) -> None:
+        """Save the current period count from FSM to state.json for KPI tracking."""
         try:
             if not self.context.store_path:
-                self.context.logger.warning("No store path available, cannot increment period count")
+                self.context.logger.warning("No store path available, cannot save period count")
                 return
+
+            # Get period count from FSM behaviour (single source of truth)
+            fsm_behaviour = self.context.behaviours.main
+            period_count = fsm_behaviour.period_count
 
             state_file = Path(self.context.store_path) / "state.json"
 
@@ -1435,29 +1439,27 @@ class CallCheckpointRound(BaseState):
                 with open(state_file, encoding=DEFAULT_ENCODING) as f:
                     state_data = json.load(f)
 
-            # Get current period count, defaulting to 0 if not present
-            current_period_count = state_data.get("period_count", 0)
-
-            # Increment period count
-            new_period_count = current_period_count + 1
-            state_data["period_count"] = new_period_count
+            # Save FSM's period count to state.json
+            old_count = state_data.get("period_count", 0)
+            state_data["period_count"] = period_count
 
             # Save updated state
             with open(state_file, "w", encoding=DEFAULT_ENCODING) as f:
                 json.dump(state_data, f, indent=2)
 
-            self.context.logger.info(f"Period count incremented: {current_period_count} -> {new_period_count}")
+            self.context.logger.info(f"Period count saved to state.json: {old_count} -> {period_count}")
 
         except (PermissionError, OSError, json.JSONDecodeError) as e:
-            self.context.logger.warning(f"Failed to increment period count: {e}")
+            self.context.logger.warning(f"Failed to save period count: {e}")
 
     def _finalize_checkpoint_check(self) -> None:
         """Finalize checkpoint check and determine transition."""
         self.context.logger.info("Finalizing checkpoint check...")
 
-        # Increment period count for KPI tracking
-        # This runs every time CallCheckpointRound completes, ensuring proper grace period tracking
-        self._increment_period_count()
+        # Save FSM's period count to state.json for KPI tracking
+        # The FSM increments period_count when entering DATACOLLECTIONROUND (single source of truth)
+        # We save it here to make it available in state.json for KPI evaluation
+        self._save_period_count_to_state()
 
         # Save staking state to state.json
         self._save_staking_state_to_state_json()

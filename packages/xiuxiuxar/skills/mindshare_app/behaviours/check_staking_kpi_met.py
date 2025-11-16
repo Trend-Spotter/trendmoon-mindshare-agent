@@ -425,7 +425,8 @@ class CheckStakingKPIRound(BaseState):
             period_number_at_last_cp = kpi_state.get("period_number_at_last_cp", 0)
             last_checkpoint_nonce = kpi_state.get("last_checkpoint_nonce", 0)
 
-            # Note: period_count is incremented by CallCheckpointRound._increment_period_count()
+            # Note: period_count is incremented by the FSM (round_behaviour.py) when entering DATACOLLECTIONROUND
+            # CallCheckpointRound._save_period_count_to_state() saves FSM's value to state.json
             # We just read it here for KPI evaluation
 
             # Handle edge case: checkpoint nonce is higher than current nonce (stale/corrupt state)

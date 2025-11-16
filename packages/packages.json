@@ -1,8 +1,8 @@
 {
     "dev": {
-        "skill/xiuxiuxar/mindshare_app/0.1.0": "bafybeiffkxcopnrahkwbhui52nexcztxu4vexoxqupxsxf7h2mwhayuoyy",
-        "agent/xiuxiuxar/mindshare_agent/0.1.0": "bafybeiddwrhqy4ciyy4rwndmskpygtzct35ufqfu7wcptvgqpdonnya5by",
-        "service/xiuxiuxar/mindshare_agent/0.1.0": "bafybeidsyworifp2w2r342hrmzu7c7t52o4x5om25yudmpfu3xosvqekbi"
+        "skill/xiuxiuxar/mindshare_app/0.1.0": "bafybeihzovmpk4n3t3vjjpsselzlds3sxicmbzlhjshofmsqp3qtybfj2m",
+        "agent/xiuxiuxar/mindshare_agent/0.1.0": "bafybeid6vhl2bdeozhoahfxmyi44zertwdabfjkwn22dhhqbsqq5vrzyvi",
+        "service/xiuxiuxar/mindshare_agent/0.1.0": "bafybeifr5dnnsm5s3j2bxmcf7aj4c6xqeityq7xnqecrmock4rd57hji7q"
     },
     "third_party": {
         "protocol/eightballer/default/0.1.0": "bafybeibu3dme3plwprq5j6xl6vfx2e5ebwbudtj5yndkxcsoiwxljst22a",
