@@ -420,8 +420,7 @@ class CheckStakingKPIRound(BaseState):
                 }
                 self._save_kpi_state(kpi_state)
                 self.context.logger.info(
-                    f"KPI state migrated to v2. period_count: {period_count}, "
-                    f"checkpoint_nonce: {checkpoint_nonce}"
+                    f"KPI state migrated to v2. period_count: {period_count}, " f"checkpoint_nonce: {checkpoint_nonce}"
                 )
 
             # period_count already set from FSM above (single source of truth)
