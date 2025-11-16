@@ -388,13 +388,16 @@ class CheckStakingKPIRound(BaseState):
             # Load persistent KPI state data
             kpi_state = self._load_kpi_state()
 
+            # Get current period count from FSM (single source of truth)
+            fsm_behaviour = self.context.behaviours.main
+            period_count = fsm_behaviour.period_count
+
             # Check if this is first run or state needs reset (migration from v1 to v2)
             state_version = kpi_state.get("state_version", 1)
             if state_version < 2:
                 self.context.logger.warning("Detected old KPI state format (v1). Migrating to v2 with fixed logic.")
 
-                # Preserve period_count if it exists (managed by CallCheckpointRound)
-                current_period_count = kpi_state.get("period_count", 0)
+                # Use FSM period_count as source of truth (not old state value)
                 current_period_number_at_last_cp = kpi_state.get("period_number_at_last_cp", 0)
 
                 # Only reset checkpoint nonce if this is truly the first run (no existing checkpoint)
@@ -411,23 +414,22 @@ class CheckStakingKPIRound(BaseState):
                 # Migrate to v2 while preserving existing state
                 kpi_state = {
                     "state_version": 2,
-                    "period_count": current_period_count,
+                    "period_count": period_count,  # Use FSM value
                     "period_number_at_last_cp": current_period_number_at_last_cp,
                     "last_checkpoint_nonce": checkpoint_nonce,
                 }
                 self._save_kpi_state(kpi_state)
                 self.context.logger.info(
-                    f"KPI state migrated to v2. period_count: {current_period_count}, "
+                    f"KPI state migrated to v2. period_count: {period_count}, "
                     f"checkpoint_nonce: {checkpoint_nonce}"
                 )
 
-            period_count = kpi_state.get("period_count", 0)
+            # period_count already set from FSM above (single source of truth)
             period_number_at_last_cp = kpi_state.get("period_number_at_last_cp", 0)
             last_checkpoint_nonce = kpi_state.get("last_checkpoint_nonce", 0)
 
             # Note: period_count is incremented by the FSM (round_behaviour.py) when entering DATACOLLECTIONROUND
-            # CallCheckpointRound._save_period_count_to_state() saves FSM's value to state.json
-            # We just read it here for KPI evaluation
+            # We read it directly from FSM here and save it to state.json for persistence
 
             # Handle edge case: checkpoint nonce is higher than current nonce (stale/corrupt state)
             # This can happen if state was manually edited or checkpoint was set incorrectly
