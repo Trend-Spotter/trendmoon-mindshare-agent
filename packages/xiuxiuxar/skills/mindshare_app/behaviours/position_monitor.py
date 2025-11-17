@@ -137,10 +137,24 @@ class PositionMonitoringRound(BaseState):
             position_updated = self._monitor_position(position)
 
             if position_updated.get("exit_signal"):
-                # Clear entry order ID to allow exit order creation
-                # The order_id field contains the entry order ID which must be cleared
-                # so that ExecutionRound can create a new exit order
-                position_updated["order_id"] = None
+                # Conditionally clear order_id based on whether exit order already submitted
+                current_order_id = position_updated.get("order_id")
+                cowswap_submitted = position_updated.get("cowswap_order_submitted_at")
+
+                if cowswap_submitted:
+                    # Exit order already submitted - keep order_id to prevent duplicate
+                    self.context.logger.info(
+                        f"Position {position['symbol']} already has submitted exit order "
+                        f"(submitted at {cowswap_submitted}, order_id={current_order_id}), "
+                        f"keeping order_id to prevent duplicate"
+                    )
+                else:
+                    # First time exit signal - clear entry order_id to allow exit order creation
+                    position_updated["order_id"] = None
+                    self.context.logger.info(
+                        f"Clearing entry order_id for {position['symbol']} to allow exit order creation"
+                    )
+
                 self.positions_to_exit.append(position_updated)
                 self.context.logger.info(
                     f"Exit signal detected for {position['symbol']}: {position_updated['exit_reason']}"
@@ -239,6 +253,23 @@ class PositionMonitoringRound(BaseState):
     def _monitor_position(self, position: dict[str, Any]) -> dict[str, Any]:
         """Monitor a single position for exit conditions."""
         symbol = position["symbol"]
+
+        # Check if position already has a pending exit order
+        # If exit_signal is True AND cowswap_order_submitted_at is set,
+        # it means we already created and submitted an exit order
+        # Skip re-evaluation to prevent duplicate orders
+        if position.get("exit_signal") and position.get("cowswap_order_submitted_at"):
+            self.context.logger.info(
+                f"Position {symbol} already has pending exit order "
+                f"(submitted at {position.get('cowswap_order_submitted_at')}), "
+                f"skipping exit condition re-evaluation"
+            )
+            # Return position as-is with current timestamp
+            return {
+                **position,
+                "last_updated": datetime.now(UTC).isoformat(),
+            }
+
         entry_price = position["entry_price"]
         stop_loss = position.get("stop_loss_price")
         take_profit = position.get("take_profit_price")
@@ -939,16 +970,21 @@ class PositionMonitoringRound(BaseState):
             position_updated = False
             for pos in positions_data.get("positions", []):
                 if pos.get("position_id") == position.get("position_id"):
-                    # Clear the CoWSwap order_id but keep exit_signal and other exit fields
-                    # This allows the exit order to be retried in the next ExecutionRound
+                    # Clear the CoWSwap order_id AND all exit state fields
+                    # This allows the position to be re-evaluated for exit conditions
                     old_order_id = pos.get("order_id")
-                    # Keep the exit signal fields but remove the CoWSwap order ID
                     if old_order_id and old_order_id.startswith("0x"):
+                        # Clear all exit-related fields to reset the exit state
                         pos["order_id"] = None
+                        pos["exit_signal"] = False
+                        pos["exit_type"] = None
+                        pos["exit_reason"] = None
+                        pos["cowswap_order_submitted_at"] = None
                         pos["last_updated"] = datetime.now(UTC).isoformat()
                         position_updated = True
                         self.context.logger.info(
-                            f"Cleared cancelled/expired order ID {old_order_id} from position {pos['position_id']}"
+                            f"Cleared cancelled/expired order ID {old_order_id} from position {pos['position_id']} "
+                            f"and reset exit_signal for re-evaluation"
                         )
                     break
 

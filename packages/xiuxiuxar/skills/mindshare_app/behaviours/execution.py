@@ -252,15 +252,25 @@ class ExecutionRound(BaseState):
 
         for position in self.context.positions_to_exit:
             order_id = position.get("order_id")
+            position_id = position.get("position_id")
+            symbol = position.get("symbol")
+            cowswap_submitted = position.get("cowswap_order_submitted_at")
+
             # Check if position already has a CoWSwap order ID (starts with 0x)
             if order_id and order_id.startswith("0x"):
                 positions_with_pending_orders.append(position)
                 self.context.logger.info(
-                    f"Skipping exit order for {position.get('symbol')} - "
-                    f"already has pending CoWSwap order {order_id}"
+                    f"Skipping exit order for {symbol} ({position_id}) - "
+                    f"already has pending CoWSwap order {order_id} "
+                    f"(submitted at {cowswap_submitted})"
                 )
             else:
                 positions_needing_exit.append(position)
+                self.context.logger.info(
+                    f"Creating exit order for {symbol} ({position_id}) - "
+                    f"no pending order found (order_id={order_id}, "
+                    f"cowswap_submitted_at={cowswap_submitted})"
+                )
 
         # Create exit orders only for positions without pending orders
         # Actual on-chain balances will be verified during order execution
