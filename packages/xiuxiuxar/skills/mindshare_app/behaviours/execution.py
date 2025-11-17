@@ -866,6 +866,10 @@ class ExecutionRound(BaseState):
                     # Clear operation and transition
                     self.active_operation = None
                     self._clear_dialogue(dialogue)
+
+                    # Clean up context to prevent re-processing this trade in next round
+                    self._cleanup_context()
+
                     self._complete(MindshareabciappEvents.ORDER_PLACED)
                     return True
 
@@ -1088,6 +1092,10 @@ class ExecutionRound(BaseState):
                     )
                     # Clear active_operation before transitioning to prevent infinite loop
                     self.active_operation = None
+
+                    # Clean up context to prevent re-processing this trade in next round
+                    self._cleanup_context()
+
                     self._complete(MindshareabciappEvents.ORDER_PLACED)
                 return True
 
