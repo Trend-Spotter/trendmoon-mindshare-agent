@@ -159,11 +159,6 @@ ALLOWED_ASSETS: dict[str, list[dict[str, str]]] = {
             "coingecko_id": "keyboard-cat-base",
         },
         {
-            "address": "0xbe35071605277d8be5a52c84a66ab1bc855a758d",
-            "symbol": "B4FWX",
-            "coingecko_id": "be-for-fwx",
-        },
-        {
             "address": "0xa1832f7f4e534ae557f9b5ab76de54b1873e498b",
             "symbol": "BID",
             "coingecko_id": "creatorbid",
