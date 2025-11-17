@@ -137,6 +137,10 @@ class PositionMonitoringRound(BaseState):
             position_updated = self._monitor_position(position)
 
             if position_updated.get("exit_signal"):
+                # Clear entry order ID to allow exit order creation
+                # The order_id field contains the entry order ID which must be cleared
+                # so that ExecutionRound can create a new exit order
+                position_updated["order_id"] = None
                 self.positions_to_exit.append(position_updated)
                 self.context.logger.info(
                     f"Exit signal detected for {position['symbol']}: {position_updated['exit_reason']}"
