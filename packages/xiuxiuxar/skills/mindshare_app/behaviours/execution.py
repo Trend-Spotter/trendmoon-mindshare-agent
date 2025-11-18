@@ -254,7 +254,16 @@ class ExecutionRound(BaseState):
             order_id = position.get("order_id")
             position_id = position.get("position_id")
             symbol = position.get("symbol")
+            status = position.get("status")
             cowswap_submitted = position.get("cowswap_order_submitted_at")
+
+            # Defensive check: Skip closed positions entirely
+            if status == "closed":
+                self.context.logger.error(
+                    f"CRITICAL: Closed position {symbol} ({position_id}) reached ExecutionRound "
+                    f"(filtering failed in PositionMonitoringRound - please investigate)"
+                )
+                continue
 
             # Check if position already has a CoWSwap order ID (starts with 0x)
             if order_id and order_id.startswith("0x"):

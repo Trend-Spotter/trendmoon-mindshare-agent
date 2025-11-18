@@ -42,6 +42,7 @@ class PositionMonitoringRound(BaseState):
         self.position_updates: list[dict[str, Any]] = []
         self.pending_positions: list[dict[str, Any]] = []
         self.completed_positions: list[dict[str, Any]] = []
+        self.closed_position_ids: set[str] = set()
         self.monitoring_initialized: bool = False
 
         # Pending orders tracking
@@ -57,6 +58,7 @@ class PositionMonitoringRound(BaseState):
         self.position_updates = []
         self.pending_positions = []
         self.completed_positions = []
+        self.closed_position_ids = set()
         self.monitoring_initialized = False
         self.pending_trades = []
         self.pending_exit_positions = []
@@ -122,6 +124,7 @@ class PositionMonitoringRound(BaseState):
         self.completed_positions = []
         self.positions_to_exit = []
         self.position_updates = []
+        self.closed_position_ids = set()  # Track positions closed in this round
 
         self.started_at = datetime.now(UTC)
         self.monitoring_initialized = True
@@ -184,16 +187,46 @@ class PositionMonitoringRound(BaseState):
                 f"({len(self.completed_positions)} positions processed)"
             )
 
-        # Store updated positions
+        # Store updated positions, but exclude any that were closed in this round
         all_updated_positions = self.position_updates + self.positions_to_exit
         if all_updated_positions:
-            self._update_positions_storage(all_updated_positions)
+            # Filter out positions that were closed during this round to prevent overwriting
+            positions_to_save = [
+                pos for pos in all_updated_positions if pos.get("position_id") not in self.closed_position_ids
+            ]
+
+            if positions_to_save:
+                self._update_positions_storage(positions_to_save)
+
+            # Log if we filtered any closed positions
+            filtered_count = len(all_updated_positions) - len(positions_to_save)
+            if filtered_count > 0:
+                self.context.logger.info(
+                    f"Filtered {filtered_count} closed position(s) from storage update "
+                    f"to prevent overwrite: {self.closed_position_ids}"
+                )
 
         # Determine transition based on exit signals
         if self.positions_to_exit:
-            self.context.positions_to_exit = self.positions_to_exit
-            self.context.logger.info(f"Found {len(self.positions_to_exit)} positions to exit")
-            self._event = MindshareabciappEvents.EXIT_SIGNAL
+            # Filter out closed positions before passing to execution round
+            open_positions_to_exit = [
+                pos for pos in self.positions_to_exit if pos.get("position_id") not in self.closed_position_ids
+            ]
+
+            # Log if we filtered any closed positions
+            if len(open_positions_to_exit) < len(self.positions_to_exit):
+                filtered_count = len(self.positions_to_exit) - len(open_positions_to_exit)
+                self.context.logger.warning(
+                    f"Filtered {filtered_count} closed position(s) from exit queue "
+                    f"(indicates race condition between order fill and position monitoring)"
+                )
+
+            if open_positions_to_exit:
+                self.context.positions_to_exit = open_positions_to_exit
+                self.context.logger.info(f"Found {len(open_positions_to_exit)} positions to exit")
+                self._event = MindshareabciappEvents.EXIT_SIGNAL
+            else:
+                self._event = MindshareabciappEvents.POSITIONS_CHECKED
         else:
             self._event = MindshareabciappEvents.POSITIONS_CHECKED
 
@@ -852,7 +885,7 @@ class PositionMonitoringRound(BaseState):
             self.context.logger.exception(f"Error creating position from trade {trade.get('trade_id')}: {e}")
             return None
 
-    def _close_position_from_filled_exit(self, _cowswap_order_id: str, order: Any, position: dict[str, Any]) -> None:
+    def _close_position_from_filled_exit(self, _cowswap_order_id: str, order: Any, position: dict[str, Any]) -> None:  # noqa: PLR0915
         """Close a position when its exit order is filled.
 
         Args:
@@ -897,6 +930,7 @@ class PositionMonitoringRound(BaseState):
 
             # Find and update the position
             position_updated = False
+            closed_position_id = None
             for pos in positions_data.get("positions", []):
                 if pos.get("position_id") == position.get("position_id"):
                     # Update to closed status
@@ -908,7 +942,14 @@ class PositionMonitoringRound(BaseState):
                     pos["realized_pnl_percentage"] = realized_pnl_percentage
                     pos["closed_at"] = datetime.now(UTC).isoformat()
                     pos["last_updated"] = datetime.now(UTC).isoformat()
+
+                    # Clear exit order fields to prevent re-processing
+                    pos["order_id"] = None
+                    pos["exit_signal"] = False
+                    pos["cowswap_order_submitted_at"] = None
+
                     position_updated = True
+                    closed_position_id = pos["position_id"]
 
                     self.context.logger.info(
                         f"Closed position {pos['position_id']} ({pos['symbol']}) with "
@@ -936,6 +977,10 @@ class PositionMonitoringRound(BaseState):
                 # Save updated positions
                 with open(positions_file, "w", encoding=DEFAULT_ENCODING) as f:
                     json.dump(positions_data, f, indent=2)
+
+                # Track this position as closed to prevent overwrite in finalize
+                if closed_position_id and closed_position_id not in self.closed_position_ids:
+                    self.closed_position_ids.add(closed_position_id)
 
                 self.context.logger.info("Updated positions.json with closed position")
             else:
