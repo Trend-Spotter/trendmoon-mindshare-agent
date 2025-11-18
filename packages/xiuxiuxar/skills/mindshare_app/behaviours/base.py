@@ -744,13 +744,42 @@ class BaseState(State, ABC):
                 return self._process_orders_response(message, dialogue)
 
             if message.performative == OrdersMessage.Performative.ERROR:
-                self.context.logger.error(f"Error monitoring CoW orders: {message.error_msg}")
+                error_msg = getattr(message, "error_msg", str(message))
+                self.context.logger.error(f"Error monitoring CoW orders: {error_msg}")
+
+                # Check if this is a ValueError from unknown order status
+                if "ValueError: Unknown order status" in error_msg or "presignaturePending" in error_msg:
+                    # Non-retryable error - unknown status from CoW API
+                    self.context.logger.error(
+                        "Non-retryable error: Unknown CoW order status. "
+                        "Marking pending orders check as complete and transitioning to error handling."
+                    )
+
+                    # Mark as complete to unblock FSM
+                    if hasattr(self, "pending_orders_checked"):
+                        self.pending_orders_checked = True
+
+                    # Set error context for HandleErrorRound
+                    self.context.error_context = {
+                        "error_type": "cowswap_unknown_status_error",
+                        "error_message": error_msg,
+                        "originating_round": str(getattr(self, "_state", "PositionMonitoringRound")),
+                        "error_details": "CoW API returned unknown order status - likely presignaturePending",
+                    }
+                    return True
+
+                # For other errors, just log and mark as complete
+                if hasattr(self, "pending_orders_checked"):
+                    self.pending_orders_checked = True
                 return True
 
             return False
 
         except Exception as e:
             self.context.logger.exception(f"Error validating CoW monitoring response: {e}")
+            # Ensure we don't get stuck even on validation errors
+            if hasattr(self, "pending_orders_checked"):
+                self.pending_orders_checked = True
             return False
 
     def _process_orders_response(self, message: OrdersMessage, dialogue: BaseDialogue) -> bool:
