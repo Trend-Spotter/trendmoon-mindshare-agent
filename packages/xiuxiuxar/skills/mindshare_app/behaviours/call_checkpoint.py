@@ -927,6 +927,48 @@ class CallCheckpointRound(BaseState):
                 self.checkpoint_tx_final_hash = tx_hash
                 self.checkpoint_tx_executed = True
                 self.context.logger.info(f"Checkpoint transaction broadcast successful: {tx_hash}")
+
+                # Update KPI state with checkpoint information
+                # This is critical: we must update last_checkpoint_nonce after a successful checkpoint
+                # so that CheckStakingKPIRound can correctly calculate transactions since last checkpoint
+                state_file = Path(self.context.store_path) / "state.json"
+                state_data = {}
+                if state_file.exists():
+                    with open(state_file, encoding=DEFAULT_ENCODING) as f:
+                        state_data = json.load(f)
+
+                # Get current nonce from contract responses (from earlier multisig_nonces call)
+                current_nonce = None
+                for response in self.contract_responses.values():
+                    if response.get("request_type") == "multisig_nonces":
+                        current_nonce = response.get("multisig_nonces")
+                        break
+
+                # Get current period from FSM (single source of truth)
+                fsm_behaviour = self.context.behaviours.main
+                current_period = fsm_behaviour.period_count
+
+                # Update checkpoint tracking in state
+                if current_nonce is not None:
+                    state_data["last_checkpoint_nonce"] = current_nonce
+                    state_data["period_number_at_last_cp"] = current_period
+                    state_data["checkpoint_tx_final_hash"] = tx_hash
+                    state_data["checkpoint_timestamp"] = datetime.now(UTC).isoformat()
+
+                    self.context.logger.info(
+                        f"✅ Checkpoint tracking updated: "
+                        f"last_checkpoint_nonce={current_nonce}, "
+                        f"period_number_at_last_cp={current_period}"
+                    )
+
+                    # Save updated state
+                    with open(state_file, "w", encoding=DEFAULT_ENCODING) as f:
+                        json.dump(state_data, f, indent=2)
+                else:
+                    self.context.logger.warning(
+                        "Could not update last_checkpoint_nonce: current nonce not found in contract responses"
+                    )
+
                 return True
 
             if message.performative == LedgerApiMessage.Performative.ERROR:
