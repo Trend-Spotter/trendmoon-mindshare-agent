@@ -379,128 +379,142 @@ class CheckStakingKPIRound(BaseState):
             self.staking_kpi_check_complete = True
 
     def _evaluate_staking_kpi(self, current_nonce: int) -> None:
-        """Evaluate if staking KPI is met based on current nonce."""
+        """Evaluate if staking KPI is met based on current nonce using timestamp-based tracking."""
         try:
-            # Get parameters for KPI evaluation
-            staking_threshold_period = getattr(self.context.params, "staking_threshold_period", 22)  # periods
-            min_num_of_safe_tx_required = getattr(self.context.params, "min_num_of_safe_tx_required", 5)  # transactions
-
-            # Load persistent KPI state data
+            # Get parameters
+            params = self._get_kpi_parameters()
             kpi_state = self._load_kpi_state()
 
-            # Get current period count from FSM (single source of truth)
-            fsm_behaviour = self.context.behaviours.main
-            period_count = fsm_behaviour.period_count
+            # Handle migration if needed
+            kpi_state = self._migrate_kpi_state_if_needed(kpi_state, current_nonce, params)
 
-            # Check if this is first run or state needs reset (migration from v1 to v2)
-            state_version = kpi_state.get("state_version", 1)
-            if state_version < 2:
-                self.context.logger.warning("Detected old KPI state format (v1). Migrating to v2 with fixed logic.")
+            # Get checkpoint data and validate
+            checkpoint_data = self._get_validated_checkpoint_data(kpi_state, current_nonce)
 
-                # Use FSM period_count as source of truth (not old state value)
-                current_period_number_at_last_cp = kpi_state.get("period_number_at_last_cp", 0)
+            # Evaluate KPI based on grace period and transactions
+            self._perform_kpi_evaluation(checkpoint_data, current_nonce, params)
 
-                # Only reset checkpoint nonce if this is truly the first run (no existing checkpoint)
-                # Otherwise preserve it to avoid losing progress
-                checkpoint_nonce = kpi_state.get("last_checkpoint_nonce")
-                if checkpoint_nonce is None or checkpoint_nonce == 0:
-                    # First migration - set to current nonce
-                    checkpoint_nonce = current_nonce
-                    self.context.logger.info(f"First migration - setting checkpoint nonce to current: {current_nonce}")
-                else:
-                    # Already had a checkpoint - preserve it
-                    self.context.logger.info(f"Migration preserving existing checkpoint nonce: {checkpoint_nonce}")
-
-                # Migrate to v2 while preserving existing state
-                kpi_state = {
-                    "state_version": 2,
-                    "period_count": period_count,  # Use FSM value
-                    "period_number_at_last_cp": current_period_number_at_last_cp,
-                    "last_checkpoint_nonce": checkpoint_nonce,
-                }
-                self._save_kpi_state(kpi_state)
-                self.context.logger.info(
-                    f"KPI state migrated to v2. period_count: {period_count}, " f"checkpoint_nonce: {checkpoint_nonce}"
-                )
-
-            # period_count already set from FSM above (single source of truth)
-            period_number_at_last_cp = kpi_state.get("period_number_at_last_cp", 0)
-            last_checkpoint_nonce = kpi_state.get("last_checkpoint_nonce", 0)
-
-            # Note: period_count is incremented by the FSM (round_behaviour.py) when entering DATACOLLECTIONROUND
-            # We read it directly from FSM here and save it to state.json for persistence
-
-            # Handle edge case: checkpoint nonce is higher than current nonce (stale/corrupt state)
-            # This can happen if state was manually edited or checkpoint was set incorrectly
-            if last_checkpoint_nonce > current_nonce:
-                self.context.logger.warning(
-                    f"Checkpoint nonce ({last_checkpoint_nonce}) is higher than current nonce ({current_nonce}). "
-                    "Resetting checkpoint to current state."
-                )
-                last_checkpoint_nonce = current_nonce
-                period_number_at_last_cp = period_count
-
-            self.context.logger.info(
-                f"KPI Evaluation - Current nonce: {current_nonce}, "
-                f"Last checkpoint nonce: {last_checkpoint_nonce}, "
-                f"Period count: {period_count}, "
-                f"Last CP period: {period_number_at_last_cp}"
-            )
-
-            # Check if we're past the threshold period
-            is_period_threshold_exceeded = period_count - period_number_at_last_cp >= staking_threshold_period
-
-            if not is_period_threshold_exceeded:
-                periods_elapsed = period_count - period_number_at_last_cp
-                self.context.logger.info(
-                    f"Grace period active (period {periods_elapsed}/{staking_threshold_period}). "
-                    "KPI check skipped - not yet evaluated."
-                )
-                self.is_staking_kpi_met = None  # Not evaluated yet - grace period
-            else:
-                # We're in evaluation period - check transactions since deployment/last checkpoint
-                # DO NOT reset checkpoint here - only update when vanity tx successfully broadcasts
-
-                # Calculate transactions since last checkpoint
-                multisig_nonces_since_last_cp = current_nonce - last_checkpoint_nonce
-
-                self.context.logger.info(
-                    f"Evaluation period active. Checking transactions since checkpoint "
-                    f"at period {period_number_at_last_cp}. Current period: {period_count}, "
-                    f"transactions since checkpoint: {multisig_nonces_since_last_cp}, "
-                    f"required: {min_num_of_safe_tx_required}"
-                )
-
-                if multisig_nonces_since_last_cp >= min_num_of_safe_tx_required:
-                    self.context.logger.info(
-                        f"Staking KPI met! Found {multisig_nonces_since_last_cp} transactions "
-                        f"(required: {min_num_of_safe_tx_required}) since last checkpoint."
-                    )
-                    self.is_staking_kpi_met = True
-                    # DO NOT update checkpoint here - only update when vanity tx successfully broadcasts
-                else:
-                    num_tx_left = min_num_of_safe_tx_required - multisig_nonces_since_last_cp
-                    self.context.logger.info(f"Staking KPI not met. Need {num_tx_left} more transactions")
-                    self.is_staking_kpi_met = False
-
-            # Save updated KPI state
-            updated_kpi_state = {
-                "state_version": 2,  # Always save as version 2
-                "period_count": period_count,
-                "period_number_at_last_cp": period_number_at_last_cp,
-                "last_checkpoint_nonce": last_checkpoint_nonce,
-                "current_nonce": current_nonce,
-                "last_evaluation": datetime.now(UTC).isoformat(),
-                "is_staking_kpi_met": self.is_staking_kpi_met,
-            }
-            self._save_kpi_state(updated_kpi_state)
-
+            # Save updated state
+            self._save_evaluation_result(checkpoint_data, current_nonce, params)
             self.staking_kpi_check_complete = True
 
         except Exception as e:
             self.context.logger.exception(f"Error evaluating staking KPI: {e}")
             self.is_staking_kpi_met = False
             self.staking_kpi_check_complete = True
+
+    def _get_kpi_parameters(self) -> dict[str, int]:
+        """Get KPI evaluation parameters."""
+        staking_threshold_period = getattr(self.context.params, "staking_threshold_period", 22)
+        period_length = getattr(self.context.params, "period_length", 3600)
+        min_tx_required = getattr(self.context.params, "min_num_of_safe_tx_required", 5)
+        return {
+            "staking_threshold_period": staking_threshold_period,
+            "period_length": period_length,
+            "min_num_of_safe_tx_required": min_tx_required,
+            "staking_threshold_seconds": staking_threshold_period * period_length,
+        }
+
+    def _migrate_kpi_state_if_needed(
+        self, kpi_state: dict[str, Any], current_nonce: int, params: dict[str, int]
+    ) -> dict[str, Any]:
+        """Migrate KPI state from v1/v2 to v3 if necessary."""
+        state_version = kpi_state.get("state_version", 1)
+        if state_version >= 3:
+            return kpi_state
+
+        self.context.logger.warning(f"Migrating KPI state from v{state_version} to v3 (timestamp-based)")
+
+        # Conservative: Give fresh grace period during migration
+        checkpoint_timestamp = int(datetime.now(UTC).timestamp())
+        checkpoint_nonce = kpi_state.get("last_checkpoint_nonce") or current_nonce
+
+        if checkpoint_nonce == current_nonce:
+            self.context.logger.info(f"Migration: setting checkpoint nonce to current: {current_nonce}")
+        else:
+            self.context.logger.info(f"Migration: preserving existing checkpoint nonce: {checkpoint_nonce}")
+
+        # Create v3 state
+        migrated_state = {
+            "state_version": 3,
+            "last_checkpoint_timestamp": checkpoint_timestamp,
+            "last_checkpoint_nonce": checkpoint_nonce,
+            "staking_threshold_seconds": params["staking_threshold_seconds"],
+        }
+        self._save_kpi_state(migrated_state)
+
+        grace_end = datetime.fromtimestamp(checkpoint_timestamp + params["staking_threshold_seconds"], UTC)
+        self.context.logger.info(f"KPI state migrated to v3. Fresh grace period until {grace_end.isoformat()}")
+        return migrated_state
+
+    def _get_validated_checkpoint_data(self, kpi_state: dict[str, Any], current_nonce: int) -> dict[str, int]:
+        """Get and validate checkpoint tracking data."""
+        checkpoint_timestamp = kpi_state.get("last_checkpoint_timestamp", 0)
+        checkpoint_nonce = kpi_state.get("last_checkpoint_nonce", 0)
+
+        # Handle edge case: checkpoint nonce higher than current (stale/corrupt state)
+        if checkpoint_nonce > current_nonce:
+            self.context.logger.warning(
+                f"Checkpoint nonce ({checkpoint_nonce}) > current ({current_nonce}). Resetting."
+            )
+            checkpoint_nonce = current_nonce
+            checkpoint_timestamp = int(datetime.now(UTC).timestamp())
+
+        return {
+            "last_checkpoint_timestamp": checkpoint_timestamp,
+            "last_checkpoint_nonce": checkpoint_nonce,
+            "current_timestamp": int(datetime.now(UTC).timestamp()),
+        }
+
+    def _perform_kpi_evaluation(
+        self, checkpoint_data: dict[str, int], current_nonce: int, params: dict[str, int]
+    ) -> None:
+        """Perform KPI evaluation based on grace period and transaction count."""
+        seconds_elapsed = checkpoint_data["current_timestamp"] - checkpoint_data["last_checkpoint_timestamp"]
+        threshold_seconds = params["staking_threshold_seconds"]
+
+        self.context.logger.info(
+            f"KPI Evaluation - nonce: {current_nonce}, checkpoint_nonce: "
+            f"{checkpoint_data['last_checkpoint_nonce']}, elapsed: {seconds_elapsed}s, "
+            f"grace: {threshold_seconds}s ({params['staking_threshold_period']} periods)"
+        )
+
+        if seconds_elapsed < threshold_seconds:
+            remaining_hours = (threshold_seconds - seconds_elapsed) / 3600
+            self.context.logger.info(
+                f"Grace period active ({seconds_elapsed}s / {threshold_seconds}s, "
+                f"{remaining_hours:.1f}h remaining). KPI check skipped."
+            )
+            self.is_staking_kpi_met = None
+        else:
+            tx_since_checkpoint = current_nonce - checkpoint_data["last_checkpoint_nonce"]
+            min_required = params["min_num_of_safe_tx_required"]
+
+            self.context.logger.info(
+                f"Evaluation period active. Txs since checkpoint: {tx_since_checkpoint}, required: {min_required}"
+            )
+
+            if tx_since_checkpoint >= min_required:
+                self.context.logger.info(f"Staking KPI met! {tx_since_checkpoint} >= {min_required} transactions")
+                self.is_staking_kpi_met = True
+            else:
+                self.context.logger.info(f"KPI not met. Need {min_required - tx_since_checkpoint} more txs")
+                self.is_staking_kpi_met = False
+
+    def _save_evaluation_result(
+        self, checkpoint_data: dict[str, int], current_nonce: int, params: dict[str, int]
+    ) -> None:
+        """Save KPI evaluation result to state."""
+        updated_state = {
+            "state_version": 3,
+            "last_checkpoint_timestamp": checkpoint_data["last_checkpoint_timestamp"],
+            "last_checkpoint_nonce": checkpoint_data["last_checkpoint_nonce"],
+            "staking_threshold_seconds": params["staking_threshold_seconds"],
+            "current_nonce": current_nonce,
+            "last_evaluation": datetime.now(UTC).isoformat(),
+            "is_staking_kpi_met": self.is_staking_kpi_met,
+        }
+        self._save_kpi_state(updated_state)
 
     def _load_kpi_state(self) -> dict[str, Any]:
         """Load KPI state from state.json."""
@@ -514,11 +528,16 @@ class CheckStakingKPIRound(BaseState):
         try:
             with open(state_file, encoding=DEFAULT_ENCODING) as f:
                 state_data = json.load(f)
-                # Extract relevant KPI fields
+                # Extract relevant KPI fields (supports both v2 and v3)
                 return {
                     "state_version": state_data.get("state_version", 1),
+                    # V3 fields (timestamp-based)
+                    "last_checkpoint_timestamp": state_data.get("last_checkpoint_timestamp", 0),
+                    "staking_threshold_seconds": state_data.get("staking_threshold_seconds", 0),
+                    # V2 fields (period-based, for migration)
                     "period_count": state_data.get("period_count", 0),
                     "period_number_at_last_cp": state_data.get("period_number_at_last_cp", 0),
+                    # Common fields
                     "last_checkpoint_nonce": state_data.get("last_checkpoint_nonce", 0),
                     "current_nonce": state_data.get("current_nonce", 0),
                     "last_evaluation": state_data.get("last_evaluation"),
@@ -552,11 +571,16 @@ class CheckStakingKPIRound(BaseState):
             # If has_required_funds is explicitly provided in kmp_data, use that value
             # Otherwise, fall back to checking the current instance variable
             kpi_state = {
-                "state_version": kmp_data.get("state_version", 2),  # Always save version 2
+                "state_version": kmp_data.get("state_version", 3),  # Default to v3
                 "is_staking_kpi_met": kmp_data.get("is_staking_kpi_met", False),
                 "has_required_funds": kmp_data.get("has_required_funds", self._check_agent_balance_threshold()),
+                # V3 fields (timestamp-based)
+                "last_checkpoint_timestamp": kmp_data.get("last_checkpoint_timestamp", 0),
+                "staking_threshold_seconds": kmp_data.get("staking_threshold_seconds", 0),
+                # V2 fields (period-based, deprecated but kept for backwards compat)
                 "period_count": kmp_data.get("period_count", 0),
                 "period_number_at_last_cp": kmp_data.get("period_number_at_last_cp", 0),
+                # Common fields
                 "last_checkpoint_nonce": kmp_data.get("last_checkpoint_nonce", 0),
                 "current_nonce": kmp_data.get("current_nonce", 0),
                 "last_evaluation": kmp_data.get("last_evaluation"),
@@ -1108,13 +1132,24 @@ class CheckStakingKPIRound(BaseState):
 
                 # Update checkpoint when vanity tx successfully broadcasts
                 # This resets the counting window for the next KPI evaluation period
-                current_period = kpi_state.get("period_count", 0)
                 current_nonce = kpi_state.get("current_nonce", 0)
+                # Vanity transaction increments nonce by 1
+                checkpoint_nonce = current_nonce + 1
+                checkpoint_timestamp = int(datetime.now(UTC).timestamp())
+
+                # V3 fields (timestamp-based)
+                kpi_state["last_checkpoint_nonce"] = checkpoint_nonce
+                kpi_state["last_checkpoint_timestamp"] = checkpoint_timestamp
+
+                # V2 fields (deprecated, kept for backwards compat)
+                current_period = kpi_state.get("period_count", 0)
                 kpi_state["period_number_at_last_cp"] = current_period
-                kpi_state["last_checkpoint_nonce"] = current_nonce
+
                 self.context.logger.info(
-                    f"✅ Checkpoint updated after successful vanity tx broadcast: "
-                    f"period_number_at_last_cp={current_period}, last_checkpoint_nonce={current_nonce}"
+                    f"Checkpoint updated after successful vanity tx broadcast: "
+                    f"last_checkpoint_nonce={checkpoint_nonce} (incremented from {current_nonce}), "
+                    f"last_checkpoint_timestamp={checkpoint_timestamp}, "
+                    f"period_number_at_last_cp={current_period}"
                 )
 
                 self._save_kpi_state(kpi_state)

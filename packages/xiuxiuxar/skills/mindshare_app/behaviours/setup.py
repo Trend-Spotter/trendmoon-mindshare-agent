@@ -100,7 +100,14 @@ class SetupRound(BaseState):
             "positions.json": {"positions": [], "last_updated": None},
             "signals.json": {"signals": [], "last_signal": None},
             "performance.json": {"trades": [], "metrics": {}},
-            "state.json": {"last_round": None, "error_count": 0},
+            "state.json": {
+                "last_round": None,
+                "error_count": 0,
+                "state_version": 3,
+                "last_checkpoint_timestamp": 0,
+                "last_checkpoint_nonce": 0,
+                "staking_threshold_seconds": 0,
+            },
             "portfolio_snapshot.json": {
                 "timestamp": None,
                 "available_capital_usdc": 0.0,

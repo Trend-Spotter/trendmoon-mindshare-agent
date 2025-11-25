@@ -950,14 +950,25 @@ class CallCheckpointRound(BaseState):
 
                 # Update checkpoint tracking in state
                 if current_nonce is not None:
-                    state_data["last_checkpoint_nonce"] = current_nonce
+                    # Checkpoint transaction increments nonce by 1
+                    checkpoint_nonce = current_nonce + 1
+                    checkpoint_timestamp = int(datetime.now(UTC).timestamp())
+
+                    # V3 fields (timestamp-based)
+                    state_data["last_checkpoint_nonce"] = checkpoint_nonce
+                    state_data["last_checkpoint_timestamp"] = checkpoint_timestamp
+
+                    # V2 fields (deprecated, kept for backwards compat)
                     state_data["period_number_at_last_cp"] = current_period
+
+                    # Metadata
                     state_data["checkpoint_tx_final_hash"] = tx_hash
                     state_data["checkpoint_timestamp"] = datetime.now(UTC).isoformat()
 
                     self.context.logger.info(
                         f"✅ Checkpoint tracking updated: "
-                        f"last_checkpoint_nonce={current_nonce}, "
+                        f"last_checkpoint_nonce={checkpoint_nonce} (incremented from {current_nonce}), "
+                        f"last_checkpoint_timestamp={checkpoint_timestamp}, "
                         f"period_number_at_last_cp={current_period}"
                     )
 

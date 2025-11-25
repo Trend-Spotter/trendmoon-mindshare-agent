@@ -19,12 +19,15 @@
 """This module contains the implementation of the behaviours of Mindshare App skill."""
 
 import os
+import json
 from typing import Any
+from pathlib import Path
 from datetime import datetime
 
 from pytz import UTC
 from aea.protocols.base import Message
 from aea.skills.behaviours import FSMBehaviour
+from autonomy.deploy.constants import DEFAULT_ENCODING
 
 from packages.eightballer.protocols.http.message import HttpMessage
 from packages.xiuxiuxar.skills.mindshare_app.behaviours.base import MindshareabciappEvents, MindshareabciappStates
@@ -272,6 +275,7 @@ class MindshareabciappFsmBehaviour(FSMBehaviour):
                 and previous_state != MindshareabciappStates.DATACOLLECTIONROUND.value
             ):
                 self._period_count += 1
+                self._persist_period_count()  # Save to state.json immediately
                 self.context.logger.info(f"FSM started new operational period: {self._period_count}")
 
             self.context.logger.info(f"FSM transitioned from {previous_state} to {self.current}")
@@ -294,6 +298,37 @@ class MindshareabciappFsmBehaviour(FSMBehaviour):
     def period_count(self) -> int:
         """Get the current period count."""
         return self._period_count
+
+    def _persist_period_count(self) -> None:
+        """Persist period_count to state.json for recovery across restarts."""
+        try:
+            # Get store_path from context params
+            if not hasattr(self.context, "params") or not hasattr(self.context.params, "store_path"):
+                return
+
+            store_path = self.context.params.store_path
+            if not store_path:
+                return
+
+            state_file = Path(store_path) / "state.json"
+
+            # Load existing state
+            state_data = {}
+            if state_file.exists():
+                with open(state_file, encoding=DEFAULT_ENCODING) as f:
+                    state_data = json.load(f)
+
+            # Update period_count
+            state_data["period_count"] = self._period_count
+
+            # Save back to file
+            with open(state_file, "w", encoding=DEFAULT_ENCODING) as f:
+                json.dump(state_data, f, indent=2)
+
+            self.context.logger.debug(f"Persisted period_count to state.json: {self._period_count}")
+
+        except (OSError, json.JSONDecodeError) as e:
+            self.context.logger.warning(f"Failed to persist period_count: {e}")
 
     def setup(self) -> None:
         """Implement the setup."""
