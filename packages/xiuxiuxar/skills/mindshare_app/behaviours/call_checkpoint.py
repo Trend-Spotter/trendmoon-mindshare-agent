@@ -952,13 +952,9 @@ class CallCheckpointRound(BaseState):
                 if current_nonce is not None:
                     # Checkpoint transaction increments nonce by 1
                     checkpoint_nonce = current_nonce + 1
-                    checkpoint_timestamp = int(datetime.now(UTC).timestamp())
 
-                    # V3 fields (timestamp-based)
+                    # V4 fields (period-based)
                     state_data["last_checkpoint_nonce"] = checkpoint_nonce
-                    state_data["last_checkpoint_timestamp"] = checkpoint_timestamp
-
-                    # V2 fields (deprecated, kept for backwards compat)
                     state_data["period_number_at_last_cp"] = current_period
 
                     # Metadata
@@ -968,7 +964,6 @@ class CallCheckpointRound(BaseState):
                     self.context.logger.info(
                         f"✅ Checkpoint tracking updated: "
                         f"last_checkpoint_nonce={checkpoint_nonce} (incremented from {current_nonce}), "
-                        f"last_checkpoint_timestamp={checkpoint_timestamp}, "
                         f"period_number_at_last_cp={current_period}"
                     )
 

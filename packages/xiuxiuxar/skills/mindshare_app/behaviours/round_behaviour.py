@@ -299,6 +299,38 @@ class MindshareabciappFsmBehaviour(FSMBehaviour):
         """Get the current period count."""
         return self._period_count
 
+    def _load_period_count_from_state(self) -> None:
+        """Load period_count from state.json on startup for recovery across restarts."""
+        try:
+            # Get store_path from context params
+            if not hasattr(self.context, "params") or not hasattr(self.context.params, "store_path"):
+                return
+
+            store_path = self.context.params.store_path
+            if not store_path:
+                return
+
+            state_file = Path(store_path) / "state.json"
+
+            # Load existing state
+            if state_file.exists():
+                with open(state_file, encoding=DEFAULT_ENCODING) as f:
+                    state_data = json.load(f)
+
+                # Restore period_count from state
+                saved_period_count = state_data.get("period_count", 0)
+                self._period_count = saved_period_count
+
+                self.context.logger.info(
+                    f"Loaded period_count from state.json: {self._period_count} "
+                    "(FSM period tracking restored from previous session)"
+                )
+            else:
+                self.context.logger.debug("No state.json found, starting with period_count = 0")
+
+        except (OSError, json.JSONDecodeError) as e:
+            self.context.logger.warning(f"Failed to load period_count from state: {e}")
+
     def _persist_period_count(self) -> None:
         """Persist period_count to state.json for recovery across restarts."""
         try:
@@ -334,6 +366,9 @@ class MindshareabciappFsmBehaviour(FSMBehaviour):
         """Implement the setup."""
         self.context.logger.info("Setting up Mindshareabciapp FSM behaviour.")
         self._last_transition_timestamp = datetime.now(UTC)
+
+        # Load period_count from state.json to restore FSM period tracking across restarts
+        self._load_period_count_from_state()
 
     def handle_message(self, message: Message) -> None:
         """Handle incoming messages, including HTTP responses for async data collection."""

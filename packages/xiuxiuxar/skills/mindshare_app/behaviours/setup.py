@@ -103,10 +103,10 @@ class SetupRound(BaseState):
             "state.json": {
                 "last_round": None,
                 "error_count": 0,
-                "state_version": 3,
-                "last_checkpoint_timestamp": 0,
+                "state_version": 4,
+                "period_count": 0,
+                "period_number_at_last_cp": 0,
                 "last_checkpoint_nonce": 0,
-                "staking_threshold_seconds": 0,
             },
             "portfolio_snapshot.json": {
                 "timestamp": None,
