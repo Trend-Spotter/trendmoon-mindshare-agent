@@ -417,7 +417,11 @@ class CheckStakingKPIRound(BaseState):
             Dict with staking_threshold_period and min_num_of_safe_tx_required
 
         """
-        staking_threshold_period = getattr(self.context.params, "staking_threshold_period", 5)
+        # Get staking_threshold_period from config
+        # This is a grace period (in FSM cycles) to allow organic transactions before
+        # we start checking KPI and potentially sending vanity transactions.
+        # After the grace period expires, we check KPI every cycle and send vanity tx if needed.
+        staking_threshold_period = getattr(self.context.params, "staking_threshold_period", 22)
 
         # Try to get min_tx_required from state.json (contract-calculated value)
         min_tx_required = kpi_state.get("min_num_of_safe_tx_required")
@@ -1150,21 +1154,22 @@ class CheckStakingKPIRound(BaseState):
                 kpi_state["vanity_tx_final_hash"] = tx_hash
                 kpi_state["vanity_tx_broadcast_timestamp"] = datetime.now(UTC).isoformat()
 
-                # Update checkpoint when vanity tx successfully broadcasts
-                # This resets the counting window for the next KPI evaluation period
+                # Update nonce tracking for vanity tx
+                # NOTE: Do NOT reset period_number_at_last_cp here!
+                # Only checkpoint transactions (in call_checkpoint.py) should reset the grace period.
+                # Vanity transactions only update the nonce counter.
                 current_nonce = kpi_state.get("current_nonce", 0)
                 # Vanity transaction increments nonce by 1
                 checkpoint_nonce = current_nonce + 1
 
                 # V4 fields (period-based)
                 kpi_state["last_checkpoint_nonce"] = checkpoint_nonce
-                current_period = kpi_state.get("period_count", 0)
-                kpi_state["period_number_at_last_cp"] = current_period
+                # IMPORTANT: period_number_at_last_cp is NOT updated here (only for checkpoint tx)
 
                 self.context.logger.info(
-                    f"Checkpoint updated after successful vanity tx broadcast: "
-                    f"last_checkpoint_nonce={checkpoint_nonce} (incremented from {current_nonce}), "
-                    f"period_number_at_last_cp={current_period}"
+                    f"Nonce updated after successful vanity tx broadcast: "
+                    f"last_checkpoint_nonce={checkpoint_nonce} (incremented from {current_nonce}). "
+                    f"Grace period NOT reset (only checkpoint tx resets grace period)."
                 )
 
                 self._save_kpi_state(kpi_state)
