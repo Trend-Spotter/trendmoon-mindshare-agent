@@ -1154,22 +1154,24 @@ class CheckStakingKPIRound(BaseState):
                 kpi_state["vanity_tx_final_hash"] = tx_hash
                 kpi_state["vanity_tx_broadcast_timestamp"] = datetime.now(UTC).isoformat()
 
-                # Update nonce tracking for vanity tx
-                # NOTE: Do NOT reset period_number_at_last_cp here!
-                # Only checkpoint transactions (in call_checkpoint.py) should reset the grace period.
-                # Vanity transactions only update the nonce counter.
+                # Update current_nonce to track the latest multisig nonce
+                # NOTE: We only update current_nonce, NOT last_checkpoint_nonce!
+                # last_checkpoint_nonce should ONLY be updated in call_checkpoint.py
+                # after a successful checkpoint transaction.
                 current_nonce = kpi_state.get("current_nonce", 0)
-                # Vanity transaction increments nonce by 1
-                checkpoint_nonce = current_nonce + 1
+                new_current_nonce = current_nonce + 1
 
-                # V4 fields (period-based)
-                kpi_state["last_checkpoint_nonce"] = checkpoint_nonce
-                # IMPORTANT: period_number_at_last_cp is NOT updated here (only for checkpoint tx)
+                # Update only current_nonce (the tracking field)
+                kpi_state["current_nonce"] = new_current_nonce
+
+                # IMPORTANT: Do NOT update last_checkpoint_nonce or period_number_at_last_cp!
+                # These fields define the "checkpoint baseline" and should only be updated
+                # when a real checkpoint transaction (call_checkpoint.py) executes.
 
                 self.context.logger.info(
-                    f"Nonce updated after successful vanity tx broadcast: "
-                    f"last_checkpoint_nonce={checkpoint_nonce} (incremented from {current_nonce}). "
-                    f"Grace period NOT reset (only checkpoint tx resets grace period)."
+                    f"Nonce tracking updated after vanity tx: current_nonce={new_current_nonce} "
+                    f"(incremented from {current_nonce}). "
+                    f"Checkpoint baseline NOT changed (last_checkpoint_nonce remains as-is)."
                 )
 
                 self._save_kpi_state(kpi_state)
