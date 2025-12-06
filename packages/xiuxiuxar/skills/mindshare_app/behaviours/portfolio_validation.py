@@ -19,7 +19,7 @@
 """This module contains the implementation of the behaviours of Mindshare App skill."""
 
 import json
-from typing import Any
+from typing import Any, TYPE_CHECKING, cast
 from datetime import UTC, datetime
 
 from aea.protocols.base import Message
@@ -36,6 +36,9 @@ from packages.xiuxiuxar.skills.mindshare_app.behaviours.base import (
     MindshareabciappEvents,
     MindshareabciappStates,
 )
+
+if TYPE_CHECKING:
+    from packages.xiuxiuxar.skills.mindshare_app.models import PerformanceTrackingService
 
 
 LEDGER_API_ADDRESS = str(LEDGER_CONNECTION_PUBLIC_ID)
@@ -498,5 +501,39 @@ class PortfolioValidationRound(BaseState):
 
             self.context.logger.debug(f"Saved portfolio snapshot: ${snapshot_data['current_portfolio_value']:.2f}")
 
+            # Update performance tracking (Pearl v1)
+            self._update_performance_tracking(snapshot_data)
+
         except Exception as e:
             self.context.logger.exception(f"Failed to save portfolio snapshot: {e}")
+
+    def _update_performance_tracking(self, snapshot_data: dict) -> None:
+        """Update Pearl v1 performance tracking with current portfolio metrics."""
+        try:
+            if not hasattr(self.context, "performance_tracking"):
+                return
+
+            perf_service = cast("PerformanceTrackingService", self.context.performance_tracking)
+
+            # Extract metrics
+            portfolio_value = snapshot_data.get("current_portfolio_value", 0.0)
+            num_positions = snapshot_data.get("current_positions", 0)
+            total_pnl = snapshot_data.get("total_unrealized_pnl", 0.0)
+
+            # Update portfolio metrics
+            perf_service.update_portfolio_metrics(
+                portfolio_value=portfolio_value,
+                num_positions=num_positions,
+                total_pnl=total_pnl,
+            )
+
+            # Update behavior description based on current state
+            if num_positions > 0:
+                perf_service.update_behavior(
+                    f"Active trading: monitoring {num_positions} positions using Trendmoon social scores"
+                )
+            else:
+                perf_service.update_behavior("Analyzing markets, waiting for high-confidence trading signals")
+
+        except Exception as e:
+            self.context.logger.warning(f"Failed to update performance tracking: {e}")

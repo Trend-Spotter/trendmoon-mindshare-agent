@@ -116,6 +116,9 @@ models:
   health_check_service:
     args: {}
     class_name: HealthCheckService
+  performance_tracking:
+    args: {}
+    class_name: PerformanceTrackingService
   requests:
     args: {}
     class_name: Requests
