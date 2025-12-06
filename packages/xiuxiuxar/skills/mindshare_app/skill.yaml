@@ -116,6 +116,9 @@ models:
   health_check_service:
     args: {}
     class_name: HealthCheckService
+  funds_status_service:
+    args: {}
+    class_name: FundsStatusService
   requests:
     args: {}
     class_name: Requests
@@ -170,6 +173,8 @@ models:
       macd_signal_period: 9
       adx_period_length: 14
       adx_threshold: 41
+      fund_requirements: '{}'
+      rpc_urls: '{"base":"https://base.drpc.org"}'
       agent_balance_threshold: 10000000000000000
     class_name: Params
 dependencies:
