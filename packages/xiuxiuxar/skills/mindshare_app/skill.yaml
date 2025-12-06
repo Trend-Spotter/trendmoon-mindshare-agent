@@ -119,6 +119,9 @@ models:
   funds_status_service:
     args: {}
     class_name: FundsStatusService
+  performance_tracking:
+    args: {}
+    class_name: PerformanceTrackingService
   requests:
     args: {}
     class_name: Requests

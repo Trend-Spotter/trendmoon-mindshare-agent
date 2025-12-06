@@ -786,9 +786,6 @@ class FundsStatusService(Model):
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
-        # Import here to avoid import loop
-        from packages.xiuxiuxar.skills.mindshare_app.funds_status import FundsStatusService as FundsService  # noqa: PLC0415
-
         self._service = None
 
     def get_service(self) -> Any:
@@ -821,6 +818,59 @@ class FundsStatusService(Model):
             return {}
 
         return service.compute_funds_status(fund_requirements, rpc_urls)
+
+
+class PerformanceTrackingService(Model):
+    """Service for tracking agent performance (Pearl v1)."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.tracker = None
+
+    def setup(self) -> None:
+        """Initialize the performance tracker."""
+        from packages.xiuxiuxar.skills.mindshare_app.performance_tracker import PerformanceTracker  # noqa: PLC0415
+
+        store_path = getattr(self.context.params, "store_path", "./persistent_data")
+        self.tracker = PerformanceTracker(self.context, store_path=store_path)
+        # Initialize with empty state
+        self.tracker.reset()
+
+    def update_portfolio_metrics(
+        self, portfolio_value: float, num_positions: int, total_pnl: float = 0.0
+    ) -> None:
+        """Update portfolio performance metrics."""
+        if not self.tracker:
+            self.setup()
+
+        # Format portfolio value
+        value_str = f"${portfolio_value:,.2f}"
+        pnl_str = f"${total_pnl:,.2f}" if total_pnl >= 0 else f"-${abs(total_pnl):,.2f}"
+
+        self.tracker.update_metric(
+            name="Portfolio Value",
+            value=value_str,
+            is_primary=True,
+            description=f"Current portfolio value ({num_positions} positions, PnL: {pnl_str})",
+        )
+
+        if total_pnl != 0:
+            # Calculate ROI percentage if we have PnL
+            roi_pct = (total_pnl / (portfolio_value - total_pnl)) * 100 if portfolio_value > total_pnl else 0
+            roi_str = f"{roi_pct:+.1f}%" if roi_pct != 0 else "0.0%"
+
+            self.tracker.update_metric(
+                name="Total ROI",
+                value=roi_str,
+                is_primary=False,
+                description=f"Return on investment since activation",
+            )
+
+    def update_behavior(self, description: str) -> None:
+        """Update agent behavior description."""
+        if not self.tracker:
+            self.setup()
+        self.tracker.update_behavior(description)
 
 
 class Params(Model):
