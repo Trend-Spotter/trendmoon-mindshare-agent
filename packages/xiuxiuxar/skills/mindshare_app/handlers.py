@@ -56,7 +56,7 @@ from packages.xiuxiuxar.skills.mindshare_app.dialogues import (
 
 
 if TYPE_CHECKING:
-    from packages.xiuxiuxar.skills.mindshare_app.models import Requests, HealthCheckService
+    from packages.xiuxiuxar.skills.mindshare_app.models import Requests, HealthCheckService, FundsStatusService
 
 MINDSHARE_AGENT_PROFILE_PATH = "mindshare-ui-build"
 
@@ -85,12 +85,14 @@ class HttpHandler(Handler):
 
         healthcheck_url_regex = rf"{hostname_regex}\/healthcheck"
         portfolio_url_regex = rf"{hostname_regex}\/portfolio"
+        funds_status_url_regex = rf"{hostname_regex}\/funds-status"
         static_files_regex = rf"{hostname_regex}\/(.*)"
 
         self.routes = {
             (HttpMethod.GET.value, HttpMethod.HEAD.value): [
                 (healthcheck_url_regex, self._handle_get_healthcheck),
                 (portfolio_url_regex, self._handle_get_portfolio),
+                (funds_status_url_regex, self._handle_get_funds_status),
                 (static_files_regex, self._handle_get_static_file),
             ],
         }
@@ -216,6 +218,16 @@ class HttpHandler(Handler):
         except Exception as e:
             self.context.logger.exception(f"Error handling portfolio request: {e}")
             self._send_error_response(http_msg, http_dialogue, 500, "Internal server error")
+
+    def _handle_get_funds_status(self, http_msg: HttpMessage, http_dialogue: HttpDialogue) -> None:
+        """Handle Pearl v1 /funds-status request."""
+        try:
+            funds_service = cast("FundsStatusService", self.context.funds_status_service)
+            result = funds_service.compute_funds_status()
+            self._send_ok_response(http_msg, http_dialogue, result)
+        except Exception as e:
+            self.context.logger.exception(f"Error computing funds status: {e}")
+            self._send_error_response(http_msg, http_dialogue, 500, str(e))
 
     def _send_ok_response(
         self,

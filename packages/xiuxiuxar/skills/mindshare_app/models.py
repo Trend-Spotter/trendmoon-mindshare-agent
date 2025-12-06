@@ -781,6 +781,48 @@ class HealthCheckService(Model):
         return {"needs_update": False, "env_vars": {}}
 
 
+class FundsStatusService(Model):
+    """Service for computing agent funds status (Pearl v1)."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        # Import here to avoid import loop
+        from packages.xiuxiuxar.skills.mindshare_app.funds_status import FundsStatusService as FundsService  # noqa: PLC0415
+
+        self._service = None
+
+    def get_service(self) -> Any:
+        """Get or create the funds status service instance."""
+        if self._service is None:
+            from packages.xiuxiuxar.skills.mindshare_app.funds_status import FundsStatusService as FundsService  # noqa: PLC0415
+
+            self._service = FundsService(self.context)
+        return self._service
+
+    def compute_funds_status(self) -> dict:
+        """
+        Compute the current funds status.
+
+        Returns:
+            Dictionary following Pearl v1 /funds-status schema
+        """
+        service = self.get_service()
+
+        # Get fund requirements from params
+        fund_requirements = getattr(self.context.params, "fund_requirements", {})
+        rpc_urls = getattr(self.context.params, "rpc_urls", {})
+
+        if not fund_requirements:
+            self.context.logger.warning("No fund requirements configured, returning empty status")
+            return {}
+
+        if not rpc_urls:
+            self.context.logger.warning("No RPC URLs configured, returning empty status")
+            return {}
+
+        return service.compute_funds_status(fund_requirements, rpc_urls)
+
+
 class Params(Model):
     """This class implements the parameters for the Mindshare app."""
 
@@ -793,6 +835,10 @@ class Params(Model):
         self.trendmoon_rate_limit_per_minute = kwargs.pop("trendmoon_rate_limit_per_minute", 100)
         self.trendmoon_rate_limit_per_second = kwargs.pop("trendmoon_rate_limit_per_second", 5)
         self.trendmoon_monthly_credits = kwargs.pop("trendmoon_monthly_credits", 10000)
+
+        # Pearl v1: Fund requirements and RPC URLs
+        self.fund_requirements = kwargs.pop("fund_requirements", {})
+        self.rpc_urls = kwargs.pop("rpc_urls", {})
 
         # Staking
         self.staking_chain = kwargs.pop("staking_chain", "base")
